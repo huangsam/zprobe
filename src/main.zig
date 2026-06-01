@@ -16,6 +16,10 @@ pub fn main(init: std.process.Init) !void {
         std.log.info("arg: {s}", .{arg});
     }
 
+    // Demonstrate using the add function from the zig_trial module
+    const result = zig_trial.add(5, 3);
+    std.log.info("5 + 3 = {d}", .{result});
+
     // In order to do I/O operations need an `Io` instance.
     const io = init.io;
 
