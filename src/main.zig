@@ -1,75 +1,69 @@
+//! CLI entry point: scan a directory for media files and print metadata.
 const std = @import("std");
-const Io = std.Io;
+const media_scan = @import("media_scan.zig");
+const image_meta = @import("image_meta.zig");
 
-const zig_trial = @import("zig_trial");
+/// Print usage to stderr via Io writer.
+fn printUsage(io: anytype, prog_name: []const u8) void {
+    const fmt = "Usage: {s} <directory>\n\n" ++
+        "Scans the given directory recursively for image and video files,\n" ++
+        "extracting dimensions, format, and file size from headers.\n";
+    var buffer: [512]u8 = undefined;
+    const writer = &file_writer(io, &buffer).interface;
+
+    try writer.print(fmt, .{prog_name});
+}
+
+/// Helper to create a writer for stdout.
+fn file_writer(io: anytype, buffer: []u8) std.Io.File.Writer {
+    return std.Io.File.Writer.init(.stdout(), io, buffer);
+}
 
 pub fn main(init: std.process.Init) !void {
-    // Prints to stderr, unbuffered, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    const io = init.io;
+    const allocator = init.gpa;
 
-    // This is appropriate for anything that lives as long as the process.
-    const arena: std.mem.Allocator = init.arena.allocator();
+    // Create a stdout writer.
+    var io_buf: [4096]u8 = undefined;
+    const out = &file_writer(io, &io_buf).interface;
 
-    // Accessing command line arguments:
-    const args = try init.minimal.args.toSlice(arena);
-    for (args) |arg| {
-        std.log.info("arg: {s}", .{arg});
+    // Get command-line args.
+    const args = try init.minimal.args.toSlice(allocator);
+
+    if (args.len < 2) {
+        try out.print("Usage: {s} <directory>\n", .{args[0]});
+        try out.flush();
+        return;
     }
 
-    // Demonstrate using the add function from the zig_trial module
-    const result = zig_trial.add(5, 3);
-    std.log.info("5 + 3 = {d}", .{result});
+    const target_dir = args[1];
 
-    // In order to do I/O operations need an `Io` instance.
-    const io = init.io;
+    // Scan the directory for media files.
+    var results = try media_scan.scan(target_dir, io, allocator);
+    defer results.deinit(allocator);
 
-    // Stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
-    const stdout_writer = &stdout_file_writer.interface;
+    std.debug.print("Scanning: {s}\n", .{target_dir});
+    std.debug.print("Found {d} media file(s)\n\n", .{results.items.len});
 
-    try zig_trial.printAnotherMessage(stdout_writer);
+    // Step 2: Try parsing metadata.
+    for (results.items) |entry| {
+        try out.print("   {s} ({d} bytes)\n", .{ entry.path, entry.size });
 
-    try stdout_writer.flush(); // Don't forget to flush!
-}
+        // Attempt image metadata extraction.
+        switch (image_meta.parseFile(entry.path, io)) {
+            .ok => |dims| {
+                try out.print(
+                    "\n    Format: JPEG/PNG/GIF\n" ++
+                        "    Dimensions: {d} x {d}\n",
+                    .{ dims.width, dims.height },
+                );
+            },
+            else => {
+                try out.print("    Format: unknown/unsupported\n", .{});
+            },
+        }
+        std.debug.print("\n", .{});
+    }
 
-test "simple test" {
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(i32) = .empty;
-    defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(gpa, 42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "fuzz example" {
-    try std.testing.fuzz({}, testOne, .{});
-}
-
-fn testOne(context: void, smith: *std.testing.Smith) !void {
-    _ = context;
-    // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(u8) = .empty;
-    defer list.deinit(gpa);
-    while (!smith.eos()) switch (smith.value(enum { add_data, dup_data })) {
-        .add_data => {
-            const slice = try list.addManyAsSlice(gpa, smith.value(u4));
-            smith.bytes(slice);
-        },
-        .dup_data => {
-            if (list.items.len == 0) continue;
-            if (list.items.len > std.math.maxInt(u32)) return error.SkipZigTest;
-            const len = smith.valueRangeAtMost(u32, 1, @min(32, list.items.len));
-            const off = smith.valueRangeAtMost(u32, 0, @intCast(list.items.len - len));
-            try list.appendSlice(gpa, list.items[off..][0..len]);
-            try std.testing.expectEqualSlices(
-                u8,
-                list.items[off..][0..len],
-                list.items[list.items.len - len ..],
-            );
-        },
-    };
+    try out.flush();
 }
