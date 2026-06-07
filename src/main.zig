@@ -1,9 +1,20 @@
+//! Command-line interface for scanning media files and displaying metadata.
+//!
+//! This file demonstrates:
+//! 1. The Zig 0.16.0 `main` entrypoint design using `std.process.Init`.
+//! 2. Custom stdout buffering using raw byte arrays.
+//! 3. Standard command-line argument processing.
+//! 4. Absolute path resolution and heap memory allocation tracking.
+
 const std = @import("std");
 const media_scan = @import("media_scan.zig");
 const image_meta = @import("image_meta.zig");
 const video_meta = @import("video_meta.zig");
 
-/// Print usage to stderr via Io writer.
+/// Print usage instructions to the given Io writer.
+///
+/// Under the hood, this uses a custom buffered writer `file_writer` to
+/// optimize system write calls.
 fn printUsage(io: anytype, prog_name: []const u8) !void {
     const fmt = "Usage: {s} <directory>\n\n" ++
         "Scans the given directory recursively for image and video files,\n" ++
@@ -15,7 +26,10 @@ fn printUsage(io: anytype, prog_name: []const u8) !void {
     try writer.print(fmt, .{prog_name});
 }
 
-/// Helper to create a writer for stdout.
+/// Helper to initialize a buffered file writer targeting stdout.
+///
+/// In Zig 0.16.0, `std.Io.File.Writer` provides buffered output streams
+/// wrapping the system output resource.
 fn file_writer(io: anytype, buffer: []u8) std.Io.File.Writer {
     return std.Io.File.Writer.init(.stdout(), io, buffer);
 }
@@ -37,17 +51,23 @@ const JsonOutput = struct {
     height: ?u32 = null,
 };
 
+/// Main application entrypoint.
+///
+/// In Zig 0.16.0, `main` receives an `init` structure of type `std.process.Init`
+/// containing the system I/O context and general purpose allocator (GPA) initialized
+/// by the runtime startup code.
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const allocator = init.gpa;
 
-    // Create a stdout writer.
+    // Create a stdout writer with a 4KB buffer.
     var io_buf: [4096]u8 = undefined;
     var f_writer = file_writer(io, &io_buf);
     const out = &f_writer.interface;
 
-    // Get command-line args.
+    // Get command-line args using the GPA allocator.
     const args = try init.minimal.args.toSlice(allocator);
+
     defer allocator.free(args);
 
     var json_mode = false;

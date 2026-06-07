@@ -1,3 +1,11 @@
+//! Educational MP4 Metadata Parser.
+//!
+//! This module showcases:
+//! 1. Recursive parsing of the MP4 (ISOBMFF) container format tree structure.
+//! 2. Parsing Big-Endian binary integers.
+//! 3. Extracting 16.16 fixed-point numbers.
+//! 4. Smart I/O design: reading only metadata box payloads while skipping massive video data.
+
 const std = @import("std");
 const Dir = std.Io.Dir;
 
@@ -6,6 +14,26 @@ const Dims = struct {
     height: u32,
 };
 
+/// Parse a `tkhd` (Track Header) box payload.
+///
+/// ### Track Header (`tkhd`) Binary Structure:
+/// - Offset 0: Version (1 byte)
+/// - Offset 1..3: Flags (3 bytes)
+/// - Based on Version:
+///   - **Version 0:** (tkhd size is 84 bytes; payload size is 76)
+///     - Creation & modification times, track ID, duration, etc.
+///     - Width starts at offset 76 in the payload (index 76..79)
+///     - Height starts at offset 80 in the payload (index 80..83)
+///   - **Version 1:** (tkhd size is 96 bytes; payload size is 88)
+///     - Expanded 64-bit timestamps and duration fields.
+///     - Width starts at offset 88 in the payload (index 88..91)
+///     - Height starts at offset 92 in the payload (index 92..95)
+///
+/// **Fixed-Point Encodings:**
+/// Width and height are stored as **16.16 fixed-point big-endian integers**.
+/// The first 2 bytes are the integer part, and the next 2 bytes are the fractional part.
+/// Since we only need pixel-level dimensions, we extract the integer portion by
+/// decoding the first 2 bytes and ignoring the fraction.
 fn parseTkhd(payload: []const u8) ?Dims {
     if (payload.len < 80) return null;
 
@@ -14,16 +42,10 @@ fn parseTkhd(payload: []const u8) ?Dims {
     var h_off: usize = 0;
 
     if (version == 0) {
-        // Version 0 tkhd size is 84 bytes (payload size 76)
-        // Width starts at offset 76 in the payload (meaning index 76..80)
-        // Height starts at offset 80 in the payload (meaning index 80..84)
         if (payload.len < 84) return null;
         w_off = 76;
         h_off = 80;
     } else if (version == 1) {
-        // Version 1 tkhd size is 96 bytes (payload size 88)
-        // Width starts at offset 88 in the payload (meaning index 88..92)
-        // Height starts at offset 92 in the payload (meaning index 92..96)
         if (payload.len < 96) return null;
         w_off = 88;
         h_off = 92;
@@ -31,23 +53,40 @@ fn parseTkhd(payload: []const u8) ?Dims {
         return null;
     }
 
-    // Width and height are 16.16 fixed point big-endian.
-    // Integer part is the first 2 bytes.
+    // Decode Big-Endian 16-bit integer part of the 16.16 fixed point value.
     const w = @as(u32, payload[w_off]) << 8 | @as(u32, payload[w_off + 1]);
     const h = @as(u32, payload[h_off]) << 8 | @as(u32, payload[h_off + 1]);
 
     return .{ .width = w, .height = h };
 }
 
+/// Recursively search for the `tkhd` box within nested container boxes.
+///
+/// ### Container Hierarchy
+/// In an MP4 file, certain boxes contain raw binary payloads, while others act
+/// as directories containing nested children boxes.
+/// ```
+/// moov (Movie Box)
+/// └── trak (Track Box)
+///     └── mdia (Media Box)
+///         └── minf (Media Information)
+///             └── stbl (Sample Table)
+///             └── tkhd (Track Header - contains dimensions)
+/// ```
+///
+/// This function walks the sibling box list at the current payload level. If it discovers
+/// a container box (`trak`, `mdia`, `minf`, or `stbl`), it recurses into its payload.
 fn findTkhdInPayload(payload: []const u8) ?Dims {
     var off: usize = 0;
     while (off + 8 <= payload.len) {
+        // Read box size (4 bytes, Big-Endian)
         const box_size = @as(u32, payload[off]) << 24 |
             @as(u32, payload[off + 1]) << 16 |
             @as(u32, payload[off + 2]) << 8 |
             @as(u32, payload[off + 3]);
         if (box_size < 8 or off + box_size > payload.len) return null;
 
+        // Read box type (4 bytes ASCII)
         const box_type = payload[off + 4 .. off + 8];
         if (std.mem.eql(u8, box_type, "tkhd")) {
             const tkhd_payload = payload[off + 8 .. off + box_size];
@@ -58,7 +97,7 @@ fn findTkhdInPayload(payload: []const u8) ?Dims {
             }
         }
 
-        // Recurse into child container boxes to find tkhd.
+        // If this box is a container type, recurse into its inner payload.
         if (std.mem.eql(u8, box_type, "trak") or
             std.mem.eql(u8, box_type, "mdia") or
             std.mem.eql(u8, box_type, "minf") or
@@ -75,6 +114,14 @@ fn findTkhdInPayload(payload: []const u8) ?Dims {
 }
 
 /// Try parsing a video file. Returns format and dimensions on success.
+///
+/// ### Memory Allocation & Performance Strategy:
+/// - MP4 files can be massive (gigabytes of compressed stream data in `mdat`).
+/// - However, the metadata (`moov` box) is typically very small.
+/// - This parser scans the file linearly, reading only the 8-byte box headers.
+/// - When it encounters `moov`, it uses the `allocator` to load ONLY the `moov`
+///   payload into memory, avoiding loading any video stream bytes.
+/// - The memory is freed immediately upon exiting the function via `defer`.
 pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anytype) !struct { format: []const u8, width: u32, height: u32 } {
     const file = try Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
     defer std.Io.File.close(file, io);
@@ -96,6 +143,7 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
         var header_len: u64 = 8;
         var real_size = box_size;
 
+        // Extended 64-bit size box (indicated by size == 1)
         if (box_size == 1) {
             var ext_size_buf: [8]u8 = undefined;
             _ = try std.Io.File.readPositionalAll(file, io, &ext_size_buf, offset + 8);
@@ -110,7 +158,7 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
             header_len = 16;
         }
 
-        // If size is 0, it means it extends to the end of the file
+        // If size is 0, it extends to the end of the file
         if (real_size == 0) {
             real_size = size - offset;
         }

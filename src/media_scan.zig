@@ -1,25 +1,39 @@
-//! Recursive directory scanner yielding file entries for metadata extraction.
+//! Directory Scanning and Filter Logic.
+//!
+//! This module showcases:
+//! 1. Recursive directory traversal using `std.Io.Dir.walk`.
+//! 2. Safe string parsing and allocation-free case conversions.
+//! 3. Memory ownership boundaries in Zig (passing allocators explicitly).
+
 const std = @import("std");
 const Dir = @import("std").Io.Dir;
 
-/// A file discovered during scanning.
+/// Represents a media file found during a directory scan.
+///
+/// ### Memory Lifecycle:
+/// The `path` field contains a heap-allocated string containing the absolute path
+/// to the file. The caller is responsible for freeing `path` using the same
+/// allocator passed to `scan`.
 pub const ScanEntry = struct {
     path: []u8,
     is_directory: bool,
     size: u64 = 0,
 };
 
-/// Extensions recognized as image files.
+/// Supported image extensions.
 pub const imageExtensions = [_][]const u8{
     ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".webp", ".svg",
 };
 
-/// Extensions recognized as video files.
+/// Supported video extensions.
 pub const videoExtensions = [_][]const u8{
     ".mp4", ".m4v", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv",
 };
 
 /// Check whether the given extension identifies a media file.
+///
+/// This does not allocate any heap memory. It performs case conversion on
+/// a stack-allocated buffer (`ext_lower`).
 pub fn isMediaExtension(ext: []const u8) bool {
     var ext_lower: [16]u8 = undefined;
     const slice = std.ascii.lowerString(&ext_lower, ext);
@@ -34,6 +48,9 @@ pub fn isMediaExtension(ext: []const u8) bool {
 }
 
 /// Extract the file extension from a path (e.g. "photo.jpg" -> ".jpg").
+///
+/// Resolves the base file name from directory slashes and slices the extension,
+/// returning an empty slice if no dot exists.
 pub fn getExtension(path: []const u8) []const u8 {
     var last_slash: usize = 0;
     for (path, 0..) |c, i| {
@@ -47,7 +64,13 @@ pub fn getExtension(path: []const u8) []const u8 {
 }
 
 /// Recursively walk a directory tree and collect entries whose extensions
-/// match known image or video formats. Returns an ArrayList of ScanEntry.
+/// match known image or video formats.
+///
+/// ### Memory Allocation & Ownership:
+/// - Allocates a `std.ArrayList(ScanEntry)` using the provided `allocator`.
+/// - Allocates paths for each successfully matched file.
+/// - If a scan fails midway, the function leverages `errdefer` to release all
+///   internally allocated resources, preventing leaks.
 pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !std.ArrayList(ScanEntry) {
     var list: std.ArrayList(ScanEntry) = .empty;
     errdefer list.deinit(allocator);
@@ -57,6 +80,7 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
     defer Dir.close(root_dir, io);
 
     var walker = try Dir.walk(root_dir, allocator);
+
     defer walker.deinit();
 
     while (try walker.next(io)) |entry| {

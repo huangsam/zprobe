@@ -1,16 +1,36 @@
-//! Parse JPEG, PNG, and GIF headers to extract dimensions.
+//! Educational Parser for Image Metadata (JPEG, PNG, GIF, BMP).
+//!
+//! This module demonstrates:
+//! 1. Binary parsing of various image container structures.
+//! 2. Parsing Big-Endian (JPEG, PNG) vs. Little-Endian (GIF, BMP) integer encodings.
+//! 3. Bitwise shifting and type casting (`@as`, `@bitCast`).
+//! 4. Memory-buffered parsing vs. incremental streaming parsing (JPEG).
+
 const std = @import("std");
 const Dir = std.Io.Dir;
 
-/// Magic bytes for supported formats.
+/// Magic bytes (file signatures) used to identify image formats.
 pub const jpegMagic: [2]u8 = .{ 0xff, 0xd8 };
 pub const pngMagic: [8]u8 = .{ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a };
-pub const gifMagic: [4]u8 = .{ 0x47, 0x49, 0x46, 0x38 }; // "GIF8"
+pub const gifMagic: [4]u8 = .{ 'G', 'I', 'F', '8' }; // "GIF8"
 pub const bmpMagic: [2]u8 = .{ 'B', 'M' };
 
-
-
-/// Parse JPEG width and height from Start-Of-Frame markers.
+/// Parse JPEG width and height from Start-Of-Frame (SOF) markers.
+///
+/// ### JPEG Binary Structure
+/// JPEGs are structured as a series of **segments**. Each segment begins with marker prefix `0xFF`
+/// followed by a 1-byte marker ID:
+/// ```
+/// +--------+------------+------------------+-----------------------+
+/// |  0xFF  | Marker Tag |  Segment Length  |    Payload Data       |
+/// | (1B)   |   (1B)     |   (2B, Big-End)  |  (Segment Length - 2) |
+/// +--------+------------+------------------+-----------------------+
+/// ```
+///
+/// **SOF Markers (0xC0 - 0xC3, etc.)** contain image parameters:
+/// - Offset 0: Data precision (1 byte)
+/// - Offset 1..2: Height (2 bytes, Big-Endian)
+/// - Offset 3..4: Width (2 bytes, Big-Endian)
 pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
     if (header.len < 2 or header[0] != jpegMagic[0] or header[1] != jpegMagic[1])
         return error.NotJpeg;
@@ -28,6 +48,7 @@ pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
         // SOF markers: 0xc0-c3 contain image dimensions.
         if (marker >= 0xc0 and marker <= 0xc3) {
             if (off + 8 > header.len) return error.JpegTooShort;
+            // Decode Big-Endian 16-bit integers
             const h = @as(u16, header[off + 4]) << 8 | @as(u16, header[off + 5]);
             const w = @as(u16, header[off + 6]) << 8 | @as(u16, header[off + 7]);
             return .{ .width = w, .height = h };
@@ -52,6 +73,19 @@ pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
 }
 
 /// Parse PNG width and height from the IHDR chunk.
+///
+/// ### PNG Binary Structure
+/// PNG files begin with an 8-byte signature, followed by a sequence of **chunks**:
+/// ```
+/// +-----------------+------------------+-----------------------+-----------------+
+/// |  Chunk Length   |    Chunk Type    |     Chunk Payload     |       CRC       |
+/// |  (4B, Big-End)  |  "IHDR", etc.    |  (Chunk Length bytes) |  (4B, Big-End)  |
+/// +-----------------+------------------+-----------------------+-----------------+
+/// ```
+///
+/// The very first chunk **MUST** be `IHDR` (Image Header), which contains dimensions:
+/// - Offset 12..15: Width (4 bytes, Big-Endian)
+/// - Offset 16..19: Height (4 bytes, Big-Endian)
 pub fn parsePng(header: []const u8) !struct { width: u32, height: u32 } {
     if (header.len < 8 or !std.mem.eql(u8, header[0..8], &pngMagic))
         return error.NotPng;
@@ -63,6 +97,7 @@ pub fn parsePng(header: []const u8) !struct { width: u32, height: u32 } {
     const type_bytes = header[8..12];
     if (!std.mem.eql(u8, type_bytes, "IHDR")) return error.PngNoIhdr;
 
+    // Extract big-endian 32-bit width and height.
     const w = @as(u32, header[12]) << 24 | @as(u32, header[13]) << 16 |
         @as(u32, header[14]) << 8 | @as(u32, header[15]);
     const h = @as(u32, header[16]) << 24 | @as(u32, header[17]) << 16 |
@@ -72,20 +107,44 @@ pub fn parsePng(header: []const u8) !struct { width: u32, height: u32 } {
 }
 
 /// Parse GIF dimensions from the Logical Screen Descriptor.
+///
+/// ### GIF Binary Structure
+/// GIF files start with a 6-byte signature ("GIF87a" or "GIF89a"), directly followed
+/// by the **Logical Screen Descriptor**:
+/// ```
+/// +-----------------------+----------------------+----------------------+
+/// |  Signature ("GIF8")   |     Screen Width     |    Screen Height     |
+/// |     (4B Header)       | (2B, Little-Endian)  | (2B, Little-Endian)  |
+/// +-----------------------+----------------------+----------------------+
+/// ```
 pub fn parseGif(header: []const u8) !struct { width: u16, height: u16 } {
     if (header.len < 10 or !std.mem.eql(u8, header[0..4], &gifMagic))
         return error.NotGif;
 
+    // Decode Little-Endian 16-bit values.
     const w = @as(u16, header[6]) | (@as(u16, header[7]) << 8);
     const h = @as(u16, header[8]) | (@as(u16, header[9]) << 8);
 
     return .{ .width = w, .height = h };
 }
 
+/// Parse BMP dimensions from the DIB header.
+///
+/// ### BMP Binary Structure
+/// BMP files begin with a 14-byte File Header, followed by a DIB Header (Device Independent Bitmap).
+/// The DIB header width and height are located at:
+/// - Offset 18..21: Width (4 bytes, signed Little-Endian)
+/// - Offset 22..25: Height (4 bytes, signed Little-Endian)
+///
+/// **Top-Down Bitmaps:**
+/// If the height is negative, the bitmap pixels are organized from top-to-bottom
+/// (instead of the traditional bottom-to-top layout). We take the absolute value
+/// to get the logical height.
 pub fn parseBmp(header: []const u8) !struct { width: u32, height: u32 } {
     if (header.len < 26 or header[0] != bmpMagic[0] or header[1] != bmpMagic[1])
         return error.NotBmp;
 
+    // Decode Little-Endian 32-bit unsigned/signed integers.
     const w = @as(u32, header[18]) |
         @as(u32, header[19]) << 8 |
         @as(u32, header[20]) << 16 |
@@ -96,27 +155,39 @@ pub fn parseBmp(header: []const u8) !struct { width: u32, height: u32 } {
         @as(u32, header[24]) << 16 |
         @as(u32, header[25]) << 24;
 
+    // Reinterpret bit pattern to signed i32 using @bitCast.
     const h_raw = @as(i32, @bitCast(h_u32));
     const h = if (h_raw < 0) @as(u32, @intCast(-h_raw)) else h_u32;
 
     return .{ .width = w, .height = h };
 }
 
+/// Streaming parser for JPEG files.
+///
+/// Unlike PNG/GIF/BMP which keep metadata at fixed, low offsets, JPEG metadata (SOF)
+/// can be pushed far down the file by EXIF headers, ICC profiles, or thumbnail data.
+/// Loading the entire image file into memory is wasteful.
+///
+/// Instead, this function streams the file incrementally using positional reads
+/// (`std.Io.File.readPositionalAll`), traversing the segments dynamically without seeking
+/// or allocating extra buffers.
 fn parseJpegFile(file: anytype, io: anytype) !struct { width: u16, height: u16 } {
     const size = try std.Io.File.length(file, io);
-    var offset: u64 = 2; // skip SOI
+    var offset: u64 = 2; // Skip initial SOI (Start Of Image) magic bytes (0xFFD8)
 
     while (offset + 4 <= size) {
         var b: [1]u8 = undefined;
+        // Read marker flag (must be 0xFF)
         _ = try std.Io.File.readPositionalAll(file, io, &b, offset);
         if (b[0] != 0xff) {
             offset += 1;
             continue;
         }
 
+        // Read marker type
         _ = try std.Io.File.readPositionalAll(file, io, &b, offset + 1);
         if (b[0] == 0xff) {
-            // padding byte
+            // Consecutive 0xFFs are padding bytes in the JPEG specification
             offset += 1;
             continue;
         }
@@ -126,16 +197,19 @@ fn parseJpegFile(file: anytype, io: anytype) !struct { width: u16, height: u16 }
             offset += 2;
             continue;
         }
+        // SOS (Start Of Scan, 0xDA) or EOI (End of Image, 0xD9) means we reached
+        // the compressed image data segment without finding the SOF marker.
         if (marker == 0xd9 or marker == 0xda) {
             return error.JpegNoDimensions;
         }
 
-        // Read segment length
+        // Read segment length (2 bytes, Big-Endian)
         var len_buf: [2]u8 = undefined;
         _ = try std.Io.File.readPositionalAll(file, io, &len_buf, offset + 2);
         const segment_len = @as(u16, len_buf[0]) << 8 | len_buf[1];
 
-        // SOF markers: 0xc0 - 0xc3 (and other SOFs)
+        // SOF (Start of Frame) markers that contain dimensions.
+        // SOF0 (0xC0) through SOF3 (0xC3) are baseline/progressive, plus other SOFs.
         const is_sof = (marker >= 0xc0 and marker <= 0xc3) or
             (marker >= 0xc5 and marker <= 0xc7) or
             (marker >= 0xc9 and marker <= 0xcb) or
@@ -144,12 +218,14 @@ fn parseJpegFile(file: anytype, io: anytype) !struct { width: u16, height: u16 }
         if (is_sof) {
             if (offset + 9 > size) return error.JpegTooShort;
             var sof_buf: [5]u8 = undefined;
+            // Read precision (1 byte), height (2 bytes), and width (2 bytes)
             _ = try std.Io.File.readPositionalAll(file, io, &sof_buf, offset + 4);
             const h = @as(u16, sof_buf[1]) << 8 | sof_buf[2];
             const w = @as(u16, sof_buf[3]) << 8 | sof_buf[4];
             return .{ .width = w, .height = h };
         }
 
+        // Skip current segment by jumping over the marker prefix (2B) + segment length payload.
         offset += 2 + segment_len;
     }
 
@@ -157,6 +233,12 @@ fn parseJpegFile(file: anytype, io: anytype) !struct { width: u16, height: u16 }
 }
 
 /// Try parsing a file as an image. Returns dimensions and format on success.
+///
+/// This implements an optimized two-step process:
+/// 1. Reads the first 64 bytes of the file to check magic numbers (signatures).
+/// 2. If it is a format with headers at fixed offsets (PNG, GIF, BMP), it parses them
+///    directly from the 64-byte in-memory buffer to avoid further read calls.
+/// 3. If it is a JPEG, it delegates to `parseJpegFile` to scan the segments incrementally.
 pub fn parseFile(path: []const u8, io: anytype) !struct { format: []const u8, width: u32, height: u32 } {
     const file = try Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
     defer std.Io.File.close(file, io);
@@ -165,7 +247,7 @@ pub fn parseFile(path: []const u8, io: anytype) !struct { format: []const u8, wi
     const count = try std.Io.File.readPositionalAll(file, io, &header, 0);
     const data = header[0..count];
 
-    // Try each format.
+    // Try parsing based on identified magic bytes.
     if (data.len >= 2 and data[0] == jpegMagic[0] and data[1] == jpegMagic[1]) {
         const dims = try parseJpegFile(file, io);
         return .{ .format = "jpeg", .width = @as(u32, dims.width), .height = @as(u32, dims.height) };
