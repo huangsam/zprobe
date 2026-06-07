@@ -5,7 +5,7 @@ const Dir = std.Io.Dir;
 /// Magic bytes for supported formats.
 pub const jpegMagic: [2]u8 = .{ 0xff, 0xd8 };
 pub const pngMagic: [8]u8 = .{ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a };
-pub const gifMagic: [6]u8 = .{ 0x47, 0x49, 0x46, 0x38, 0x2c, 0x00 }; // "GIF8"
+pub const gifMagic: [4]u8 = .{ 0x47, 0x49, 0x46, 0x38 }; // "GIF8"
 
 /// Read the first N bytes from a file. Returns count of bytes read.
 fn readFileHeader(header: []u8, path: []const u8, io: anytype) !usize {
@@ -83,7 +83,7 @@ pub fn parsePng(header: []const u8) !struct { width: u32, height: u32 } {
 
 /// Parse GIF dimensions from the Logical Screen Descriptor.
 pub fn parseGif(header: []const u8) !struct { width: u16, height: u16 } {
-    if (header.len < 10 or !std.mem.eql(u8, header[0..6], &gifMagic))
+    if (header.len < 10 or !std.mem.eql(u8, header[0..4], &gifMagic))
         return error.NotGif;
 
     const w = @as(u16, header[6]) | (@as(u16, header[7]) << 8);
@@ -105,10 +105,31 @@ pub fn parseFile(path: []const u8, io: anytype) !struct { width: u32, height: u3
     } else if (data.len >= 8 and std.mem.eql(u8, data[0..8], &pngMagic)) {
         const dims = try parsePng(data);
         return .{ .width = dims.width, .height = dims.height };
-    } else if (data.len >= 6 and std.mem.eql(u8, data[0..6], &gifMagic)) {
+    } else if (data.len >= 6 and std.mem.eql(u8, data[0..4], &gifMagic)) {
         const dims = try parseGif(data);
         return .{ .width = @as(u32, dims.width), .height = @as(u32, dims.height) };
     }
 
     return error.NotImage;
+}
+
+test "parse gif header" {
+    const header = "\x47\x49\x46\x38\x39\x61\x40\x01\xf0\x00";
+    const dims = try parseGif(header);
+    try std.testing.expectEqual(@as(u16, 320), dims.width);
+    try std.testing.expectEqual(@as(u16, 240), dims.height);
+}
+
+test "parse png header" {
+    const header = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x02\x80\x00\x00\x01\xe0";
+    const dims = try parsePng(header);
+    try std.testing.expectEqual(@as(u32, 640), dims.width);
+    try std.testing.expectEqual(@as(u32, 480), dims.height);
+}
+
+test "parse jpeg header" {
+    const header = "\xff\xd8\xff\xc0\x00\x0b\x08\x00\xf0\x01\x40\x03";
+    const dims = try parseJpeg(header);
+    try std.testing.expectEqual(@as(u16, 320), dims.width);
+    try std.testing.expectEqual(@as(u16, 240), dims.height);
 }

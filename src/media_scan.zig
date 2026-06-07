@@ -50,7 +50,7 @@ pub fn getExtension(path: []const u8) []const u8 {
 /// match known image or video formats. Returns an ArrayList of ScanEntry.
 pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !std.ArrayList(ScanEntry) {
     var list: std.ArrayList(ScanEntry) = .empty;
-    defer list.deinit(allocator);
+    errdefer list.deinit(allocator);
 
     // Open root directory for iteration.
     const root_dir = try Dir.openDirAbsolute(io, root_path, .{ .iterate = true });
@@ -75,11 +75,11 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
 
         fsize = try std.Io.File.length(file, io);
 
-        // Duplicate path so it survives next() calls.
-        const duped = try allocator.dupe(u8, entry.basename);
-        errdefer allocator.free(duped);
+        // Join root_path and entry.path to get the full absolute path.
+        const full_path = try std.fs.path.join(allocator, &.{ root_path, entry.path });
+        errdefer allocator.free(full_path);
         try list.append(allocator, .{
-            .path = duped,
+            .path = full_path,
             .is_directory = false,
             .size = fsize,
         });
