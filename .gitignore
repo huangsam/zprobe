@@ -1,2 +1,12 @@
+# Zig build artifacts
 .zig-cache/
 zig-out/
+
+# Agent & IDE directories
+.claude/
+.vscode/
+.idea/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
