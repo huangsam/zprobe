@@ -1,4 +1,4 @@
-# Zig Media Scanner and Metadata Parser
+# zprobe: Media Scanner and Metadata Parser
 
 ## Target Zig Version
 * **Zig 0.16.0** (or newer): The project utilizes the redesigned `std.Io` and `std.process.Init` standard library APIs.

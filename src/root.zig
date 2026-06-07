@@ -1,4 +1,4 @@
-//! # Zig Trial: Media Scanner and Metadata Parser
+//! # zprobe: Media Scanner and Metadata Parser
 //!
 //! This library provides tools to recursively scan directories for media files
 //! (images and videos) and parse their headers to extract metadata (dimensions, format, size)
