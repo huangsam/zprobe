@@ -107,14 +107,18 @@ pub fn main(init: std.process.Init) !void {
                 json_out.format = res.format;
                 json_out.width = res.width;
                 json_out.height = res.height;
-            } else |_| {}
+            } else |err| {
+                std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
+            }
         } else {
             // Attempt image metadata extraction.
             if (image_meta.parseFile(entry.path, io)) |res| {
                 json_out.format = res.format;
                 json_out.width = res.width;
                 json_out.height = res.height;
-            } else |_| {}
+            } else |err| {
+                std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
+            }
         }
 
         if (json_mode) {

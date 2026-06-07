@@ -8,18 +8,7 @@ pub const pngMagic: [8]u8 = .{ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a };
 pub const gifMagic: [4]u8 = .{ 0x47, 0x49, 0x46, 0x38 }; // "GIF8"
 pub const bmpMagic: [2]u8 = .{ 'B', 'M' };
 
-/// Read the first N bytes from a file. Returns count of bytes read.
-fn readFileHeader(header: []u8, path: []const u8, io: anytype) !usize {
-    const file = try Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
-    defer std.Io.File.close(file, io);
 
-    return try std.Io.File.readPositionalAll(
-        file,
-        io,
-        header,
-        0,
-    );
-}
 
 /// Parse JPEG width and height from Start-Of-Frame markers.
 pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
