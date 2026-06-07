@@ -1,6 +1,5 @@
 const std = @import("std");
 const Dir = std.Io.Dir;
-const media_meta = @import("media_meta.zig");
 
 const Dims = struct {
     width: u32,
@@ -75,8 +74,8 @@ fn findTkhdInPayload(payload: []const u8) ?Dims {
     return null;
 }
 
-/// Try parsing a video file. Returns VideoMeta wrapped in MediaResult on success.
-pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anytype) !media_meta.MediaResult {
+/// Try parsing a video file. Returns format and dimensions on success.
+pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anytype) !struct { format: []const u8, width: u32, height: u32 } {
     const file = try Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
     defer std.Io.File.close(file, io);
 
@@ -126,14 +125,10 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
             _ = try std.Io.File.readPositionalAll(file, io, moov_payload, offset + header_len);
 
             if (findTkhdInPayload(moov_payload)) |dims| {
-                return media_meta.MediaResult{
-                    .path = path,
-                    .size = size,
-                    .video_meta = .{
-                        .format = .mp4,
-                        .width = dims.width,
-                        .height = dims.height,
-                    },
+                return .{
+                    .format = "mp4",
+                    .width = dims.width,
+                    .height = dims.height,
                 };
             }
             return error.NoVideoTrack;

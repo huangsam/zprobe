@@ -104,11 +104,9 @@ pub fn main(init: std.process.Init) !void {
         const is_video = isVideoExtension(ext);
         if (is_video) {
             if (video_meta.getVideoMetadata(allocator, entry.path, io)) |res| {
-                if (res.video_meta) |vm| {
-                    json_out.format = "mp4";
-                    json_out.width = vm.width;
-                    json_out.height = vm.height;
-                }
+                json_out.format = res.format;
+                json_out.width = res.width;
+                json_out.height = res.height;
             } else |_| {}
         } else {
             // Attempt image metadata extraction.
