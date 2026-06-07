@@ -149,22 +149,36 @@ test "parse MP4 moov/trak/tkhd version 0 payload" {
     var buf = [_]u8{0} ** 100;
 
     // trak box header at offset 0: size 92, type "trak"
-    buf[0] = 0; buf[1] = 0; buf[2] = 0; buf[3] = 92;
-    buf[4] = 't'; buf[5] = 'r'; buf[6] = 'a'; buf[7] = 'k';
+    buf[0] = 0;
+    buf[1] = 0;
+    buf[2] = 0;
+    buf[3] = 92;
+    buf[4] = 't';
+    buf[5] = 'r';
+    buf[6] = 'a';
+    buf[7] = 'k';
 
     // tkhd box header at offset 8: size 84, type "tkhd"
-    buf[8] = 0; buf[9] = 0; buf[10] = 0; buf[11] = 84;
-    buf[12] = 't'; buf[13] = 'k'; buf[14] = 'h'; buf[15] = 'd';
+    buf[8] = 0;
+    buf[9] = 0;
+    buf[10] = 0;
+    buf[11] = 84;
+    buf[12] = 't';
+    buf[13] = 'k';
+    buf[14] = 'h';
+    buf[15] = 'd';
 
     // tkhd payload starts at offset 16
     // version = 0 (offset 16)
     buf[16] = 0;
 
     // width: 640 (offset 16 + 76 = 92) -> big-endian 16.16 = 02 80 00 00
-    buf[92] = 0x02; buf[93] = 0x80;
+    buf[92] = 0x02;
+    buf[93] = 0x80;
 
     // height: 480 (offset 16 + 80 = 96) -> big-endian 16.16 = 01 e0 00 00
-    buf[96] = 0x01; buf[97] = 0xe0;
+    buf[96] = 0x01;
+    buf[97] = 0xe0;
 
     const dims = findTkhdInPayload(&buf) orelse return error.TestFailed;
     try std.testing.expectEqual(@as(u32, 640), dims.width);

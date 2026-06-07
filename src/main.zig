@@ -29,6 +29,14 @@ fn isVideoExtension(ext: []const u8) bool {
     return false;
 }
 
+const JsonOutput = struct {
+    path: []const u8,
+    size: u64,
+    format: []const u8,
+    width: ?u32 = null,
+    height: ?u32 = null,
+};
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const allocator = init.gpa;
@@ -40,17 +48,38 @@ pub fn main(init: std.process.Init) !void {
 
     // Get command-line args.
     const args = try init.minimal.args.toSlice(allocator);
+    defer allocator.free(args);
+
+    var json_mode = false;
+    var target_dir: []const u8 = "";
 
     if (args.len < 2) {
-        try out.print("Usage: {s} <directory>\n", .{args[0]});
+        try out.print("Usage: {s} [--json] <directory>\n", .{args[0]});
         try out.flush();
         return;
     }
 
-    const target_dir = args[1];
+    for (args[1..]) |arg| {
+        if (std.mem.eql(u8, arg, "--json")) {
+            json_mode = true;
+        } else {
+            target_dir = arg;
+        }
+    }
+
+    if (target_dir.len == 0) {
+        try out.print("Error: No directory specified\n", .{});
+        try out.flush();
+        return;
+    }
+
+    // Resolve target_dir to an absolute path.
+    const cwd = std.Io.Dir.cwd();
+    const abs_target_dir = try cwd.realPathFileAlloc(io, target_dir, allocator);
+    defer allocator.free(abs_target_dir);
 
     // Scan the directory for media files.
-    var results = try media_scan.scan(target_dir, io, allocator);
+    var results = try media_scan.scan(abs_target_dir, io, allocator);
     defer {
         for (results.items) |entry| {
             allocator.free(entry.path);
@@ -58,41 +87,66 @@ pub fn main(init: std.process.Init) !void {
         results.deinit(allocator);
     }
 
-    std.debug.print("Scanning: {s}\n", .{target_dir});
-    std.debug.print("Found {d} media file(s)\n\n", .{results.items.len});
+    if (!json_mode) {
+        std.debug.print("Scanning: {s}\n", .{target_dir});
+        std.debug.print("Found {d} media file(s)\n\n", .{results.items.len});
+    }
 
     // Step 2: Try parsing metadata.
     for (results.items) |entry| {
-        try out.print("   {s} ({d} bytes)\n", .{ entry.path, entry.size });
-
         const ext = media_scan.getExtension(entry.path);
-        if (isVideoExtension(ext)) {
+        var json_out = JsonOutput{
+            .path = entry.path,
+            .size = entry.size,
+            .format = "unknown",
+        };
+
+        const is_video = isVideoExtension(ext);
+        if (is_video) {
             if (video_meta.getVideoMetadata(allocator, entry.path, io)) |res| {
                 if (res.video_meta) |vm| {
+                    json_out.format = "mp4";
+                    json_out.width = vm.width;
+                    json_out.height = vm.height;
+                }
+            } else |_| {}
+        } else {
+            // Attempt image metadata extraction.
+            if (image_meta.parseFile(entry.path, io)) |res| {
+                json_out.format = res.format;
+                json_out.width = res.width;
+                json_out.height = res.height;
+            } else |_| {}
+        }
+
+        if (json_mode) {
+            try std.json.fmt(json_out, .{}).format(out);
+            try out.print("\n", .{});
+        } else {
+            try out.print("   {s} ({d} bytes)\n", .{ entry.path, entry.size });
+            if (std.mem.eql(u8, json_out.format, "unknown")) {
+                if (is_video) {
+                    try out.print("    Format: unknown/unsupported video\n", .{});
+                } else {
+                    try out.print("    Format: unknown/unsupported image\n", .{});
+                }
+            } else {
+                if (is_video) {
                     try out.print(
                         "    Format: MP4 (Video)\n" ++
                             "    Dimensions: {d} x {d}\n",
-                        .{ vm.width, vm.height },
+                        .{ json_out.width.?, json_out.height.? },
                     );
                 } else {
-                    try out.print("    Format: unknown/unsupported video\n", .{});
+                    try out.print(
+                        "    Format: {s}\n" ++
+                            "    Dimensions: {d} x {d}\n",
+                        .{ json_out.format, json_out.width.?, json_out.height.? },
+                    );
                 }
-            } else |_| {
-                try out.print("    Format: unknown/unsupported video\n", .{});
             }
-        } else {
-            // Attempt image metadata extraction.
-            if (image_meta.parseFile(entry.path, io)) |dims| {
-                try out.print(
-                    "    Format: JPEG/PNG/GIF\n" ++
-                        "    Dimensions: {d} x {d}\n",
-                    .{ dims.width, dims.height },
-                );
-            } else |_| {
-                try out.print("    Format: unknown/unsupported image\n", .{});
-            }
+            try out.print("\n", .{});
         }
-        std.debug.print("\n", .{});
     }
 
     try out.flush();

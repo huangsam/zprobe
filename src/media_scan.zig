@@ -57,7 +57,7 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
     defer Dir.close(root_dir, io);
 
     var walker = try Dir.walk(root_dir, allocator);
-    errdefer walker.deinit();
+    defer walker.deinit();
 
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
