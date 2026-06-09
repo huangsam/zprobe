@@ -57,8 +57,12 @@ pub fn getExtension(path: []const u8) []const u8 {
         if (c == '/') last_slash = i + 1;
     }
     const base = path[last_slash..];
+    var last_dot: ?usize = null;
     for (base, 0..) |c, i| {
-        if (c == '.') return base[i..];
+        if (c == '.') last_dot = i;
+    }
+    if (last_dot) |dot_idx| {
+        return base[dot_idx..];
     }
     return "";
 }
@@ -110,4 +114,60 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
     }
 
     return list;
+}
+
+test "getExtension: simple filename" {
+    const ext = getExtension("photo.jpg");
+    try std.testing.expectEqualStrings(".jpg", ext);
+}
+
+test "getExtension: nested path" {
+    const ext = getExtension("/home/user/images/cat.png");
+    try std.testing.expectEqualStrings(".png", ext);
+}
+
+test "getExtension: no extension returns empty" {
+    const ext = getExtension("README");
+    try std.testing.expectEqualStrings("", ext);
+}
+
+test "getExtension: multiple dots" {
+    const ext = getExtension("archive.tar.gz");
+    try std.testing.expectEqualStrings(".gz", ext);
+}
+
+test "getExtension: extension only no dot" {
+    const ext = getExtension("Makefile");
+    try std.testing.expectEqualStrings("", ext);
+}
+
+test "isMediaExtension: known image extensions" {
+    try std.testing.expect(isMediaExtension(".jpg"));
+    try std.testing.expect(isMediaExtension(".png"));
+    try std.testing.expect(isMediaExtension(".gif"));
+    try std.testing.expect(isMediaExtension(".bmp"));
+    try std.testing.expect(isMediaExtension(".webp"));
+}
+
+test "isMediaExtension: known video extensions" {
+    try std.testing.expect(isMediaExtension(".mp4"));
+    try std.testing.expect(isMediaExtension(".mov"));
+    try std.testing.expect(isMediaExtension(".avi"));
+    try std.testing.expect(isMediaExtension(".mkv"));
+}
+
+test "isMediaExtension: case insensitive" {
+    try std.testing.expect(isMediaExtension(".JPG"));
+    try std.testing.expect(isMediaExtension(".Png"));
+    try std.testing.expect(isMediaExtension(".MP4"));
+}
+
+test "isMediaExtension: unknown extension returns false" {
+    try std.testing.expect(!isMediaExtension(".xyz"));
+    try std.testing.expect(!isMediaExtension(".txt"));
+    try std.testing.expect(!isMediaExtension(".exe"));
+}
+
+test "isMediaExtension: empty string returns false" {
+    try std.testing.expect(!isMediaExtension(""));
 }

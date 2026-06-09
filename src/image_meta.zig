@@ -30,7 +30,6 @@ pub const bmpMagic: [2]u8 = .{ 'B', 'M' };
 /// **SOF Markers (0xC0 - 0xC3, etc.)** contain image parameters:
 /// - Offset 0: Data precision (1 byte)
 /// - Offset 1..2: Height (2 bytes, Big-Endian)
-/// - Offset 3..4: Width (2 bytes, Big-Endian)
 pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
     if (header.len < 2 or header[0] != jpegMagic[0] or header[1] != jpegMagic[1])
         return error.NotJpeg;
@@ -45,12 +44,18 @@ pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
 
         const marker = header[off + 1];
 
+        // Consecutive 0xFF padding bytes in the JPEG specification
+        if (marker == 0xff) {
+            off += 1;
+            continue;
+        }
+
         // SOF markers: 0xc0-c3 contain image dimensions.
         if (marker >= 0xc0 and marker <= 0xc3) {
-            if (off + 8 > header.len) return error.JpegTooShort;
+            if (off + 9 > header.len) return error.JpegTooShort;
             // Decode Big-Endian 16-bit integers
-            const h = @as(u16, header[off + 4]) << 8 | @as(u16, header[off + 5]);
-            const w = @as(u16, header[off + 6]) << 8 | @as(u16, header[off + 7]);
+            const h = @as(u16, header[off + 5]) << 8 | @as(u16, header[off + 6]);
+            const w = @as(u16, header[off + 7]) << 8 | @as(u16, header[off + 8]);
             return .{ .width = w, .height = h };
         }
 
@@ -72,6 +77,7 @@ pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
     return error.JpegNoDimensions;
 }
 
+
 /// Parse PNG width and height from the IHDR chunk.
 ///
 /// ### PNG Binary Structure
@@ -85,26 +91,28 @@ pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
 ///
 /// The very first chunk **MUST** be `IHDR` (Image Header), which contains dimensions:
 /// - Offset 12..15: Width (4 bytes, Big-Endian)
-/// - Offset 16..19: Height (4 bytes, Big-Endian)
 pub fn parsePng(header: []const u8) !struct { width: u32, height: u32 } {
     if (header.len < 8 or !std.mem.eql(u8, header[0..8], &pngMagic))
         return error.NotPng;
 
-    const ihdr_len = @as(u32, header[0]) << 24 | @as(u32, header[1]) << 16 |
-        @as(u32, header[2]) << 8 | @as(u32, header[3]);
-    if (ihdr_len < 13 or header.len < 8 + 4 + 13) return error.PngTooShort;
+    if (header.len < 8 + 4 + 4 + 13) return error.PngTooShort;
 
-    const type_bytes = header[8..12];
+    const ihdr_len = @as(u32, header[8]) << 24 | @as(u32, header[9]) << 16 |
+        @as(u32, header[10]) << 8 | @as(u32, header[11]);
+    if (ihdr_len < 13) return error.PngTooShort;
+
+    const type_bytes = header[12..16];
     if (!std.mem.eql(u8, type_bytes, "IHDR")) return error.PngNoIhdr;
 
     // Extract big-endian 32-bit width and height.
-    const w = @as(u32, header[12]) << 24 | @as(u32, header[13]) << 16 |
-        @as(u32, header[14]) << 8 | @as(u32, header[15]);
-    const h = @as(u32, header[16]) << 24 | @as(u32, header[17]) << 16 |
+    const w = @as(u32, header[16]) << 24 | @as(u32, header[17]) << 16 |
         @as(u32, header[18]) << 8 | @as(u32, header[19]);
+    const h = @as(u32, header[20]) << 24 | @as(u32, header[21]) << 16 |
+        @as(u32, header[22]) << 8 | @as(u32, header[23]);
 
     return .{ .width = w, .height = h };
 }
+
 
 /// Parse GIF dimensions from the Logical Screen Descriptor.
 ///
@@ -273,7 +281,7 @@ test "parse gif header" {
 }
 
 test "parse png header" {
-    const header = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x02\x80\x00\x00\x01\xe0";
+    const header = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x02\x80\x00\x00\x01\xe0\x08\x02\x00\x00\x00";
     const dims = try parsePng(header);
     try std.testing.expectEqual(@as(u32, 640), dims.width);
     try std.testing.expectEqual(@as(u32, 480), dims.height);
@@ -291,4 +299,135 @@ test "parse bmp header" {
     const dims = try parseBmp(header);
     try std.testing.expectEqual(@as(u32, 320), dims.width);
     try std.testing.expectEqual(@as(u32, 240), dims.height);
+}
+
+test "parse png header: too short returns error" {
+    const header = "\x89\x50\x4e\x47";
+    const result = parsePng(header);
+    try std.testing.expectEqual(error.NotPng, result);
+}
+
+test "parse png header: wrong IHDR type" {
+    const header = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0dXXXX\x00\x00\x02\x80\x00\x00\x01\xe0\x08\x02\x00\x00\x00";
+    const result = parsePng(header);
+    try std.testing.expectEqual(error.PngNoIhdr, result);
+}
+
+test "parse png header: truncated IHDR chunk" {
+    const header = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0a";
+    const result = parsePng(header);
+    try std.testing.expectError(error.PngTooShort, result);
+}
+
+test "parse gif header: too short returns error" {
+    const header = "\x47\x49\x46\x38";
+    const result = parseGif(header);
+    try std.testing.expectEqual(error.NotGif, result);
+}
+
+test "parse gif header: truncated dimensions" {
+    const header = "\x47\x49\x46\x38\x39\x61\x40";
+    const result = parseGif(header);
+    try std.testing.expectError(error.NotGif, result);
+}
+
+test "parse bmp header: too short returns error" {
+    const header = "BM\x00";
+    const result = parseBmp(header);
+    try std.testing.expectEqual(error.NotBmp, result);
+}
+
+test "parse bmp header: wrong magic bytes" {
+    const header = "XX\x36\x00\x00\x00\x00\x00\x00\x00\x36\x00\x00\x00\x28\x00\x00\x00\x40\x01\x00\x00\xf0\x00\x00\x00";
+    const result = parseBmp(header);
+    try std.testing.expectEqual(error.NotBmp, result);
+}
+
+test "parse jpeg header: no SOF marker returns error" {
+    const header = "\xff\xd8\xff\xdb\xff\xd9";
+    const result = parseJpeg(header);
+    try std.testing.expectError(error.JpegNoDimensions, result);
+}
+
+test "parse jpeg header: too short for JPEG detection" {
+    const header = "\xff\xd8";
+    const result = parseJpeg(header);
+    try std.testing.expectError(error.JpegNoDimensions, result);
+}
+
+test "parse jpeg header: single byte returns error" {
+    const header = "\xff";
+    const result = parseJpeg(header);
+    try std.testing.expectEqual(error.NotJpeg, result);
+}
+
+test "parse jpeg header: SOI only returns error" {
+    const header = "\xff\xd8\xff\x00\xff\xd9";
+    const result = parseJpeg(header);
+    try std.testing.expectError(error.JpegNoDimensions, result);
+}
+
+test "parse jpeg header: marker 0x00 skipped correctly" {
+    // JPEG with a 0x00 marker (UNDEFINED)
+    const header = "\xff\xd8\xff\x00\xff\xc0\x00\x0b\x08\x00\xf0\x01\x40\x03";
+    const dims = try parseJpeg(header);
+    try std.testing.expectEqual(@as(u16, 320), dims.width);
+    try std.testing.expectEqual(@as(u16, 240), dims.height);
+}
+
+test "parse jpeg header: consecutive 0xff padding bytes" {
+    const header = "\xff\xd8\xff\xff\xff\xff\xff\xc0\x00\x0b\x08\x00\xf0\x01\x40\x03";
+    const dims = try parseJpeg(header);
+    try std.testing.expectEqual(@as(u16, 320), dims.width);
+    try std.testing.expectEqual(@as(u16, 240), dims.height);
+}
+
+test "parse jpeg header: SOS marker without SOF returns error" {
+    const header = "\xff\xd8\xff\xda\xff\x00\x00\x00\xff\xd9";
+    const result = parseJpeg(header);
+    try std.testing.expectError(error.JpegNoDimensions, result);
+}
+
+test "parse jpeg header: EOI marker without SOF returns error" {
+    const header = "\xff\xd8\xff\xe0\x00\x10\x4a\x46\x49\x46\x00\x01\xff\xd9";
+    const result = parseJpeg(header);
+    try std.testing.expectError(error.JpegNoDimensions, result);
+}
+
+test "parse jpeg header: SOF1 (0xc1) also works" {
+    // SOF1 marker with dimensions 1920x1080 (height 1080 = 0x0438, width 1920 = 0x0780)
+    const header = "\xff\xd8\xff\xc1\x00\x0c\x08\x04\x38\x07\x80\x03";
+    const dims = try parseJpeg(header);
+    try std.testing.expectEqual(@as(u16, 1920), dims.width);
+    try std.testing.expectEqual(@as(u16, 1080), dims.height);
+}
+
+test "parse jpeg header: SOF3 (0xc3) also works" {
+    // SOF3 marker with dimensions 800x600 (height 600 = 0x0258, width 800 = 0x0320)
+    const header = "\xff\xd8\xff\xc3\x00\x0b\x08\x02\x58\x03\x20\x03";
+    const dims = try parseJpeg(header);
+    try std.testing.expectEqual(@as(u16, 800), dims.width);
+    try std.testing.expectEqual(@as(u16, 600), dims.height);
+}
+
+test "parse jpeg header: segment length zero" {
+    // JPEG with a segment of length 0 (valid but unusual)
+    const header = "\xff\xd8\xff\x00\xff\xc0\x00\x0b\x08\x00\xf0\x01\x40\x03";
+    const dims = try parseJpeg(header);
+    try std.testing.expectEqual(@as(u16, 320), dims.width);
+    try std.testing.expectEqual(@as(u16, 240), dims.height);
+}
+
+test "parse jpeg header: truncated segment returns error" {
+    // SOF marker but not enough bytes for dimensions
+    const header = "\xff\xd8\xff\xc0\x00\x05\x08";
+    const result = parseJpeg(header);
+    try std.testing.expectError(error.JpegTooShort, result);
+}
+
+test "parse jpeg header: no SOF in multiple segments" {
+    // JPEG with APP0 and APP1 but no SOF
+    const header = "\xff\xd8\xff\xe0\x00\x10\x4a\x46\x49\x46\x00\x01\x00\x00\x01\x00\x00\xff\xd8\xff\xd9";
+    const result = parseJpeg(header);
+    try std.testing.expectError(error.JpegNoDimensions, result);
 }

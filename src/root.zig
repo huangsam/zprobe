@@ -10,3 +10,11 @@
 //! - `video_meta.zig`: Recursive MP4 box parser for track display dimensions.
 
 const std = @import("std");
+
+pub const media_scan = @import("media_scan.zig");
+pub const image_meta = @import("image_meta.zig");
+pub const video_meta = @import("video_meta.zig");
+
+test {
+    std.testing.refAllDecls(@This());
+}
