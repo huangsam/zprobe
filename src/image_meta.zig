@@ -77,7 +77,6 @@ pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
     return error.JpegNoDimensions;
 }
 
-
 /// Parse PNG width and height from the IHDR chunk.
 ///
 /// ### PNG Binary Structure
@@ -112,7 +111,6 @@ pub fn parsePng(header: []const u8) !struct { width: u32, height: u32 } {
 
     return .{ .width = w, .height = h };
 }
-
 
 /// Parse GIF dimensions from the Logical Screen Descriptor.
 ///

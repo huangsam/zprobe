@@ -356,7 +356,6 @@ test "parse MP4 tkhd version 0 payload with nested containers" {
     try std.testing.expectEqual(@as(u32, 720), dims.height);
 }
 
-
 test "parse MP4 tkhd returns null for unknown version" {
     var buf = [_]u8{0} ** 100;
 
@@ -759,4 +758,3 @@ test "parse MP4 tkhd handles multiple sibling boxes finds correct tkhd" {
     try std.testing.expectEqual(@as(u32, 960), dims.width);
     try std.testing.expectEqual(@as(u32, 600), dims.height);
 }
-
