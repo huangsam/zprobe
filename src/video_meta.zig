@@ -167,6 +167,7 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
 
         if (std.mem.eql(u8, box_type, "moov")) {
             const payload_len = real_size - header_len;
+            if (payload_len > 100 * 1024 * 1024) return error.InvalidMp4; // 100MB safety limit
             const moov_payload = try allocator.alloc(u8, payload_len);
             defer allocator.free(moov_payload);
 

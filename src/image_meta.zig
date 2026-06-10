@@ -14,6 +14,8 @@ pub const jpegMagic: [2]u8 = .{ 0xff, 0xd8 };
 pub const pngMagic: [8]u8 = .{ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a };
 pub const gifMagic: [4]u8 = .{ 'G', 'I', 'F', '8' }; // "GIF8"
 pub const bmpMagic: [2]u8 = .{ 'B', 'M' };
+pub const webpRiffMagic: [4]u8 = .{ 'R', 'I', 'F', 'F' };
+pub const webpWebpMagic: [4]u8 = .{ 'W', 'E', 'B', 'P' };
 
 /// Parse JPEG width and height from Start-Of-Frame (SOF) markers.
 ///
@@ -168,6 +170,75 @@ pub fn parseBmp(header: []const u8) !struct { width: u32, height: u32 } {
     return .{ .width = w, .height = h };
 }
 
+/// Parse WebP dimensions from VP8, VP8L, or VP8X chunks.
+///
+/// ### WebP Container & Chunks Structure:
+/// WebP files are RIFF containers. They begin with:
+/// - Offset 0..3: "RIFF"
+/// - Offset 4..7: File size (little-endian)
+/// - Offset 8..11: "WEBP"
+///
+/// Following the 12-byte header is the first chunk:
+/// - Offset 12..15: Chunk Tag ("VP8X", "VP8L", or "VP8 ")
+/// - Offset 16..19: Chunk Size (4 bytes, little-endian)
+///
+/// **VP8X (Extended):**
+/// - Payload starts at offset 20.
+/// - Width - 1 is stored at offset 24..26 (24-bit little-endian)
+/// - Height - 1 is stored at offset 27..29 (24-bit little-endian)
+///
+/// **VP8L (Lossless):**
+/// - Payload starts at offset 20.
+/// - Signature byte `0x2f` at offset 20.
+/// - Bits 0..13 of bytes 21..24 (32-bit little-endian) are Width - 1.
+/// - Bits 14..27 of bytes 21..24 are Height - 1.
+///
+/// **VP8 (Lossy):**
+/// - Payload starts at offset 20.
+/// - Byte 20 is frame tag (bit 0 must be 0 for keyframe).
+/// - Bytes 23..25 must be sync code `0x9d 0x01 0x2a`.
+/// - Bytes 26..27 contain horizontal scale (2 bits) and width (14 bits) (little-endian).
+/// - Bytes 28..29 contain vertical scale (2 bits) and height (14 bits) (little-endian).
+pub fn parseWebp(header: []const u8) !struct { width: u32, height: u32 } {
+    if (header.len < 12) return error.WebpTooShort;
+    if (!std.mem.eql(u8, header[0..4], &webpRiffMagic) or !std.mem.eql(u8, header[8..12], &webpWebpMagic)) {
+        return error.NotWebp;
+    }
+
+    if (header.len < 20) return error.WebpTooShort;
+    const chunk_tag = header[12..16];
+
+    if (std.mem.eql(u8, chunk_tag, "VP8X")) {
+        if (header.len < 30) return error.WebpTooShort;
+        const w = @as(u32, header[24]) | (@as(u32, header[25]) << 8) | (@as(u32, header[26]) << 16);
+        const h = @as(u32, header[27]) | (@as(u32, header[28]) << 8) | (@as(u32, header[29]) << 16);
+        return .{ .width = w + 1, .height = h + 1 };
+    } else if (std.mem.eql(u8, chunk_tag, "VP8L")) {
+        if (header.len < 25) return error.WebpTooShort;
+        if (header[20] != 0x2f) return error.InvalidWebpVP8L;
+        const val = @as(u32, header[21]) |
+            (@as(u32, header[22]) << 8) |
+            (@as(u32, header[23]) << 16) |
+            (@as(u32, header[24]) << 24);
+        const w = (val & 0x3fff) + 1;
+        const h = ((val >> 14) & 0x3fff) + 1;
+        return .{ .width = w, .height = h };
+    } else if (std.mem.eql(u8, chunk_tag, "VP8 ")) {
+        if (header.len < 30) return error.WebpTooShort;
+        // Check frame tag (bit 0 of byte 20 must be 0 for key frame)
+        if ((header[20] & 0x01) != 0) return error.InvalidWebpVP8Keyframe;
+        // Check sync code
+        if (header[23] != 0x9d or header[24] != 0x01 or header[25] != 0x2a) {
+            return error.InvalidWebpVP8Sync;
+        }
+        const w = (@as(u16, header[26]) | (@as(u16, header[27]) << 8)) & 0x3fff;
+        const h = (@as(u16, header[28]) | (@as(u16, header[29]) << 8)) & 0x3fff;
+        return .{ .width = w, .height = h };
+    }
+
+    return error.UnsupportedWebpChunk;
+}
+
 /// Streaming parser for JPEG files.
 ///
 /// Unlike PNG/GIF/BMP which keep metadata at fixed, low offsets, JPEG metadata (SOF)
@@ -266,6 +337,9 @@ pub fn parseFile(path: []const u8, io: anytype) !struct { format: []const u8, wi
     } else if (data.len >= 26 and data[0] == bmpMagic[0] and data[1] == bmpMagic[1]) {
         const dims = try parseBmp(data);
         return .{ .format = "bmp", .width = dims.width, .height = dims.height };
+    } else if (data.len >= 12 and std.mem.eql(u8, data[0..4], &webpRiffMagic) and std.mem.eql(u8, data[8..12], &webpWebpMagic)) {
+        const dims = try parseWebp(data);
+        return .{ .format = "webp", .width = dims.width, .height = dims.height };
     }
 
     return error.NotImage;
@@ -428,4 +502,60 @@ test "parse jpeg header: no SOF in multiple segments" {
     const header = "\xff\xd8\xff\xe0\x00\x10\x4a\x46\x49\x46\x00\x01\x00\x00\x01\x00\x00\xff\xd8\xff\xd9";
     const result = parseJpeg(header);
     try std.testing.expectError(error.JpegNoDimensions, result);
+}
+
+test "parse WebP: VP8X extended header" {
+    // Width 1000 (999 = 0x03e7 -> e7 03 00), Height 800 (799 = 0x031f -> 1f 03 00)
+    const header = "RIFF\x00\x00\x00\x00WEBPVP8X\x0a\x00\x00\x00\x00\x00\x00\x00\xe7\x03\x00\x1f\x03\x00";
+    const dims = try parseWebp(header);
+    try std.testing.expectEqual(@as(u32, 1000), dims.width);
+    try std.testing.expectEqual(@as(u32, 800), dims.height);
+}
+
+test "parse WebP: VP8L lossless header" {
+    // Width 1000 (999 = 0x03e7), Height 800 (799 = 0x031f)
+    // val = 999 | (799 << 14) = 0x00c7c3e7 -> e7 c3 c7 00
+    const header = "RIFF\x00\x00\x00\x00WEBPVP8L\x00\x00\x00\x00\x2f\xe7\xc3\xc7\x00";
+    const dims = try parseWebp(header);
+    try std.testing.expectEqual(@as(u32, 1000), dims.width);
+    try std.testing.expectEqual(@as(u32, 800), dims.height);
+}
+
+test "parse WebP: VP8 lossy header" {
+    // Width 1000 (0x03e8 -> e8 03), Height 800 (0x0320 -> 20 03)
+    const header = "RIFF\x00\x00\x00\x00WEBPVP8 \x00\x00\x00\x00\x00\x00\x00\x9d\x01\x2a\xe8\x03\x20\x03";
+    const dims = try parseWebp(header);
+    try std.testing.expectEqual(@as(u32, 1000), dims.width);
+    try std.testing.expectEqual(@as(u32, 800), dims.height);
+}
+
+test "parse WebP: invalid signature returns error" {
+    const header = "RIFF\x00\x00\x00\x00XXXXVP8X\x0a\x00\x00\x00\x00\x00\x00\x00\xe7\x03\x00\x1f\x03\x00";
+    const result = parseWebp(header);
+    try std.testing.expectError(error.NotWebp, result);
+}
+
+test "parse WebP: too short returns error" {
+    const header = "RIFF\x00\x00\x00\x00WEBP";
+    const result = parseWebp(header);
+    try std.testing.expectError(error.WebpTooShort, result);
+}
+
+test "parse WebP: VP8L invalid signature byte" {
+    const header = "RIFF\x00\x00\x00\x00WEBPVP8L\x00\x00\x00\x00\xff\xe7\xc3\xc7\x00";
+    const result = parseWebp(header);
+    try std.testing.expectError(error.InvalidWebpVP8L, result);
+}
+
+test "parse WebP: VP8 wrong sync code" {
+    const header = "RIFF\x00\x00\x00\x00WEBPVP8 \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xe8\x03\x20\x03";
+    const result = parseWebp(header);
+    try std.testing.expectError(error.InvalidWebpVP8Sync, result);
+}
+
+test "parse WebP: VP8 not keyframe" {
+    // byte 20 has bit 0 set to 1 (interframe)
+    const header = "RIFF\x00\x00\x00\x00WEBPVP8 \x00\x00\x00\x00\x01\x00\x00\x9d\x01\x2a\xe8\x03\x20\x03";
+    const result = parseWebp(header);
+    try std.testing.expectError(error.InvalidWebpVP8Keyframe, result);
 }

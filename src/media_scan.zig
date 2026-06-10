@@ -77,7 +77,12 @@ pub fn getExtension(path: []const u8) []const u8 {
 ///   internally allocated resources, preventing leaks.
 pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !std.ArrayList(ScanEntry) {
     var list: std.ArrayList(ScanEntry) = .empty;
-    errdefer list.deinit(allocator);
+    errdefer {
+        for (list.items) |entry| {
+            allocator.free(entry.path);
+        }
+        list.deinit(allocator);
+    }
 
     // Open root directory for iteration.
     const root_dir = try Dir.openDirAbsolute(io, root_path, .{ .iterate = true });
