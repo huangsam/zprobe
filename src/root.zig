@@ -35,6 +35,7 @@ pub const byte_reader = @import("core/byte_reader.zig");
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("main.zig");
     _ = @import("core/byte_reader.zig");
     _ = @import("core/utils.zig");
     _ = @import("crawler/media_scan.zig");

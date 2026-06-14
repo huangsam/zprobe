@@ -110,27 +110,13 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
         const ext = getExtension(entry.basename);
         if (ext.len == 0 or !isMediaExtension(ext)) continue;
 
-        // Open file robustly.
-        const file = Dir.openFile(entry.dir, io, entry.basename, .{
-            .mode = .read_only,
-        }) catch |err| {
-            std.debug.print("Warning: failed to open '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            continue;
-        };
-        defer std.Io.File.close(file, io);
-
-        const fsize = std.Io.File.length(file, io) catch |err| {
-            std.debug.print("Warning: failed to get size of '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            continue;
-        };
-
         // Join root_path and entry.path to get the full absolute path.
         const full_path = try std.fs.path.join(allocator, &.{ root_path, entry.path });
         errdefer allocator.free(full_path);
         try list.append(allocator, .{
             .path = full_path,
             .is_directory = false,
-            .size = fsize,
+            .size = 0,
         });
     }
 
@@ -255,4 +241,85 @@ test "isMediaExtension: unknown extension returns false" {
 
 test "isMediaExtension: empty string returns false" {
     try std.testing.expect(!isMediaExtension(""));
+}
+
+test "concurrent scan and mock processing" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    const cwd = std.Io.Dir.cwd();
+    const temp_dir_name = "temp_concurrent_scan_test";
+
+    // Pre-cleanup if directory was left behind from a crashed test run
+    if (std.Io.Dir.openDir(cwd, io, temp_dir_name, .{})) |d| {
+        _ = std.Io.Dir.deleteFile(d, io, "image1.png") catch {};
+        _ = std.Io.Dir.deleteFile(d, io, "image2.jpg") catch {};
+        std.Io.Dir.close(d, io);
+        _ = std.Io.Dir.deleteDir(cwd, io, temp_dir_name) catch {};
+    } else |_| {}
+
+    // Create temp directory
+    try std.Io.Dir.createDir(cwd, io, temp_dir_name, .default_dir);
+    defer std.Io.Dir.deleteDir(cwd, io, temp_dir_name) catch {};
+
+    const temp_dir = try std.Io.Dir.openDir(cwd, io, temp_dir_name, .{});
+    defer std.Io.Dir.close(temp_dir, io);
+
+    // Create mock files
+    const file1 = try std.Io.Dir.createFile(temp_dir, io, "image1.png", .{});
+    std.Io.File.close(file1, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, "image1.png") catch {};
+
+    const file2 = try std.Io.Dir.createFile(temp_dir, io, "image2.jpg", .{});
+    std.Io.File.close(file2, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, "image2.jpg") catch {};
+
+    // Get absolute path of temp directory
+    const abs_path = try cwd.realPathFileAlloc(io, temp_dir_name, allocator);
+    defer allocator.free(abs_path);
+
+    // Scan
+    var list = try scan(abs_path, io, allocator);
+    defer {
+        for (list.items) |entry| {
+            allocator.free(entry.path);
+        }
+        list.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), list.items.len);
+
+    // Concurrent mock process
+    var index = std.atomic.Value(usize).init(0);
+    var success = std.atomic.Value(usize).init(0);
+
+    const Context = struct {
+        entries: []const ScanEntry,
+        index: *std.atomic.Value(usize),
+        success: *std.atomic.Value(usize),
+    };
+
+    const runner = struct {
+        fn run(c: Context) void {
+            while (true) {
+                const idx = c.index.fetchAdd(1, .monotonic);
+                if (idx >= c.entries.len) break;
+                _ = c.success.fetchAdd(1, .monotonic);
+            }
+        }
+    };
+
+    const test_ctx = Context{
+        .entries = list.items,
+        .index = &index,
+        .success = &success,
+    };
+
+    var thread1 = try std.Thread.spawn(.{}, runner.run, .{test_ctx});
+    var thread2 = try std.Thread.spawn(.{}, runner.run, .{test_ctx});
+
+    thread1.join();
+    thread2.join();
+
+    try std.testing.expectEqual(@as(usize, 2), success.load(.monotonic));
 }

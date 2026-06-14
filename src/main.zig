@@ -127,6 +127,117 @@ fn populateJsonFromVideo(
 
     return json_out;
 }
+const WorkerContext = struct {
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    out: *std.Io.File.Writer,
+    json_mode: bool,
+    entries: []const media_scan.ScanEntry,
+    file_index: *std.atomic.Value(usize),
+    stdout_mutex: *std.Io.Mutex,
+    success_count: *std.atomic.Value(usize),
+};
+
+const worker = struct {
+    fn workerMain(c: WorkerContext) void {
+        while (true) {
+            const idx = c.file_index.fetchAdd(1, .monotonic);
+            if (idx >= c.entries.len) break;
+
+            const entry = c.entries[idx];
+            const ext = media_scan.getExtension(entry.path);
+            const is_video = isVideoExtension(ext);
+
+            processFile(c, entry, is_video) catch {};
+        }
+    }
+
+    fn processFile(c: WorkerContext, entry: media_scan.ScanEntry, is_video: bool) !void {
+        const file = std.Io.Dir.openFileAbsolute(c.io, entry.path, .{ .mode = .read_only }) catch |err| {
+            c.stdout_mutex.lockUncancelable(c.io);
+            defer c.stdout_mutex.unlock(c.io);
+            c.out.flush() catch {};
+            std.debug.print("Warning: failed to open '{s}': {s}\n", .{ entry.path, @errorName(err) });
+            return;
+        };
+        defer std.Io.File.close(file, c.io);
+
+        const fsize = std.Io.File.length(file, c.io) catch |err| {
+            c.stdout_mutex.lockUncancelable(c.io);
+            defer c.stdout_mutex.unlock(c.io);
+            c.out.flush() catch {};
+            std.debug.print("Warning: failed to get size of '{s}': {s}\n", .{ entry.path, @errorName(err) });
+            return;
+        };
+
+        var arena = std.heap.ArenaAllocator.init(c.allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
+
+        const json_out = blk: {
+            if (is_video) {
+                var res = video_meta.getVideoMetadata(arena_allocator, entry.path, c.io) catch |err| {
+                    c.stdout_mutex.lockUncancelable(c.io);
+                    defer c.stdout_mutex.unlock(c.io);
+                    c.out.flush() catch {};
+                    std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
+                    return;
+                };
+                break :blk try populateJsonFromVideo(arena_allocator, &res, entry.path, fsize);
+            } else {
+                var res = image_meta.parseFile(arena_allocator, entry.path, c.io) catch |err| {
+                    c.stdout_mutex.lockUncancelable(c.io);
+                    defer c.stdout_mutex.unlock(c.io);
+                    c.out.flush() catch {};
+                    std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
+                    return;
+                };
+                break :blk try populateJsonFromImage(arena_allocator, &res, entry.path, fsize);
+            }
+        };
+
+        c.stdout_mutex.lockUncancelable(c.io);
+        defer c.stdout_mutex.unlock(c.io);
+
+        _ = c.success_count.fetchAdd(1, .monotonic);
+
+        const interface = &c.out.interface;
+
+        if (c.json_mode) {
+            try std.json.fmt(json_out, .{}).format(interface);
+            try interface.print("\n", .{});
+        } else {
+            try interface.print("   {s} ({d} bytes)\n", .{ entry.path, fsize });
+            try interface.print("    Format: {s}\n", .{json_out.format});
+            try interface.print("    Dimensions: {d} x {d}\n", .{ json_out.width.?, json_out.height.? });
+            if (json_out.orientation) |orient| {
+                try interface.print("    Orientation: {s}\n", .{formatOrientation(orient)});
+            }
+            if (json_out.create_time) |ct| {
+                try interface.print("    Captured: {s}\n", .{ct});
+            }
+            if (json_out.camera_make) |make| {
+                try interface.print("    Camera Make: {s}\n", .{make});
+            }
+            if (json_out.camera_model) |model| {
+                try interface.print("    Camera Model: {s}\n", .{model});
+            }
+            if (json_out.gps_latitude) |lat| {
+                if (json_out.gps_longitude) |lon| {
+                    const lat_ref: u8 = if (lat >= 0) 'N' else 'S';
+                    const lon_ref: u8 = if (lon >= 0) 'E' else 'W';
+                    try interface.print("    GPS: {d:.4}° {c}, {d:.4}° {c}\n", .{
+                        @abs(lat), lat_ref, @abs(lon), lon_ref,
+                    });
+                }
+            }
+            if (json_out.duration_sec) |dur| {
+                try interface.print("    Duration: {d:.2} sec\n", .{dur});
+            }
+            try interface.print("\n", .{});
+        }
+    }
+};
 
 /// Main application entrypoint.
 ///
@@ -179,85 +290,168 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("Scanning: {s}\n\n", .{target_dir});
     }
 
-    var ctx = struct {
-        allocator: std.mem.Allocator,
-        io: @TypeOf(io),
-        out: @TypeOf(out),
-        json_mode: bool,
-        count: usize = 0,
-    }{
+    var list = try media_scan.scan(abs_target_dir, io, allocator);
+    defer {
+        for (list.items) |entry| {
+            allocator.free(entry.path);
+        }
+        list.deinit(allocator);
+    }
+
+    var file_index = std.atomic.Value(usize).init(0);
+    var stdout_mutex = std.Io.Mutex.init;
+    var success_count = std.atomic.Value(usize).init(0);
+
+    const cpu_count = std.Thread.getCpuCount() catch 4;
+    const num_workers = @max(cpu_count * 4, 16);
+
+    const threads = try allocator.alloc(std.Thread, num_workers);
+    defer allocator.free(threads);
+
+    const worker_ctx = WorkerContext{
         .allocator = allocator,
         .io = io,
-        .out = out,
+        .out = &f_writer,
         .json_mode = json_mode,
+        .entries = list.items,
+        .file_index = &file_index,
+        .stdout_mutex = &stdout_mutex,
+        .success_count = &success_count,
     };
 
-    const processEntry = struct {
-        fn call(c: *@TypeOf(ctx), entry: media_scan.ScanEntry) !void {
-            c.count += 1;
-            const ext = media_scan.getExtension(entry.path);
-            const is_video = isVideoExtension(ext);
-
-            const json_out = blk: {
-                if (is_video) {
-                    var res = video_meta.getVideoMetadata(c.allocator, entry.path, c.io) catch |err| {
-                        std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
-                        return;
-                    };
-                    defer res.deinit(c.allocator);
-                    break :blk try populateJsonFromVideo(c.allocator, &res, entry.path, entry.size);
-                } else {
-                    // Attempt image metadata extraction.
-                    var res = image_meta.parseFile(c.allocator, entry.path, c.io) catch |err| {
-                        std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
-                        return;
-                    };
-                    defer res.deinit(c.allocator);
-                    break :blk try populateJsonFromImage(c.allocator, &res, entry.path, entry.size);
-                }
-            };
-            defer json_out.deinit(c.allocator);
-
-            if (c.json_mode) {
-                try std.json.fmt(json_out, .{}).format(c.out);
-                try c.out.print("\n", .{});
-            } else {
-                try c.out.print("   {s} ({d} bytes)\n", .{ entry.path, entry.size });
-                try c.out.print("    Format: {s}\n", .{json_out.format});
-                try c.out.print("    Dimensions: {d} x {d}\n", .{ json_out.width.?, json_out.height.? });
-                if (json_out.orientation) |orient| {
-                    try c.out.print("    Orientation: {s}\n", .{formatOrientation(orient)});
-                }
-                if (json_out.create_time) |ct| {
-                    try c.out.print("    Captured: {s}\n", .{ct});
-                }
-                if (json_out.camera_make) |make| {
-                    try c.out.print("    Camera Make: {s}\n", .{make});
-                }
-                if (json_out.camera_model) |model| {
-                    try c.out.print("    Camera Model: {s}\n", .{model});
-                }
-                if (json_out.gps_latitude) |lat| {
-                    const lat_ref: u8 = if (lat >= 0) 'N' else 'S';
-                    const lon = json_out.gps_longitude.?;
-                    const lon_ref: u8 = if (lon >= 0) 'E' else 'W';
-                    try c.out.print("    GPS: {d:.4}° {c}, {d:.4}° {c}\n", .{
-                        @abs(lat), lat_ref, @abs(lon), lon_ref,
-                    });
-                }
-                if (json_out.duration_sec) |dur| {
-                    try c.out.print("    Duration: {d:.2} sec\n", .{dur});
-                }
-                try c.out.print("\n", .{});
-            }
+    var spawned_count: usize = 0;
+    defer {
+        for (threads[0..spawned_count]) |t| {
+            t.join();
         }
-    };
+    }
 
-    try media_scan.scanAndProcess(abs_target_dir, io, allocator, &ctx, processEntry.call);
+    for (0..num_workers) |i| {
+        threads[i] = try std.Thread.spawn(.{}, worker.workerMain, .{worker_ctx});
+        spawned_count += 1;
+    }
+
+    for (threads[0..spawned_count]) |t| {
+        t.join();
+    }
+    spawned_count = 0;
 
     try out.flush();
 
     if (!json_mode) {
-        std.debug.print("Found {d} media file(s)\n", .{ctx.count});
+        std.debug.print("Found {d} media file(s)\n", .{list.items.len});
     }
+}
+
+test "concurrent file processing integration test" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    const cwd = std.Io.Dir.cwd();
+    const temp_dir_name = "temp_main_concurrent_test";
+
+    // Pre-cleanup if directory was left behind from a crashed test run
+    if (std.Io.Dir.openDir(cwd, io, temp_dir_name, .{})) |d| {
+        var i: usize = 0;
+        while (i < 50) : (i += 1) {
+            var filename_buf: [32]u8 = undefined;
+            const filename = try std.fmt.bufPrint(&filename_buf, "image_{d}.png", .{i});
+            _ = std.Io.Dir.deleteFile(d, io, filename) catch {};
+        }
+        std.Io.Dir.close(d, io);
+        _ = std.Io.Dir.deleteDir(cwd, io, temp_dir_name) catch {};
+    } else |_| {}
+
+    // Create temp directory
+    try std.Io.Dir.createDir(cwd, io, temp_dir_name, .default_dir);
+    defer std.Io.Dir.deleteDir(cwd, io, temp_dir_name) catch {};
+
+    const temp_dir = try std.Io.Dir.openDir(cwd, io, temp_dir_name, .{});
+    defer std.Io.Dir.close(temp_dir, io);
+
+    // Create 50 mock PNG files
+    const png_header = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x02\x80\x00\x00\x01\xe0\x08\x02\x00\x00\x00";
+    var i: usize = 0;
+    while (i < 50) : (i += 1) {
+        var filename_buf: [32]u8 = undefined;
+        const filename = try std.fmt.bufPrint(&filename_buf, "image_{d}.png", .{i});
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.File.close(file, io);
+        try std.Io.File.writePositionalAll(file, io, png_header, 0);
+    }
+
+    // Defer file deletion
+    defer {
+        var j: usize = 0;
+        while (j < 50) : (j += 1) {
+            var filename_buf: [32]u8 = undefined;
+            const filename = std.fmt.bufPrint(&filename_buf, "image_{d}.png", .{j}) catch continue;
+            std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+        }
+    }
+
+    // Get absolute path
+    const abs_path = try cwd.realPathFileAlloc(io, temp_dir_name, allocator);
+    defer allocator.free(abs_path);
+
+    // Scan
+    var list = try media_scan.scan(abs_path, io, allocator);
+    defer {
+        for (list.items) |entry| {
+            allocator.free(entry.path);
+        }
+        list.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 50), list.items.len);
+
+    // Spawn workers
+    var file_index = std.atomic.Value(usize).init(0);
+    var stdout_mutex = std.Io.Mutex.init;
+    var success_count = std.atomic.Value(usize).init(0);
+
+    const out_filename = "test_output.txt";
+    const out_file = try std.Io.Dir.createFile(temp_dir, io, out_filename, .{});
+    defer {
+        std.Io.File.close(out_file, io);
+        std.Io.Dir.deleteFile(temp_dir, io, out_filename) catch {};
+    }
+
+    var io_buf: [1024]u8 = undefined;
+    var f_writer = std.Io.File.Writer.init(out_file, io, &io_buf);
+
+    const worker_ctx = WorkerContext{
+        .allocator = allocator,
+        .io = io,
+        .out = &f_writer,
+        .json_mode = false,
+        .entries = list.items,
+        .file_index = &file_index,
+        .stdout_mutex = &stdout_mutex,
+        .success_count = &success_count,
+    };
+
+    const num_workers = 8;
+    var threads: [num_workers]std.Thread = undefined;
+    var spawned_count: usize = 0;
+    defer {
+        for (threads[0..spawned_count]) |t| {
+            t.join();
+        }
+    }
+
+    for (0..num_workers) |k| {
+        threads[k] = try std.Thread.spawn(.{}, worker.workerMain, .{worker_ctx});
+        spawned_count += 1;
+    }
+
+    for (threads[0..spawned_count]) |t| {
+        t.join();
+    }
+    spawned_count = 0;
+
+    try f_writer.flush();
+
+    // Verify all 50 files were parsed successfully
+    try std.testing.expectEqual(@as(usize, 50), success_count.load(.monotonic));
 }
