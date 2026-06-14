@@ -1,4 +1,4 @@
-# zprobe: Media Scanner and Metadata Parser
+# zprobe
 
 A lightweight, zero-dependency command-line utility and library written in Zig for recursively scanning directories and extracting dimensions, format, and metadata directly from image and video file headers.
 
@@ -8,7 +8,21 @@ See the [User Guide](USERGUIDE.md) and [Developer & Agent Guide](AGENTS.md) for 
 
 ## Supported Formats & Metadata
 
-| Media Category | File Formats                                                     | Extracted Metadata                                                                                                  |
-| :------------- | :--------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------ |
-| **Images**     | **JPEG**, **PNG**, **GIF**, **BMP**, **WebP**, **TIFF**          | Dimensions (Width/Height), Format, Orientation, Capture Date/Time, Camera Make/Model, GPS Latitude/Longitude (EXIF) |
-| **Videos**     | **MP4** (including `.mov`, `.m4v`), **WebM**, **Matroska (MKV)** | Dimensions (Width/Height), Format, Duration (seconds), Orientation/Rotation, Creation Date/Time                     |
+### Images
+
+| Format | Dimensions | Orientation | Metadata                                   |
+| ------ | ---------- | ----------- | ------------------------------------------ |
+| JPEG   | ✓          | ✓           | EXIF: Capture Date, Camera Make/Model, GPS |
+| PNG    | ✓          | ✗           | None                                       |
+| GIF    | ✓          | ✗           | None                                       |
+| BMP    | ✓          | ✗           | None                                       |
+| WebP   | ✓          | ✓           | EXIF: Capture Date, GPS                    |
+| TIFF   | ✓          | ✓           | EXIF: Capture Date, Camera Make/Model, GPS |
+
+### Videos
+
+| Format | Dimensions | Duration | Orientation | Metadata                |
+| ------ | ---------- | -------- | ----------- | ----------------------- |
+| MP4    | ✓          | ✓        | ✓           | Creation Date, Rotation |
+| WebM   | ✓          | ✓        | ✗           | None                    |
+| MKV    | ✓          | ✓        | ✗           | None                    |
