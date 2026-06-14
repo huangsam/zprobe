@@ -12,21 +12,6 @@ const media_scan = root.media_scan;
 const image_meta = root.image_meta;
 const video_meta = root.video_meta;
 
-/// Print usage instructions to the given Io writer.
-///
-/// Under the hood, this uses a custom buffered writer `file_writer` to
-/// optimize system write calls.
-fn printUsage(io: anytype, prog_name: []const u8) !void {
-    const fmt = "Usage: {s} <directory>\n\n" ++
-        "Scans the given directory recursively for image and video files,\n" ++
-        "extracting dimensions, format, and file size from headers.\n";
-    var buffer: [512]u8 = undefined;
-    var f_writer = file_writer(io, &buffer);
-    const writer = &f_writer.interface;
-
-    try writer.print(fmt, .{prog_name});
-}
-
 /// Helper to initialize a buffered file writer targeting stdout.
 ///
 /// In Zig 0.16.0, `std.Io.File.Writer` provides buffered output streams
@@ -73,7 +58,7 @@ const JsonOutput = struct {
     duration_sec: ?f64 = null,
 
     /// Free heap-allocated strings stored within JsonOutput.
-    pub fn deinit(self: *JsonOutput, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *const JsonOutput, allocator: std.mem.Allocator) void {
         if (self.create_time) |s| allocator.free(s);
         if (self.camera_make) |s| allocator.free(s);
         if (self.camera_model) |s| allocator.free(s);
@@ -213,26 +198,24 @@ pub fn main(init: std.process.Init) !void {
             const ext = media_scan.getExtension(entry.path);
             const is_video = isVideoExtension(ext);
 
-            var json_out: JsonOutput = undefined;
-
-            if (is_video) {
-                var res = video_meta.getVideoMetadata(c.allocator, entry.path, c.io) catch |err| {
-                    std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
-                    return;
-                };
-                defer res.deinit(c.allocator);
-
-                json_out = try populateJsonFromVideo(c.allocator, &res, entry.path, entry.size);
-            } else {
-                // Attempt image metadata extraction.
-                var res = image_meta.parseFile(c.allocator, entry.path, c.io) catch |err| {
-                    std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
-                    return;
-                };
-                defer res.deinit(c.allocator);
-
-                json_out = try populateJsonFromImage(c.allocator, &res, entry.path, entry.size);
-            }
+            const json_out = blk: {
+                if (is_video) {
+                    var res = video_meta.getVideoMetadata(c.allocator, entry.path, c.io) catch |err| {
+                        std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
+                        return;
+                    };
+                    defer res.deinit(c.allocator);
+                    break :blk try populateJsonFromVideo(c.allocator, &res, entry.path, entry.size);
+                } else {
+                    // Attempt image metadata extraction.
+                    var res = image_meta.parseFile(c.allocator, entry.path, c.io) catch |err| {
+                        std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
+                        return;
+                    };
+                    defer res.deinit(c.allocator);
+                    break :blk try populateJsonFromImage(c.allocator, &res, entry.path, entry.size);
+                }
+            };
             defer json_out.deinit(c.allocator);
 
             if (c.json_mode) {
@@ -240,38 +223,30 @@ pub fn main(init: std.process.Init) !void {
                 try c.out.print("\n", .{});
             } else {
                 try c.out.print("   {s} ({d} bytes)\n", .{ entry.path, entry.size });
-                if (std.mem.eql(u8, json_out.format, "unknown")) {
-                    if (is_video) {
-                        try c.out.print("    Format: unknown/unsupported video\n", .{});
-                    } else {
-                        try c.out.print("    Format: unknown/unsupported image\n", .{});
-                    }
-                } else {
-                    try c.out.print("    Format: {s}\n", .{json_out.format});
-                    try c.out.print("    Dimensions: {d} x {d}\n", .{ json_out.width.?, json_out.height.? });
-                    if (json_out.orientation) |orient| {
-                        try c.out.print("    Orientation: {s}\n", .{formatOrientation(orient)});
-                    }
-                    if (json_out.create_time) |ct| {
-                        try c.out.print("    Captured: {s}\n", .{ct});
-                    }
-                    if (json_out.camera_make) |make| {
-                        try c.out.print("    Camera Make: {s}\n", .{make});
-                    }
-                    if (json_out.camera_model) |model| {
-                        try c.out.print("    Camera Model: {s}\n", .{model});
-                    }
-                    if (json_out.gps_latitude) |lat| {
-                        const lat_ref: u8 = if (lat >= 0) 'N' else 'S';
-                        const lon = json_out.gps_longitude.?;
-                        const lon_ref: u8 = if (lon >= 0) 'E' else 'W';
-                        try c.out.print("    GPS: {d:.4}° {c}, {d:.4}° {c}\n", .{
-                            @abs(lat), lat_ref, @abs(lon), lon_ref,
-                        });
-                    }
-                    if (json_out.duration_sec) |dur| {
-                        try c.out.print("    Duration: {d:.2} sec\n", .{dur});
-                    }
+                try c.out.print("    Format: {s}\n", .{json_out.format});
+                try c.out.print("    Dimensions: {d} x {d}\n", .{ json_out.width.?, json_out.height.? });
+                if (json_out.orientation) |orient| {
+                    try c.out.print("    Orientation: {s}\n", .{formatOrientation(orient)});
+                }
+                if (json_out.create_time) |ct| {
+                    try c.out.print("    Captured: {s}\n", .{ct});
+                }
+                if (json_out.camera_make) |make| {
+                    try c.out.print("    Camera Make: {s}\n", .{make});
+                }
+                if (json_out.camera_model) |model| {
+                    try c.out.print("    Camera Model: {s}\n", .{model});
+                }
+                if (json_out.gps_latitude) |lat| {
+                    const lat_ref: u8 = if (lat >= 0) 'N' else 'S';
+                    const lon = json_out.gps_longitude.?;
+                    const lon_ref: u8 = if (lon >= 0) 'E' else 'W';
+                    try c.out.print("    GPS: {d:.4}° {c}, {d:.4}° {c}\n", .{
+                        @abs(lat), lat_ref, @abs(lon), lon_ref,
+                    });
+                }
+                if (json_out.duration_sec) |dur| {
+                    try c.out.print("    Duration: {d:.2} sec\n", .{dur});
                 }
                 try c.out.print("\n", .{});
             }
