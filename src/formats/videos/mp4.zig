@@ -4,9 +4,13 @@ const ByteReader = @import("../../core/byte_reader.zig").ByteReader;
 const common = @import("common.zig");
 const VideoInfo = common.VideoInfo;
 
+/// Dimensions and orientation extracted from a video track.
 pub const Dims = struct {
+    /// Width in pixels.
     width: u32,
+    /// Height in pixels.
     height: u32,
+    /// Orientation/rotation mapping (1: 0°, 3: 180°, 6: 90° CW, 8: 270° CW).
     orientation: u16 = 1,
 };
 
@@ -64,6 +68,7 @@ pub fn findTkhdInPayload(payload: []const u8) ?Dims {
     return findTkhdInReader(&reader);
 }
 
+/// Scan boxes in a ByteReader recursively to locate and parse the `tkhd` track header box.
 pub fn findTkhdInReader(reader: *ByteReader) ?Dims {
     while (reader.remaining() >= 8) {
         const box_size = reader.readU32() catch return null;
@@ -95,11 +100,14 @@ pub fn findTkhdInReader(reader: *ByteReader) ?Dims {
     return null;
 }
 
+/// Parse the `mvhd` (Movie Header) payload to extract video duration and creation date.
 pub fn parseMvhd(allocator: std.mem.Allocator, payload: []const u8, info: *VideoInfo) !void {
     var reader = ByteReader.init(payload, .big);
     try parseMvhdInReader(allocator, &reader, info);
 }
 
+/// Read details from a `mvhd` box payload via a ByteReader, computing duration in seconds
+/// and formatting the creation epoch.
 pub fn parseMvhdInReader(allocator: std.mem.Allocator, reader: *ByteReader, info: *VideoInfo) !void {
     const version = try reader.readU8();
     try reader.skip(3); // flags
@@ -132,6 +140,8 @@ pub fn parseMvhdInReader(allocator: std.mem.Allocator, reader: *ByteReader, info
     }
 }
 
+/// Walk the ISO base media file (MP4/MOV) structure in the specified range to locate
+/// `mvhd` (Movie Header) and `tkhd` (Track Header) boxes, extracting duration and layout info.
 pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: anytype, start_offset: u64, end_offset: u64, info: *VideoInfo) !void {
     var offset = start_offset;
     while (offset + 8 <= end_offset) {

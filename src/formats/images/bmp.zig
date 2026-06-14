@@ -1,7 +1,10 @@
 const std = @import("std");
 
+/// Magic bytes signature identifying a BMP file header ("BM").
 pub const bmpMagic: [2]u8 = .{ 'B', 'M' };
 
+/// Parse a BMP header from a byte slice to extract image width and height.
+/// Returns error.NotBmp if the header length is insufficient or magic bytes do not match.
 pub fn parseBmp(header: []const u8) !struct { width: u32, height: u32 } {
     if (header.len < 26 or header[0] != bmpMagic[0] or header[1] != bmpMagic[1])
         return error.NotBmp;

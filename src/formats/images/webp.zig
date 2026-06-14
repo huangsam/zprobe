@@ -3,9 +3,14 @@ const tiff = @import("tiff.zig");
 const common = @import("common.zig");
 const ImageMetadata = common.ImageMetadata;
 
+/// Magic bytes signature identifying a RIFF container header ("RIFF").
 pub const webpRiffMagic: [4]u8 = .{ 'R', 'I', 'F', 'F' };
+
+/// Magic bytes signature identifying WebP format payload ("WEBP").
 pub const webpWebpMagic: [4]u8 = .{ 'W', 'E', 'B', 'P' };
 
+/// Parse WebP image dimensions from an in-memory header. Handles VP8 (lossy),
+/// VP8L (lossless), and VP8X (extended) format chunks.
 pub fn parseWebp(header: []const u8) !struct { width: u32, height: u32 } {
     if (header.len < 12) return error.WebpTooShort;
     if (!std.mem.eql(u8, header[0..4], &webpRiffMagic) or !std.mem.eql(u8, header[8..12], &webpWebpMagic)) {
@@ -44,6 +49,8 @@ pub fn parseWebp(header: []const u8) !struct { width: u32, height: u32 } {
     return error.UnsupportedWebpChunk;
 }
 
+/// Scan WebP chunks from a file to retrieve width and height, and extract/parse
+/// any EXIF metadata chunks if present.
 pub fn parseWebpFile(allocator: std.mem.Allocator, file: anytype, io: anytype, meta: *ImageMetadata) !void {
     const size = try std.Io.File.length(file, io);
     if (size < 12) return error.WebpTooShort;

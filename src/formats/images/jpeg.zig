@@ -3,8 +3,11 @@ const tiff = @import("tiff.zig");
 const common = @import("common.zig");
 const ImageMetadata = common.ImageMetadata;
 
+/// Magic bytes signature identifying the start of a JPEG stream.
 pub const jpegMagic: [2]u8 = .{ 0xff, 0xd8 };
 
+/// Parse JPEG headers from an in-memory buffer to locate the Start of Frame (SOF) marker
+/// and extract width and height. Returns error.NotJpeg if header doesn't start with SOI.
 pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
     if (header.len < 2 or header[0] != jpegMagic[0] or header[1] != jpegMagic[1])
         return error.NotJpeg;
@@ -47,6 +50,8 @@ pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
     return error.JpegNoDimensions;
 }
 
+/// Stream-parse a JPEG file using the provided reader to extract dimensions and
+/// parse any EXIF APP1 segments for camera/GPS metadata.
 pub fn parseJpegFile(allocator: std.mem.Allocator, reader: *std.Io.Reader, meta: *ImageMetadata) !struct { width: u16, height: u16 } {
     try reader.discardAll(2);
 

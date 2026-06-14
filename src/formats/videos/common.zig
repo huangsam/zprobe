@@ -3,20 +3,30 @@ const Dir = std.Io.Dir;
 const mp4 = @import("mp4.zig");
 const ebml = @import("ebml.zig");
 
+/// Extracted layout and metadata from a video file.
 pub const VideoInfo = struct {
+    /// The video container format (e.g. "mp4", "mkv", "webm").
     format: []const u8,
+    /// Video track width in pixels.
     width: u32,
+    /// Video track height in pixels.
     height: u32,
+    /// Rotation/orientation mapping value (1: 0°, 3: 180°, 6: 90° CW, 8: 270° CW), if present.
     orientation: ?u16 = null,
+    /// The creation time string formatted as "YYYY-MM-DD HH:MM:SS", if present.
     create_time: ?[]const u8 = null,
+    /// The duration of the video in seconds, if present.
     duration_sec: ?f64 = null,
 
+    /// Free heap-allocated strings stored within VideoInfo.
     pub fn deinit(self: *VideoInfo, allocator: std.mem.Allocator) void {
         if (self.create_time) |s| allocator.free(s);
     }
 };
 
-/// Try parsing a video file. Returns format and dimensions on success.
+/// Open a video file at the specified absolute path, determine if it is MP4, MKV,
+/// or WebM, and parse its container hierarchy to extract video layout, duration,
+/// and metadata.
 pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anytype) !VideoInfo {
     const file = try Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
     defer std.Io.File.close(file, io);

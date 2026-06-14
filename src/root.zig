@@ -11,15 +11,26 @@
 
 const std = @import("std");
 
+/// Directory crawling and media file filtering interface.
 pub const media_scan = @import("crawler/media_scan.zig");
+
+/// Image metadata parsing and information extraction interface.
 pub const image_meta = struct {
+    /// Re-export of the main image metadata struct.
     pub const ImageMetadata = @import("formats/images/common.zig").ImageMetadata;
+    /// Re-export of the file parser function.
     pub const parseFile = @import("formats/images/common.zig").parseFile;
 };
+
+/// Video metadata parsing and information extraction interface.
 pub const video_meta = struct {
+    /// Re-export of the main video metadata struct.
     pub const VideoInfo = @import("formats/videos/common.zig").VideoInfo;
+    /// Re-export of the video parser function.
     pub const getVideoMetadata = @import("formats/videos/common.zig").getVideoMetadata;
 };
+
+/// Endian-aware stream reading interface.
 pub const byte_reader = @import("core/byte_reader.zig");
 
 test {

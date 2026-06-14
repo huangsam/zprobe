@@ -13,6 +13,9 @@ fn getTypeSize(t: u16) usize {
     };
 }
 
+/// Parse an Image File Directory (IFD) from a TIFF stream, reading EXIF tags
+/// (e.g. dimensions, camera make/model, orientation) and recursing into sub-IFDs
+/// (such as EXIF and GPS sub-IFDs) up to a maximum recursion depth of 4.
 pub fn parseIfd(
     allocator: std.mem.Allocator,
     root_reader: *ByteReader,
@@ -95,6 +98,8 @@ pub fn parseIfd(
     }
 }
 
+/// Parse a GPS Info IFD from a TIFF stream, extracting latitude/longitude coordinates
+/// and ref directions, computing decimal degrees values.
 pub fn parseGpsIfd(
     root_reader: *ByteReader,
     ifd_offset: usize,
@@ -184,6 +189,8 @@ pub fn parseGpsIfd(
     }
 }
 
+/// Parse a TIFF structure from a byte buffer. Resolves endianness, validates the magic
+/// number (42), and reads the initial IFD offset to parse image and EXIF metadata.
 pub fn parseTiff(
     allocator: std.mem.Allocator,
     tiff_buf: []const u8,

@@ -1,15 +1,25 @@
 const std = @import("std");
 
+/// State tracking for parsing EBML (Matroska/WebM) containers.
 pub const EbmlState = struct {
+    /// Track width of the selected video track, in pixels.
     width: u32 = 0,
+    /// Track height of the selected video track, in pixels.
     height: u32 = 0,
+    /// Timecode scale factor in nanoseconds, default 1,000,000 (1ms).
     timecode_scale: u64 = 1_000_000,
+    /// Unscaled floating-point duration value.
     duration_raw: ?f64 = null,
+    /// Type ID of the currently parsed track entry (1 for video, 2 for audio, etc).
     current_track_type: ?u64 = null,
+    /// Width of the currently parsed track.
     current_track_width: u32 = 0,
+    /// Height of the currently parsed track.
     current_track_height: u32 = 0,
 };
 
+/// Get the size in bytes of an EBML Variable-Size Integer (VINT) based on
+/// the position of the first set bit (leading zeroes) in its first byte.
 pub fn getVintSize(first_byte: u8) !usize {
     if (first_byte & 0x80 != 0) return 1;
     if (first_byte & 0x40 != 0) return 2;
@@ -22,6 +32,7 @@ pub fn getVintSize(first_byte: u8) !usize {
     return error.InvalidVint;
 }
 
+/// Decode the value of a VINT, clearing the leading marker bit.
 pub fn decodeVintVal(buf: []const u8) u64 {
     if (buf.len == 0) return 0;
     const mask: u8 = switch (buf.len) {
@@ -42,6 +53,7 @@ pub fn decodeVintVal(buf: []const u8) u64 {
     return val;
 }
 
+/// Check if a VINT represents an "unknown/undefined" size (all data bits set to 1).
 pub fn isVintUnknown(buf: []const u8) bool {
     if (buf.len == 0) return false;
     const mask: u8 = switch (buf.len) {
@@ -62,6 +74,8 @@ pub fn isVintUnknown(buf: []const u8) bool {
     return true;
 }
 
+/// Read a big-endian unsigned integer of a specific byte size (1-8 bytes)
+/// from the file at the given offset.
 pub fn readUint(file: anytype, io: anytype, offset: u64, size: u64) !u64 {
     if (size == 0 or size > 8) return 0;
     var buf: [8]u8 = undefined;
@@ -73,6 +87,8 @@ pub fn readUint(file: anytype, io: anytype, offset: u64, size: u64) !u64 {
     return val;
 }
 
+/// Read a big-endian float of a specific byte size (4 or 8 bytes)
+/// from the file at the given offset.
 pub fn readFloat(file: anytype, io: anytype, offset: u64, size: u64) !f64 {
     if (size == 4) {
         var buf: [4]u8 = undefined;
@@ -89,6 +105,8 @@ pub fn readFloat(file: anytype, io: anytype, offset: u64, size: u64) !f64 {
     return error.InvalidFloatSize;
 }
 
+/// Recursively scan EBML elements in the specified offset range, updating the EbmlState
+/// when encountering segments, track metadata, dimensions, or time information.
 pub fn parseEbmlElements(file: anytype, io: anytype, start_offset: u64, end_offset: u64, state: *EbmlState, depth: usize) !void {
     if (depth > 16) return error.EbmlTooDeep;
     var offset = start_offset;

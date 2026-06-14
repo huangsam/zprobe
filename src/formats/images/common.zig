@@ -8,17 +8,28 @@ const bmp = @import("bmp.zig");
 const webp = @import("webp.zig");
 const tiff = @import("tiff.zig");
 
+/// Extracted metadata from an image file.
 pub const ImageMetadata = struct {
+    /// The image format (e.g. "jpeg", "png", "gif", "bmp", "webp", "tiff").
     format: []const u8,
+    /// Image width in pixels.
     width: u32,
+    /// Image height in pixels.
     height: u32,
+    /// EXIF orientation value (1-8), if present.
     orientation: ?u16 = null,
+    /// EXIF date/time string when the image was captured, if present.
     create_time: ?[]const u8 = null,
+    /// EXIF camera manufacturer string, if present.
     camera_make: ?[]const u8 = null,
+    /// EXIF camera model string, if present.
     camera_model: ?[]const u8 = null,
+    /// GPS latitude coordinate, if present.
     gps_latitude: ?f64 = null,
+    /// GPS longitude coordinate, if present.
     gps_longitude: ?f64 = null,
 
+    /// Free heap-allocated strings stored within ImageMetadata.
     pub fn deinit(self: *ImageMetadata, allocator: std.mem.Allocator) void {
         if (self.create_time) |s| allocator.free(s);
         if (self.camera_make) |s| allocator.free(s);
@@ -26,6 +37,8 @@ pub const ImageMetadata = struct {
     }
 };
 
+/// Open an image file at the specified absolute path, identify its format,
+/// and parse its header to extract layout and metadata details.
 pub fn parseFile(allocator: std.mem.Allocator, path: []const u8, io: anytype) !ImageMetadata {
     const file = try Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
     defer std.Io.File.close(file, io);

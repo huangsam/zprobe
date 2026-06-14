@@ -3,8 +3,11 @@ const tiff = @import("tiff.zig");
 const common = @import("common.zig");
 const ImageMetadata = common.ImageMetadata;
 
+/// Magic bytes signature identifying a PNG file header.
 pub const pngMagic: [8]u8 = .{ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a };
 
+/// Parse a PNG header from a byte slice to locate the IHDR chunk and extract
+/// image width and height. Returns error.NotPng if the signature doesn't match.
 pub fn parsePng(header: []const u8) !struct { width: u32, height: u32 } {
     if (header.len < 8 or !std.mem.eql(u8, header[0..8], &pngMagic))
         return error.NotPng;
@@ -26,6 +29,8 @@ pub fn parsePng(header: []const u8) !struct { width: u32, height: u32 } {
     return .{ .width = w, .height = h };
 }
 
+/// Scan PNG chunks from a file, extracting dimensions from the IHDR chunk
+/// and parsing any eXIf metadata chunks if encountered.
 pub fn parsePngFile(allocator: std.mem.Allocator, file: anytype, io: anytype, meta: *ImageMetadata) !void {
     const size = try std.Io.File.length(file, io);
     if (size < 8) return error.PngTooShort;

@@ -81,6 +81,7 @@ pub const ByteReader = struct {
         };
     }
 
+    /// Read a 32-bit unsigned integer and advance the cursor by 4.
     pub fn readU32(self: *ByteReader) !u32 {
         if (self.offset + 4 > self.buffer.len) return error.OutOfBounds;
         const bytes = self.buffer[self.offset .. self.offset + 4];
@@ -91,6 +92,7 @@ pub const ByteReader = struct {
         };
     }
 
+    /// Read a 32-bit signed integer and advance the cursor by 4.
     pub fn readI32(self: *ByteReader) !i32 {
         if (self.offset + 4 > self.buffer.len) return error.OutOfBounds;
         const bytes = self.buffer[self.offset .. self.offset + 4];
@@ -101,6 +103,7 @@ pub const ByteReader = struct {
         };
     }
 
+    /// Read a 64-bit unsigned integer and advance the cursor by 8.
     pub fn readU64(self: *ByteReader) !u64 {
         if (self.offset + 8 > self.buffer.len) return error.OutOfBounds;
         const bytes = self.buffer[self.offset .. self.offset + 8];
@@ -111,6 +114,8 @@ pub const ByteReader = struct {
         };
     }
 
+    /// Read a TIFF-style Rational (two 32-bit unsigned integers: numerator and denominator)
+    /// and return it as a 64-bit float. Returns 0.0 if the denominator is zero.
     pub fn readRational(self: *ByteReader) !f64 {
         const num = try self.readU32();
         const den = try self.readU32();
@@ -118,6 +123,8 @@ pub const ByteReader = struct {
         return @as(f64, @floatFromInt(num)) / @as(f64, @floatFromInt(den));
     }
 
+    /// Read a fixed-size ASCII string from the stream, trim trailing null bytes
+    /// and spaces, and allocate/return the result. The caller owns the returned slice.
     pub fn readAscii(self: *ByteReader, allocator: std.mem.Allocator, count: u32) ![]const u8 {
         if (self.offset + count > self.buffer.len) return error.OutOfBounds;
         const raw = self.buffer[self.offset .. self.offset + count];
