@@ -10,3 +10,9 @@ zig-out/
 # OS-specific files
 .DS_Store
 Thumbs.db
+
+# Additional assets
+brainstorm/
+playground/
+test_media/
+media/

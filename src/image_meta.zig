@@ -248,7 +248,261 @@ pub fn parseWebp(header: []const u8) !struct { width: u32, height: u32 } {
 /// Instead, this function streams the file incrementally using positional reads
 /// (`std.Io.File.readPositionalAll`), traversing the segments dynamically without seeking
 /// or allocating extra buffers.
-fn parseJpegFile(reader: *std.Io.Reader) !struct { width: u16, height: u16 } {
+pub const ImageMetadata = struct {
+    format: []const u8,
+    width: u32,
+    height: u32,
+    orientation: ?u16 = null,
+    create_time: ?[]const u8 = null,
+    camera_make: ?[]const u8 = null,
+    camera_model: ?[]const u8 = null,
+    gps_latitude: ?f64 = null,
+    gps_longitude: ?f64 = null,
+
+    pub fn deinit(self: *ImageMetadata, allocator: std.mem.Allocator) void {
+        if (self.create_time) |s| allocator.free(s);
+        if (self.camera_make) |s| allocator.free(s);
+        if (self.camera_model) |s| allocator.free(s);
+    }
+};
+
+const TiffParser = struct {
+    buffer: []const u8,
+    is_be: bool,
+
+    fn readU16(self: TiffParser, offset: usize) !u16 {
+        if (offset + 2 > self.buffer.len) return error.TiffCorrupt;
+        const slice = self.buffer[offset .. offset + 2];
+        if (self.is_be) {
+            return std.mem.readInt(u16, slice[0..2], .big);
+        } else {
+            return std.mem.readInt(u16, slice[0..2], .little);
+        }
+    }
+
+    fn readU32(self: TiffParser, offset: usize) !u32 {
+        if (offset + 4 > self.buffer.len) return error.TiffCorrupt;
+        const slice = self.buffer[offset .. offset + 4];
+        if (self.is_be) {
+            return std.mem.readInt(u32, slice[0..4], .big);
+        } else {
+            return std.mem.readInt(u32, slice[0..4], .little);
+        }
+    }
+
+    fn readRational(self: TiffParser, offset: usize) !f64 {
+        const num = try self.readU32(offset);
+        const den = try self.readU32(offset + 4);
+        if (den == 0) return 0.0;
+        return @as(f64, @floatFromInt(num)) / @as(f64, @floatFromInt(den));
+    }
+
+    fn getTypeSize(t: u16) usize {
+        return switch (t) {
+            1, 2, 7 => 1,
+            3 => 2,
+            4, 9 => 4,
+            5, 10 => 8,
+            else => 0,
+        };
+    }
+
+    fn entryValueOffset(self: TiffParser, entry_offset: usize, type_id: u16, count: u32) !usize {
+        const type_size = getTypeSize(type_id);
+        if (type_size == 0) return error.TiffUnsupportedType;
+        const total_size = @as(u64, count) * type_size;
+        if (total_size <= 4) {
+            return entry_offset + 8;
+        } else {
+            const offset = try self.readU32(entry_offset + 8);
+            return @as(usize, offset);
+        }
+    }
+
+    fn readAscii(self: TiffParser, allocator: std.mem.Allocator, offset: usize, count: u32) ![]const u8 {
+        if (offset + count > self.buffer.len) return error.TiffCorrupt;
+        var len = count;
+        while (len > 0 and (self.buffer[offset + len - 1] == 0 or self.buffer[offset + len - 1] == ' ')) {
+            len -= 1;
+        }
+        const slice = self.buffer[offset .. offset + len];
+        return try allocator.dupe(u8, slice);
+    }
+
+    fn parseIfd(
+        self: TiffParser,
+        allocator: std.mem.Allocator,
+        ifd_offset: usize,
+        meta: *ImageMetadata,
+        depth: usize,
+    ) !void {
+        if (depth > 4) return;
+        if (ifd_offset == 0 or ifd_offset + 2 > self.buffer.len) return;
+
+        const num_entries = try self.readU16(ifd_offset);
+        var entry_offset = ifd_offset + 2;
+
+        var i: usize = 0;
+        while (i < num_entries) : (i += 1) {
+            if (entry_offset + 12 > self.buffer.len) break;
+
+            const tag = try self.readU16(entry_offset);
+            const type_id = try self.readU16(entry_offset + 2);
+            const count = try self.readU32(entry_offset + 4);
+
+            const val_off = self.entryValueOffset(entry_offset, type_id, count) catch {
+                entry_offset += 12;
+                continue;
+            };
+
+            switch (tag) {
+                0x0112 => { // Orientation
+                    if (type_id == 3 and count == 1) {
+                        meta.orientation = try self.readU16(val_off);
+                    }
+                },
+                0x010f => { // Make
+                    if (type_id == 2) {
+                        meta.camera_make = try self.readAscii(allocator, val_off, count);
+                    }
+                },
+                0x0110 => { // Model
+                    if (type_id == 2) {
+                        meta.camera_model = try self.readAscii(allocator, val_off, count);
+                    }
+                },
+                0x8769 => { // Exif IFD Offset
+                    if (type_id == 4 and count == 1) {
+                        const offset = try self.readU32(entry_offset + 8);
+                        try self.parseIfd(allocator, @as(usize, offset), meta, depth + 1);
+                    }
+                },
+                0x8825 => { // GPS Info IFD Offset
+                    if (type_id == 4 and count == 1) {
+                        const offset = try self.readU32(entry_offset + 8);
+                        try self.parseGpsIfd(allocator, @as(usize, offset), meta);
+                    }
+                },
+                0x9003 => { // DateTimeOriginal
+                    if (type_id == 2) {
+                        meta.create_time = try self.readAscii(allocator, val_off, count);
+                    }
+                },
+                else => {},
+            }
+
+            entry_offset += 12;
+        }
+    }
+
+    fn parseGpsIfd(self: TiffParser, allocator: std.mem.Allocator, ifd_offset: usize, meta: *ImageMetadata) !void {
+        _ = allocator;
+        if (ifd_offset == 0 or ifd_offset + 2 > self.buffer.len) return;
+
+        const num_entries = try self.readU16(ifd_offset);
+        var entry_offset = ifd_offset + 2;
+
+        var lat_rational: ?[3]f64 = null;
+        var lon_rational: ?[3]f64 = null;
+        var lat_ref: ?u8 = null;
+        var lon_ref: ?u8 = null;
+
+        var i: usize = 0;
+        while (i < num_entries) : (i += 1) {
+            if (entry_offset + 12 > self.buffer.len) break;
+
+            const tag = try self.readU16(entry_offset);
+            const type_id = try self.readU16(entry_offset + 2);
+            const count = try self.readU32(entry_offset + 4);
+
+            const val_off = self.entryValueOffset(entry_offset, type_id, count) catch {
+                entry_offset += 12;
+                continue;
+            };
+
+            switch (tag) {
+                0x0001 => { // GPSLatitudeRef
+                    if (type_id == 2 and count >= 1) {
+                        lat_ref = self.buffer[val_off];
+                    }
+                },
+                0x0002 => { // GPSLatitude
+                    if (type_id == 5 and count == 3) {
+                        lat_rational = .{
+                            try self.readRational(val_off),
+                            try self.readRational(val_off + 8),
+                            try self.readRational(val_off + 16),
+                        };
+                    }
+                },
+                0x0003 => { // GPSLongitudeRef
+                    if (type_id == 2 and count >= 1) {
+                        lon_ref = self.buffer[val_off];
+                    }
+                },
+                0x0004 => { // GPSLongitude
+                    if (type_id == 5 and count == 3) {
+                        lon_rational = .{
+                            try self.readRational(val_off),
+                            try self.readRational(val_off + 8),
+                            try self.readRational(val_off + 16),
+                        };
+                    }
+                },
+                else => {},
+            }
+
+            entry_offset += 12;
+        }
+
+        if (lat_rational) |lat| {
+            var val = lat[0] + lat[1] / 60.0 + lat[2] / 3600.0;
+            if (lat_ref) |ref| {
+                if (ref == 'S' or ref == 's') {
+                    val = -val;
+                }
+            }
+            meta.gps_latitude = val;
+        }
+
+        if (lon_rational) |lon| {
+            var val = lon[0] + lon[1] / 60.0 + lon[2] / 3600.0;
+            if (lon_ref) |ref| {
+                if (ref == 'W' or ref == 'w') {
+                    val = -val;
+                }
+            }
+            meta.gps_longitude = val;
+        }
+    }
+};
+
+fn parseTiff(
+    allocator: std.mem.Allocator,
+    tiff_buf: []const u8,
+    meta: *ImageMetadata,
+) !void {
+    if (tiff_buf.len < 8) return error.TiffTooShort;
+
+    var is_be = false;
+    if (std.mem.eql(u8, tiff_buf[0..2], "II")) {
+        is_be = false;
+    } else if (std.mem.eql(u8, tiff_buf[0..2], "MM")) {
+        is_be = true;
+    } else {
+        return error.InvalidTiffHeader;
+    }
+
+    const parser = TiffParser{ .buffer = tiff_buf, .is_be = is_be };
+
+    const magic = try parser.readU16(2);
+    if (magic != 42) return error.InvalidTiffMagic;
+
+    const first_ifd_offset = try parser.readU32(4);
+    try parser.parseIfd(allocator, @as(usize, first_ifd_offset), meta, 0);
+}
+
+fn parseJpegFile(allocator: std.mem.Allocator, reader: *std.Io.Reader, meta: *ImageMetadata) !struct { width: u16, height: u16 } {
     // Skip initial SOI (Start Of Image) magic bytes (0xFFD8)
     try reader.discardAll(2);
 
@@ -291,6 +545,23 @@ fn parseJpegFile(reader: *std.Io.Reader) !struct { width: u16, height: u16 } {
 
         if (segment_len < 2) return error.InvalidJpeg;
 
+        // Parse EXIF APP1
+        if (marker == 0xe1) {
+            const payload_len = segment_len - 2;
+            if (payload_len >= 6) {
+                const app1_buf = try allocator.alloc(u8, payload_len);
+                defer allocator.free(app1_buf);
+                try reader.readSliceAll(app1_buf);
+
+                if (std.mem.startsWith(u8, app1_buf, "Exif\x00\x00")) {
+                    parseTiff(allocator, app1_buf[6..], meta) catch {};
+                }
+            } else {
+                try reader.discardAll(payload_len);
+            }
+            continue;
+        }
+
         // SOF (Start of Frame) markers that contain dimensions.
         const is_sof = (marker >= 0xc0 and marker <= 0xc3) or
             (marker >= 0xc5 and marker <= 0xc7) or
@@ -312,6 +583,112 @@ fn parseJpegFile(reader: *std.Io.Reader) !struct { width: u16, height: u16 } {
     }
 }
 
+fn parseWebpFile(allocator: std.mem.Allocator, file: anytype, io: anytype, meta: *ImageMetadata) !void {
+    const size = try std.Io.File.length(file, io);
+    if (size < 12) return error.WebpTooShort;
+
+    var header: [12]u8 = undefined;
+    _ = try std.Io.File.readPositionalAll(file, io, &header, 0);
+    if (!std.mem.eql(u8, header[0..4], &webpRiffMagic) or !std.mem.eql(u8, header[8..12], &webpWebpMagic)) {
+        return error.NotWebp;
+    }
+
+    var offset: u64 = 12;
+    var dims_found = false;
+
+    while (offset + 8 <= size) {
+        var chunk_header: [8]u8 = undefined;
+        _ = try std.Io.File.readPositionalAll(file, io, &chunk_header, offset);
+
+        const chunk_tag = chunk_header[0..4];
+        const chunk_size = @as(u64, chunk_header[4]) |
+            @as(u64, chunk_header[5]) << 8 |
+            @as(u64, chunk_header[6]) << 16 |
+            @as(u64, chunk_header[7]) << 24;
+
+        const real_size = chunk_size + (chunk_size & 1);
+
+        if (offset + 8 + real_size > size) return error.WebpTooShort;
+
+        if (std.mem.eql(u8, chunk_tag, "VP8X")) {
+            var payload: [10]u8 = undefined;
+            _ = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            meta.width = (@as(u32, payload[4]) | (@as(u32, payload[5]) << 8) | (@as(u32, payload[6]) << 16)) + 1;
+            meta.height = (@as(u32, payload[7]) | (@as(u32, payload[8]) << 8) | (@as(u32, payload[9]) << 16)) + 1;
+            dims_found = true;
+        } else if (std.mem.eql(u8, chunk_tag, "VP8L")) {
+            var payload: [5]u8 = undefined;
+            _ = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            if (payload[0] == 0x2f) {
+                const val = @as(u32, payload[1]) | (@as(u32, payload[2]) << 8) | (@as(u32, payload[3]) << 16) | (@as(u32, payload[4]) << 24);
+                meta.width = (val & 0x3fff) + 1;
+                meta.height = ((val >> 14) & 0x3fff) + 1;
+                dims_found = true;
+            }
+        } else if (std.mem.eql(u8, chunk_tag, "VP8 ")) {
+            var payload: [10]u8 = undefined;
+            _ = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            if ((payload[0] & 0x01) == 0 and payload[3] == 0x9d and payload[4] == 0x01 and payload[5] == 0x2a) {
+                meta.width = (@as(u16, payload[6]) | (@as(u16, payload[7]) << 8)) & 0x3fff;
+                meta.height = (@as(u16, payload[8]) | (@as(u16, payload[9]) << 8)) & 0x3fff;
+                dims_found = true;
+            }
+        } else if (std.mem.eql(u8, chunk_tag, "EXIF")) {
+            const exif_buf = try allocator.alloc(u8, chunk_size);
+            defer allocator.free(exif_buf);
+            _ = try std.Io.File.readPositionalAll(file, io, exif_buf, offset + 8);
+            parseTiff(allocator, exif_buf, meta) catch {};
+        }
+
+        offset += 8 + real_size;
+    }
+
+    if (!dims_found) return error.WebpNoDimensions;
+}
+
+fn parsePngFile(allocator: std.mem.Allocator, file: anytype, io: anytype, meta: *ImageMetadata) !void {
+    const size = try std.Io.File.length(file, io);
+    if (size < 8) return error.PngTooShort;
+
+    var sig: [8]u8 = undefined;
+    _ = try std.Io.File.readPositionalAll(file, io, &sig, 0);
+    if (!std.mem.eql(u8, &sig, &pngMagic)) return error.NotPng;
+
+    var offset: u64 = 8;
+    var dims_found = false;
+
+    while (offset + 12 <= size) {
+        var chunk_header: [8]u8 = undefined;
+        _ = try std.Io.File.readPositionalAll(file, io, &chunk_header, offset);
+
+        const chunk_len = @as(u32, chunk_header[0]) << 24 |
+            @as(u32, chunk_header[1]) << 16 |
+            @as(u32, chunk_header[2]) << 8 |
+            @as(u32, chunk_header[3]);
+
+        const chunk_tag = chunk_header[4..8];
+
+        if (std.mem.eql(u8, chunk_tag, "IHDR")) {
+            if (chunk_len < 13 or offset + 8 + 13 > size) return error.PngTooShort;
+            var payload: [8]u8 = undefined;
+            _ = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            meta.width = @as(u32, payload[0]) << 24 | @as(u32, payload[1]) << 16 | @as(u32, payload[2]) << 8 | payload[3];
+            meta.height = @as(u32, payload[4]) << 24 | @as(u32, payload[5]) << 16 | @as(u32, payload[6]) << 8 | payload[7];
+            dims_found = true;
+        } else if (std.mem.eql(u8, chunk_tag, "eXIf")) {
+            if (offset + 8 + chunk_len > size) return error.PngTooShort;
+            const exif_buf = try allocator.alloc(u8, chunk_len);
+            defer allocator.free(exif_buf);
+            _ = try std.Io.File.readPositionalAll(file, io, exif_buf, offset + 8);
+            parseTiff(allocator, exif_buf, meta) catch {};
+        }
+
+        offset += 12 + chunk_len;
+    }
+
+    if (!dims_found) return error.PngNoIhdr;
+}
+
 /// Try parsing a file as an image. Returns dimensions and format on success.
 ///
 /// This implements an optimized two-step process:
@@ -319,7 +696,7 @@ fn parseJpegFile(reader: *std.Io.Reader) !struct { width: u16, height: u16 } {
 /// 2. If it is a format with headers at fixed offsets (PNG, GIF, BMP), it parses them
 ///    directly from the 64-byte in-memory buffer to avoid further read calls.
 /// 3. If it is a JPEG, it delegates to `parseJpegFile` to scan the segments incrementally.
-pub fn parseFile(path: []const u8, io: anytype) !struct { format: []const u8, width: u32, height: u32 } {
+pub fn parseFile(allocator: std.mem.Allocator, path: []const u8, io: anytype) !ImageMetadata {
     const file = try Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
     defer std.Io.File.close(file, io);
 
@@ -327,25 +704,42 @@ pub fn parseFile(path: []const u8, io: anytype) !struct { format: []const u8, wi
     const count = try std.Io.File.readPositionalAll(file, io, &header, 0);
     const data = header[0..count];
 
+    var meta = ImageMetadata{
+        .format = "unknown",
+        .width = 0,
+        .height = 0,
+    };
+
     // Try parsing based on identified magic bytes.
     if (data.len >= 2 and data[0] == jpegMagic[0] and data[1] == jpegMagic[1]) {
+        meta.format = "jpeg";
         var read_buf: [1024]u8 = undefined;
         var f_reader = std.Io.File.reader(file, io, &read_buf);
         const reader = &f_reader.interface;
-        const dims = try parseJpegFile(reader);
-        return .{ .format = "jpeg", .width = @as(u32, dims.width), .height = @as(u32, dims.height) };
+        const dims = try parseJpegFile(allocator, reader, &meta);
+        meta.width = dims.width;
+        meta.height = dims.height;
+        return meta;
     } else if (data.len >= 8 and std.mem.eql(u8, data[0..8], &pngMagic)) {
-        const dims = try parsePng(data);
-        return .{ .format = "png", .width = dims.width, .height = dims.height };
+        meta.format = "png";
+        try parsePngFile(allocator, file, io, &meta);
+        return meta;
     } else if (data.len >= 6 and std.mem.eql(u8, data[0..4], &gifMagic)) {
+        meta.format = "gif";
         const dims = try parseGif(data);
-        return .{ .format = "gif", .width = @as(u32, dims.width), .height = @as(u32, dims.height) };
+        meta.width = dims.width;
+        meta.height = dims.height;
+        return meta;
     } else if (data.len >= 26 and data[0] == bmpMagic[0] and data[1] == bmpMagic[1]) {
+        meta.format = "bmp";
         const dims = try parseBmp(data);
-        return .{ .format = "bmp", .width = dims.width, .height = dims.height };
+        meta.width = dims.width;
+        meta.height = dims.height;
+        return meta;
     } else if (data.len >= 12 and std.mem.eql(u8, data[0..4], &webpRiffMagic) and std.mem.eql(u8, data[8..12], &webpWebpMagic)) {
-        const dims = try parseWebp(data);
-        return .{ .format = "webp", .width = dims.width, .height = dims.height };
+        meta.format = "webp";
+        try parseWebpFile(allocator, file, io, &meta);
+        return meta;
     }
 
     return error.NotImage;

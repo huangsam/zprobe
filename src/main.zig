@@ -43,12 +43,33 @@ fn isVideoExtension(ext: []const u8) bool {
     return false;
 }
 
+fn formatOrientation(orient: u16) []const u8 {
+    return switch (orient) {
+        1 => "0° (Normal)",
+        2 => "Mirrored Horizontal",
+        3 => "180°",
+        4 => "Mirrored Vertical",
+        5 => "Mirrored 90° CCW",
+        6 => "90° CW (Vertical)",
+        7 => "Mirrored 90° CW",
+        8 => "270° CW",
+        else => "Unknown",
+    };
+}
+
 const JsonOutput = struct {
     path: []const u8,
     size: u64,
     format: []const u8,
     width: ?u32 = null,
     height: ?u32 = null,
+    orientation: ?u16 = null,
+    create_time: ?[]const u8 = null,
+    camera_make: ?[]const u8 = null,
+    camera_model: ?[]const u8 = null,
+    gps_latitude: ?f64 = null,
+    gps_longitude: ?f64 = null,
+    duration_sec: ?f64 = null,
 };
 
 /// Main application entrypoint.
@@ -125,24 +146,43 @@ pub fn main(init: std.process.Init) !void {
                 .format = "unknown",
             };
 
+            defer {
+                if (json_out.create_time) |s| c.allocator.free(s);
+                if (json_out.camera_make) |s| c.allocator.free(s);
+                if (json_out.camera_model) |s| c.allocator.free(s);
+            }
+
             const is_video = isVideoExtension(ext);
             if (is_video) {
-                if (video_meta.getVideoMetadata(c.allocator, entry.path, c.io)) |res| {
-                    json_out.format = res.format;
-                    json_out.width = res.width;
-                    json_out.height = res.height;
-                } else |err| {
+                var res = video_meta.getVideoMetadata(c.allocator, entry.path, c.io) catch |err| {
                     std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
-                }
+                    return;
+                };
+                defer res.deinit(c.allocator);
+
+                json_out.format = res.format;
+                json_out.width = res.width;
+                json_out.height = res.height;
+                json_out.orientation = res.orientation;
+                if (res.create_time) |ct| json_out.create_time = try c.allocator.dupe(u8, ct);
+                json_out.duration_sec = res.duration_sec;
             } else {
                 // Attempt image metadata extraction.
-                if (image_meta.parseFile(entry.path, c.io)) |res| {
-                    json_out.format = res.format;
-                    json_out.width = res.width;
-                    json_out.height = res.height;
-                } else |err| {
+                var res = image_meta.parseFile(c.allocator, entry.path, c.io) catch |err| {
                     std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
-                }
+                    return;
+                };
+                defer res.deinit(c.allocator);
+
+                json_out.format = res.format;
+                json_out.width = res.width;
+                json_out.height = res.height;
+                json_out.orientation = res.orientation;
+                if (res.create_time) |ct| json_out.create_time = try c.allocator.dupe(u8, ct);
+                if (res.camera_make) |cm| json_out.camera_make = try c.allocator.dupe(u8, cm);
+                if (res.camera_model) |cm| json_out.camera_model = try c.allocator.dupe(u8, cm);
+                json_out.gps_latitude = res.gps_latitude;
+                json_out.gps_longitude = res.gps_longitude;
             }
 
             if (c.json_mode) {
@@ -157,26 +197,38 @@ pub fn main(init: std.process.Init) !void {
                         try c.out.print("    Format: unknown/unsupported image\n", .{});
                     }
                 } else {
-                    if (is_video) {
-                        try c.out.print(
-                            "    Format: MP4 (Video)\n" ++
-                                "    Dimensions: {d} x {d}\n",
-                            .{ json_out.width.?, json_out.height.? },
-                        );
-                    } else {
-                        try c.out.print(
-                            "    Format: {s}\n" ++
-                                "    Dimensions: {d} x {d}\n",
-                            .{ json_out.format, json_out.width.?, json_out.height.? },
-                        );
+                    try c.out.print("    Format: {s}\n", .{json_out.format});
+                    try c.out.print("    Dimensions: {d} x {d}\n", .{ json_out.width.?, json_out.height.? });
+                    if (json_out.orientation) |orient| {
+                        try c.out.print("    Orientation: {s}\n", .{formatOrientation(orient)});
+                    }
+                    if (json_out.create_time) |ct| {
+                        try c.out.print("    Captured: {s}\n", .{ct});
+                    }
+                    if (json_out.camera_make) |make| {
+                        try c.out.print("    Camera Make: {s}\n", .{make});
+                    }
+                    if (json_out.camera_model) |model| {
+                        try c.out.print("    Camera Model: {s}\n", .{model});
+                    }
+                    if (json_out.gps_latitude) |lat| {
+                        const lat_ref: u8 = if (lat >= 0) 'N' else 'S';
+                        const lon = json_out.gps_longitude.?;
+                        const lon_ref: u8 = if (lon >= 0) 'E' else 'W';
+                        try c.out.print("    GPS: {d:.4}° {c}, {d:.4}° {c}\n", .{
+                            @abs(lat), lat_ref, @abs(lon), lon_ref,
+                        });
+                    }
+                    if (json_out.duration_sec) |dur| {
+                        try c.out.print("    Duration: {d:.2} sec\n", .{dur});
                     }
                 }
                 try c.out.print("\n", .{});
             }
         }
-    }.call;
+    };
 
-    try media_scan.scanAndProcess(abs_target_dir, io, allocator, &ctx, processEntry);
+    try media_scan.scanAndProcess(abs_target_dir, io, allocator, &ctx, processEntry.call);
 
     try out.flush();
 

@@ -9,46 +9,70 @@
 const std = @import("std");
 const Dir = std.Io.Dir;
 
+pub const VideoInfo = struct {
+    format: []const u8,
+    width: u32,
+    height: u32,
+    orientation: ?u16 = null,
+    create_time: ?[]const u8 = null,
+    duration_sec: ?f64 = null,
+
+    pub fn deinit(self: *VideoInfo, allocator: std.mem.Allocator) void {
+        if (self.create_time) |s| allocator.free(s);
+    }
+};
+
 const Dims = struct {
     width: u32,
     height: u32,
+    orientation: u16 = 1,
 };
 
+fn formatEpoch(allocator: std.mem.Allocator, epoch_secs: u64) ![]const u8 {
+    const seconds_in_day = 86400;
+    const days = epoch_secs / seconds_in_day;
+    const seconds_of_day = epoch_secs % seconds_in_day;
+
+    const hour = seconds_of_day / 3600;
+    const minute = (seconds_of_day % 3600) / 60;
+    const second = seconds_of_day % 60;
+
+    // Civil time algorithm (Howard Hinnant, unsigned variant)
+    const z = days + 719468;
+    const era = z / 146097;
+    const doe = z - era * 146097;
+    const yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const y = yoe + era * 400;
+    const doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const mp = (5 * doy + 2) / 153;
+    const d = doy - (153 * mp + 2) / 5 + 1;
+    const m = if (mp < 10) mp + 3 else mp - 9;
+    const year = if (m <= 2) y + 1 else y;
+
+    return try std.fmt.allocPrint(allocator, "{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}:{d:0>2}", .{
+        year, m, d, hour, minute, second,
+    });
+}
+
 /// Parse a `tkhd` (Track Header) box payload.
-///
-/// ### Track Header (`tkhd`) Binary Structure:
-/// - Offset 0: Version (1 byte)
-/// - Offset 1..3: Flags (3 bytes)
-/// - Based on Version:
-///   - **Version 0:** (tkhd size is 84 bytes; payload size is 76)
-///     - Creation & modification times, track ID, duration, etc.
-///     - Width starts at offset 76 in the payload (index 76..79)
-///     - Height starts at offset 80 in the payload (index 80..83)
-///   - **Version 1:** (tkhd size is 96 bytes; payload size is 88)
-///     - Expanded 64-bit timestamps and duration fields.
-///     - Width starts at offset 88 in the payload (index 88..91)
-///     - Height starts at offset 92 in the payload (index 92..95)
-///
-/// **Fixed-Point Encodings:**
-/// Width and height are stored as **16.16 fixed-point big-endian integers**.
-/// The first 2 bytes are the integer part, and the next 2 bytes are the fractional part.
-/// Since we only need pixel-level dimensions, we extract the integer portion by
-/// decoding the first 2 bytes and ignoring the fraction.
 fn parseTkhd(payload: []const u8) ?Dims {
     if (payload.len < 80) return null;
 
     const version = payload[0];
     var w_off: usize = 0;
     var h_off: usize = 0;
+    var m_off: usize = 0;
 
     if (version == 0) {
         if (payload.len < 84) return null;
         w_off = 76;
         h_off = 80;
+        m_off = 40;
     } else if (version == 1) {
         if (payload.len < 96) return null;
         w_off = 88;
         h_off = 92;
+        m_off = 52;
     } else {
         return null;
     }
@@ -57,25 +81,25 @@ fn parseTkhd(payload: []const u8) ?Dims {
     const w = @as(u32, payload[w_off]) << 8 | @as(u32, payload[w_off + 1]);
     const h = @as(u32, payload[h_off]) << 8 | @as(u32, payload[h_off + 1]);
 
-    return .{ .width = w, .height = h };
+    // Parse matrix for rotation
+    const a = @as(i32, @bitCast(@as(u32, payload[m_off]) << 24 | @as(u32, payload[m_off + 1]) << 16 | @as(u32, payload[m_off + 2]) << 8 | payload[m_off + 3]));
+    const b = @as(i32, @bitCast(@as(u32, payload[m_off + 4]) << 24 | @as(u32, payload[m_off + 5]) << 16 | @as(u32, payload[m_off + 6]) << 8 | payload[m_off + 7]));
+    const c = @as(i32, @bitCast(@as(u32, payload[m_off + 12]) << 24 | @as(u32, payload[m_off + 13]) << 16 | @as(u32, payload[m_off + 14]) << 8 | payload[m_off + 15]));
+    const d = @as(i32, @bitCast(@as(u32, payload[m_off + 16]) << 24 | @as(u32, payload[m_off + 17]) << 16 | @as(u32, payload[m_off + 18]) << 8 | payload[m_off + 19]));
+
+    var orientation: u16 = 1;
+    if (b == 0x00010000 and c == -0x00010000) {
+        orientation = 6;
+    } else if (a == -0x00010000 and d == -0x00010000) {
+        orientation = 3;
+    } else if (b == -0x00010000 and c == 0x00010000) {
+        orientation = 8;
+    }
+
+    return .{ .width = w, .height = h, .orientation = orientation };
 }
 
 /// Recursively search for the `tkhd` box within nested container boxes.
-///
-/// ### Container Hierarchy
-/// In an MP4 file, certain boxes contain raw binary payloads, while others act
-/// as directories containing nested children boxes.
-/// ```
-/// moov (Movie Box)
-/// └── trak (Track Box)
-///     └── mdia (Media Box)
-///         └── minf (Media Information)
-///             └── stbl (Sample Table)
-///             └── tkhd (Track Header - contains dimensions)
-/// ```
-///
-/// This function walks the sibling box list at the current payload level. If it discovers
-/// a container box (`trak`, `mdia`, `minf`, or `stbl`), it recurses into its payload.
 fn findTkhdInPayload(payload: []const u8) ?Dims {
     var off: usize = 0;
     while (off + 8 <= payload.len) {
@@ -113,7 +137,41 @@ fn findTkhdInPayload(payload: []const u8) ?Dims {
     return null;
 }
 
-fn findTkhdInFile(file: anytype, io: anytype, start_offset: u64, end_offset: u64) !?Dims {
+fn parseMvhd(allocator: std.mem.Allocator, payload: []const u8, info: *VideoInfo) !void {
+    if (payload.len < 20) return;
+
+    const version = payload[0];
+    var timescale: u32 = 0;
+    var duration: u64 = 0;
+    var creation_time: u64 = 0;
+
+    if (version == 0) {
+        creation_time = @as(u32, payload[4]) << 24 | @as(u32, payload[5]) << 16 | @as(u32, payload[6]) << 8 | payload[7];
+        timescale = @as(u32, payload[12]) << 24 | @as(u32, payload[13]) << 16 | @as(u32, payload[14]) << 8 | payload[15];
+        duration = @as(u32, payload[16]) << 24 | @as(u32, payload[17]) << 16 | @as(u32, payload[18]) << 8 | payload[19];
+    } else if (version == 1) {
+        if (payload.len < 32) return;
+        creation_time = @as(u64, payload[4]) << 56 | @as(u64, payload[5]) << 48 | @as(u64, payload[6]) << 40 | @as(u64, payload[7]) << 32 |
+            @as(u64, payload[8]) << 24 | @as(u64, payload[9]) << 16 | @as(u64, payload[10]) << 8 | payload[11];
+        timescale = @as(u32, payload[20]) << 24 | @as(u32, payload[21]) << 16 | @as(u32, payload[22]) << 8 | payload[23];
+        duration = @as(u64, payload[24]) << 56 | @as(u64, payload[25]) << 48 | @as(u64, payload[26]) << 40 | @as(u64, payload[27]) << 32 |
+            @as(u64, payload[28]) << 24 | @as(u64, payload[29]) << 16 | @as(u64, payload[30]) << 8 | payload[31];
+    } else {
+        return;
+    }
+
+    if (timescale > 0) {
+        info.duration_sec = @as(f64, @floatFromInt(duration)) / @as(f64, @floatFromInt(timescale));
+    }
+
+    // Convert creation_time (seconds since Jan 1, 1904) to Unix time
+    if (creation_time >= 2082844800) {
+        const unix_secs = creation_time - 2082844800;
+        info.create_time = formatEpoch(allocator, unix_secs) catch null;
+    }
+}
+
+fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: anytype, start_offset: u64, end_offset: u64, info: *VideoInfo) !void {
     var offset = start_offset;
     while (offset + 8 <= end_offset) {
         var header_buf: [8]u8 = undefined;
@@ -149,31 +207,34 @@ fn findTkhdInFile(file: anytype, io: anytype, start_offset: u64, end_offset: u64
 
         if (real_size < header_len or offset + real_size > end_offset) return error.InvalidMp4;
 
-        if (std.mem.eql(u8, box_type, "tkhd")) {
+        if (std.mem.eql(u8, box_type, "mvhd")) {
+            const payload_len = real_size - header_len;
+            var mvhd_buf: [36]u8 = undefined;
+            const read_len = @min(payload_len, mvhd_buf.len);
+            _ = try std.Io.File.readPositionalAll(file, io, mvhd_buf[0..read_len], offset + header_len);
+            try parseMvhd(allocator, mvhd_buf[0..read_len], info);
+        } else if (std.mem.eql(u8, box_type, "tkhd")) {
             const payload_len = real_size - header_len;
             var tkhd_buf: [96]u8 = undefined;
             const read_len = @min(payload_len, tkhd_buf.len);
             _ = try std.Io.File.readPositionalAll(file, io, tkhd_buf[0..read_len], offset + header_len);
             if (parseTkhd(tkhd_buf[0..read_len])) |dims| {
                 if (dims.width > 0 and dims.height > 0) {
-                    return dims;
+                    info.width = dims.width;
+                    info.height = dims.height;
+                    info.orientation = dims.orientation;
                 }
             }
-        }
-
-        if (std.mem.eql(u8, box_type, "trak") or
+        } else if (std.mem.eql(u8, box_type, "trak") or
             std.mem.eql(u8, box_type, "mdia") or
             std.mem.eql(u8, box_type, "minf") or
             std.mem.eql(u8, box_type, "stbl"))
         {
-            if (try findTkhdInFile(file, io, offset + header_len, offset + real_size)) |dims| {
-                return dims;
-            }
+            try findTkhdAndMvhdInFile(allocator, file, io, offset + header_len, offset + real_size, info);
         }
 
         offset += real_size;
     }
-    return null;
 }
 
 /// Try parsing a video file. Returns format and dimensions on success.
@@ -182,14 +243,19 @@ fn findTkhdInFile(file: anytype, io: anytype, start_offset: u64, end_offset: u64
 /// - MP4 files can be massive (gigabytes of compressed stream data in `mdat`).
 /// - However, the metadata (`moov` box) is typically very small.
 /// - This parser scans the file linearly, reading only the 8-byte box headers.
-/// - The search for the track header (`tkhd`) is done recursively in-place within the file,
+/// - The search for the track header (`tkhd`) and movie header (`mvhd`) is done recursively in-place within the file,
 ///   completely avoiding loading the `moov` payload into memory.
-pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anytype) !struct { format: []const u8, width: u32, height: u32 } {
-    _ = allocator; // No longer needed as findTkhdInFile does not allocate heap memory
+pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anytype) !VideoInfo {
     const file = try Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
     defer std.Io.File.close(file, io);
 
     const size = try std.Io.File.length(file, io);
+
+    var info = VideoInfo{
+        .format = "mp4",
+        .width = 0,
+        .height = 0,
+    };
 
     var offset: u64 = 0;
     while (offset + 8 <= size) {
@@ -229,12 +295,9 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
         if (real_size < header_len or offset + real_size > size) return error.InvalidMp4;
 
         if (std.mem.eql(u8, box_type, "moov")) {
-            if (try findTkhdInFile(file, io, offset + header_len, offset + real_size)) |dims| {
-                return .{
-                    .format = "mp4",
-                    .width = dims.width,
-                    .height = dims.height,
-                };
+            try findTkhdAndMvhdInFile(allocator, file, io, offset + header_len, offset + real_size, &info);
+            if (info.width > 0 and info.height > 0) {
+                return info;
             }
             return error.NoVideoTrack;
         }
@@ -814,4 +877,126 @@ test "parse MP4 tkhd handles multiple sibling boxes finds correct tkhd" {
     const dims = findTkhdInPayload(buf[0 .. 32 + tkhd_size]) orelse return error.TestFailed;
     try std.testing.expectEqual(@as(u32, 960), dims.width);
     try std.testing.expectEqual(@as(u32, 600), dims.height);
+}
+
+test "formatEpoch civil time formatting" {
+    const allocator = std.testing.allocator;
+    const epoch_secs: u64 = 1718300000; // 2024-06-13 17:33:20
+    const str = try formatEpoch(allocator, epoch_secs);
+    defer allocator.free(str);
+    try std.testing.expectEqualStrings("2024-06-13 17:33:20", str);
+}
+
+test "parseMvhd version 0 duration and creation date" {
+    const allocator = std.testing.allocator;
+    var info = VideoInfo{
+        .format = "mp4",
+        .width = 0,
+        .height = 0,
+    };
+    defer info.deinit(allocator);
+
+    var payload = [_]u8{0} ** 36;
+    payload[0] = 0; // version 0
+    // creation time: 2082844800 (1970-01-01 00:00:00 Unix epoch) + 1718300000 = 3801144800
+    // 3801144800 in hex is 0xE28EB9E0
+    payload[4] = 0xe2;
+    payload[5] = 0x8e;
+    payload[6] = 0xb9;
+    payload[7] = 0xe0;
+
+    // timescale: 1000 -> 0x000003E8
+    payload[12] = 0;
+    payload[13] = 0;
+    payload[14] = 0x03;
+    payload[15] = 0xe8;
+
+    // duration: 3550053 -> 0x00362C65
+    payload[16] = 0x00;
+    payload[17] = 0x36;
+    payload[18] = 0x2c;
+    payload[19] = 0x65;
+
+    try parseMvhd(allocator, &payload, &info);
+    try std.testing.expectEqual(@as(f64, 3550.309), info.duration_sec.?);
+    try std.testing.expectEqualStrings("2024-06-12 02:35:12", info.create_time.?);
+}
+
+test "parseTkhd rotation matrices" {
+    // 1. Normal (Identity matrix)
+    {
+        var payload = [_]u8{0} ** 84;
+        payload[0] = 0; // version 0
+        // matrix:
+        // a = 0x00010000 (offset 40)
+        payload[40] = 0x00;
+        payload[41] = 0x01;
+        payload[42] = 0x00;
+        payload[43] = 0x00;
+        // d = 0x00010000 (offset 56)
+        payload[56] = 0x00;
+        payload[57] = 0x01;
+        payload[58] = 0x00;
+        payload[59] = 0x00;
+
+        const dims = parseTkhd(&payload) orelse return error.TestFailed;
+        try std.testing.expectEqual(@as(u16, 1), dims.orientation);
+    }
+
+    // 2. 90 degrees CW rotation
+    {
+        var payload = [_]u8{0} ** 84;
+        payload[0] = 0; // version 0
+        // b = 0x00010000 (offset 44)
+        payload[44] = 0x00;
+        payload[45] = 0x01;
+        payload[46] = 0x00;
+        payload[47] = 0x00;
+        // c = -0x00010000 (offset 52) -> 0xFFFF0000
+        payload[52] = 0xff;
+        payload[53] = 0xff;
+        payload[54] = 0x00;
+        payload[55] = 0x00;
+
+        const dims = parseTkhd(&payload) orelse return error.TestFailed;
+        try std.testing.expectEqual(@as(u16, 6), dims.orientation);
+    }
+
+    // 3. 180 degrees rotation
+    {
+        var payload = [_]u8{0} ** 84;
+        payload[0] = 0; // version 0
+        // a = -0x00010000 (offset 40) -> 0xFFFF0000
+        payload[40] = 0xff;
+        payload[41] = 0xff;
+        payload[42] = 0x00;
+        payload[43] = 0x00;
+        // d = -0x00010000 (offset 56) -> 0xFFFF0000
+        payload[56] = 0xff;
+        payload[57] = 0xff;
+        payload[58] = 0x00;
+        payload[59] = 0x00;
+
+        const dims = parseTkhd(&payload) orelse return error.TestFailed;
+        try std.testing.expectEqual(@as(u16, 3), dims.orientation);
+    }
+
+    // 4. 270 degrees CW (90 CCW) rotation
+    {
+        var payload = [_]u8{0} ** 84;
+        payload[0] = 0; // version 0
+        // b = -0x00010000 (offset 44) -> 0xFFFF0000
+        payload[44] = 0xff;
+        payload[45] = 0xff;
+        payload[46] = 0x00;
+        payload[47] = 0x00;
+        // c = 0x00010000 (offset 52)
+        payload[52] = 0x00;
+        payload[53] = 0x01;
+        payload[54] = 0x00;
+        payload[55] = 0x00;
+
+        const dims = parseTkhd(&payload) orelse return error.TestFailed;
+        try std.testing.expectEqual(@as(u16, 8), dims.orientation);
+    }
 }
