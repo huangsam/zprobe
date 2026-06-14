@@ -113,16 +113,79 @@ fn findTkhdInPayload(payload: []const u8) ?Dims {
     return null;
 }
 
+fn findTkhdInFile(file: anytype, io: anytype, start_offset: u64, end_offset: u64) !?Dims {
+    var offset = start_offset;
+    while (offset + 8 <= end_offset) {
+        var header_buf: [8]u8 = undefined;
+        _ = try std.Io.File.readPositionalAll(file, io, &header_buf, offset);
+
+        const box_size = @as(u64, header_buf[0]) << 24 |
+            @as(u64, header_buf[1]) << 16 |
+            @as(u64, header_buf[2]) << 8 |
+            @as(u64, header_buf[3]);
+
+        const box_type = header_buf[4..8];
+
+        var header_len: u64 = 8;
+        var real_size = box_size;
+
+        if (box_size == 1) {
+            var ext_size_buf: [8]u8 = undefined;
+            _ = try std.Io.File.readPositionalAll(file, io, &ext_size_buf, offset + 8);
+            real_size = @as(u64, ext_size_buf[0]) << 56 |
+                @as(u64, ext_size_buf[1]) << 48 |
+                @as(u64, ext_size_buf[2]) << 40 |
+                @as(u64, ext_size_buf[3]) << 32 |
+                @as(u64, ext_size_buf[4]) << 24 |
+                @as(u64, ext_size_buf[5]) << 16 |
+                @as(u64, ext_size_buf[6]) << 8 |
+                @as(u64, ext_size_buf[7]);
+            header_len = 16;
+        }
+
+        if (real_size == 0) {
+            real_size = end_offset - offset;
+        }
+
+        if (real_size < header_len or offset + real_size > end_offset) return error.InvalidMp4;
+
+        if (std.mem.eql(u8, box_type, "tkhd")) {
+            const payload_len = real_size - header_len;
+            var tkhd_buf: [96]u8 = undefined;
+            const read_len = @min(payload_len, tkhd_buf.len);
+            _ = try std.Io.File.readPositionalAll(file, io, tkhd_buf[0..read_len], offset + header_len);
+            if (parseTkhd(tkhd_buf[0..read_len])) |dims| {
+                if (dims.width > 0 and dims.height > 0) {
+                    return dims;
+                }
+            }
+        }
+
+        if (std.mem.eql(u8, box_type, "trak") or
+            std.mem.eql(u8, box_type, "mdia") or
+            std.mem.eql(u8, box_type, "minf") or
+            std.mem.eql(u8, box_type, "stbl"))
+        {
+            if (try findTkhdInFile(file, io, offset + header_len, offset + real_size)) |dims| {
+                return dims;
+            }
+        }
+
+        offset += real_size;
+    }
+    return null;
+}
+
 /// Try parsing a video file. Returns format and dimensions on success.
 ///
 /// ### Memory Allocation & Performance Strategy:
 /// - MP4 files can be massive (gigabytes of compressed stream data in `mdat`).
 /// - However, the metadata (`moov` box) is typically very small.
 /// - This parser scans the file linearly, reading only the 8-byte box headers.
-/// - When it encounters `moov`, it uses the `allocator` to load ONLY the `moov`
-///   payload into memory, avoiding loading any video stream bytes.
-/// - The memory is freed immediately upon exiting the function via `defer`.
+/// - The search for the track header (`tkhd`) is done recursively in-place within the file,
+///   completely avoiding loading the `moov` payload into memory.
 pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anytype) !struct { format: []const u8, width: u32, height: u32 } {
+    _ = allocator; // No longer needed as findTkhdInFile does not allocate heap memory
     const file = try Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
     defer std.Io.File.close(file, io);
 
@@ -166,14 +229,7 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
         if (real_size < header_len or offset + real_size > size) return error.InvalidMp4;
 
         if (std.mem.eql(u8, box_type, "moov")) {
-            const payload_len = real_size - header_len;
-            if (payload_len > 100 * 1024 * 1024) return error.InvalidMp4; // 100MB safety limit
-            const moov_payload = try allocator.alloc(u8, payload_len);
-            defer allocator.free(moov_payload);
-
-            _ = try std.Io.File.readPositionalAll(file, io, moov_payload, offset + header_len);
-
-            if (findTkhdInPayload(moov_payload)) |dims| {
+            if (try findTkhdInFile(file, io, offset + header_len, offset + real_size)) |dims| {
                 return .{
                     .format = "mp4",
                     .width = dims.width,

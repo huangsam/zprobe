@@ -98,78 +98,89 @@ pub fn main(init: std.process.Init) !void {
     const abs_target_dir = try cwd.realPathFileAlloc(io, target_dir, allocator);
     defer allocator.free(abs_target_dir);
 
-    // Scan the directory for media files.
-    var results = try media_scan.scan(abs_target_dir, io, allocator);
-    defer {
-        for (results.items) |entry| {
-            allocator.free(entry.path);
-        }
-        results.deinit(allocator);
-    }
-
     if (!json_mode) {
-        std.debug.print("Scanning: {s}\n", .{target_dir});
-        std.debug.print("Found {d} media file(s)\n\n", .{results.items.len});
+        std.debug.print("Scanning: {s}\n\n", .{target_dir});
     }
 
-    // Step 2: Try parsing metadata.
-    for (results.items) |entry| {
-        const ext = media_scan.getExtension(entry.path);
-        var json_out = JsonOutput{
-            .path = entry.path,
-            .size = entry.size,
-            .format = "unknown",
-        };
+    var ctx = struct {
+        allocator: std.mem.Allocator,
+        io: @TypeOf(io),
+        out: @TypeOf(out),
+        json_mode: bool,
+        count: usize = 0,
+    }{
+        .allocator = allocator,
+        .io = io,
+        .out = out,
+        .json_mode = json_mode,
+    };
 
-        const is_video = isVideoExtension(ext);
-        if (is_video) {
-            if (video_meta.getVideoMetadata(allocator, entry.path, io)) |res| {
-                json_out.format = res.format;
-                json_out.width = res.width;
-                json_out.height = res.height;
-            } else |err| {
-                std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            }
-        } else {
-            // Attempt image metadata extraction.
-            if (image_meta.parseFile(entry.path, io)) |res| {
-                json_out.format = res.format;
-                json_out.width = res.width;
-                json_out.height = res.height;
-            } else |err| {
-                std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            }
-        }
+    const processEntry = struct {
+        fn call(c: *@TypeOf(ctx), entry: media_scan.ScanEntry) !void {
+            c.count += 1;
+            const ext = media_scan.getExtension(entry.path);
+            var json_out = JsonOutput{
+                .path = entry.path,
+                .size = entry.size,
+                .format = "unknown",
+            };
 
-        if (json_mode) {
-            try std.json.fmt(json_out, .{}).format(out);
-            try out.print("\n", .{});
-        } else {
-            try out.print("   {s} ({d} bytes)\n", .{ entry.path, entry.size });
-            if (std.mem.eql(u8, json_out.format, "unknown")) {
-                if (is_video) {
-                    try out.print("    Format: unknown/unsupported video\n", .{});
-                } else {
-                    try out.print("    Format: unknown/unsupported image\n", .{});
+            const is_video = isVideoExtension(ext);
+            if (is_video) {
+                if (video_meta.getVideoMetadata(c.allocator, entry.path, c.io)) |res| {
+                    json_out.format = res.format;
+                    json_out.width = res.width;
+                    json_out.height = res.height;
+                } else |err| {
+                    std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
                 }
             } else {
-                if (is_video) {
-                    try out.print(
-                        "    Format: MP4 (Video)\n" ++
-                            "    Dimensions: {d} x {d}\n",
-                        .{ json_out.width.?, json_out.height.? },
-                    );
-                } else {
-                    try out.print(
-                        "    Format: {s}\n" ++
-                            "    Dimensions: {d} x {d}\n",
-                        .{ json_out.format, json_out.width.?, json_out.height.? },
-                    );
+                // Attempt image metadata extraction.
+                if (image_meta.parseFile(entry.path, c.io)) |res| {
+                    json_out.format = res.format;
+                    json_out.width = res.width;
+                    json_out.height = res.height;
+                } else |err| {
+                    std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
                 }
             }
-            try out.print("\n", .{});
+
+            if (c.json_mode) {
+                try std.json.fmt(json_out, .{}).format(c.out);
+                try c.out.print("\n", .{});
+            } else {
+                try c.out.print("   {s} ({d} bytes)\n", .{ entry.path, entry.size });
+                if (std.mem.eql(u8, json_out.format, "unknown")) {
+                    if (is_video) {
+                        try c.out.print("    Format: unknown/unsupported video\n", .{});
+                    } else {
+                        try c.out.print("    Format: unknown/unsupported image\n", .{});
+                    }
+                } else {
+                    if (is_video) {
+                        try c.out.print(
+                            "    Format: MP4 (Video)\n" ++
+                                "    Dimensions: {d} x {d}\n",
+                            .{ json_out.width.?, json_out.height.? },
+                        );
+                    } else {
+                        try c.out.print(
+                            "    Format: {s}\n" ++
+                                "    Dimensions: {d} x {d}\n",
+                            .{ json_out.format, json_out.width.?, json_out.height.? },
+                        );
+                    }
+                }
+                try c.out.print("\n", .{});
+            }
         }
-    }
+    }.call;
+
+    try media_scan.scanAndProcess(abs_target_dir, io, allocator, &ctx, processEntry);
 
     try out.flush();
+
+    if (!json_mode) {
+        std.debug.print("Found {d} media file(s)\n", .{ctx.count});
+    }
 }

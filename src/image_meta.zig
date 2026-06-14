@@ -248,30 +248,31 @@ pub fn parseWebp(header: []const u8) !struct { width: u32, height: u32 } {
 /// Instead, this function streams the file incrementally using positional reads
 /// (`std.Io.File.readPositionalAll`), traversing the segments dynamically without seeking
 /// or allocating extra buffers.
-fn parseJpegFile(file: anytype, io: anytype) !struct { width: u16, height: u16 } {
-    const size = try std.Io.File.length(file, io);
-    var offset: u64 = 2; // Skip initial SOI (Start Of Image) magic bytes (0xFFD8)
+fn parseJpegFile(reader: *std.Io.Reader) !struct { width: u16, height: u16 } {
+    // Skip initial SOI (Start Of Image) magic bytes (0xFFD8)
+    try reader.discardAll(2);
 
-    while (offset + 4 <= size) {
-        var b: [1]u8 = undefined;
-        // Read marker flag (must be 0xFF)
-        _ = try std.Io.File.readPositionalAll(file, io, &b, offset);
-        if (b[0] != 0xff) {
-            offset += 1;
+    while (true) {
+        const marker_bytes = reader.peek(2) catch |err| {
+            if (err == error.EndOfStream) return error.JpegNoDimensions;
+            return err;
+        };
+
+        if (marker_bytes[0] != 0xff) {
+            reader.toss(1);
             continue;
         }
 
-        // Read marker type
-        _ = try std.Io.File.readPositionalAll(file, io, &b, offset + 1);
-        if (b[0] == 0xff) {
+        if (marker_bytes[1] == 0xff) {
             // Consecutive 0xFFs are padding bytes in the JPEG specification
-            offset += 1;
+            reader.toss(1);
             continue;
         }
 
-        const marker = b[0];
+        const marker = marker_bytes[1];
+        reader.toss(2);
+
         if (marker == 0xd8) {
-            offset += 2;
             continue;
         }
         // SOS (Start Of Scan, 0xDA) or EOI (End of Image, 0xD9) means we reached
@@ -281,32 +282,34 @@ fn parseJpegFile(file: anytype, io: anytype) !struct { width: u16, height: u16 }
         }
 
         // Read segment length (2 bytes, Big-Endian)
-        var len_buf: [2]u8 = undefined;
-        _ = try std.Io.File.readPositionalAll(file, io, &len_buf, offset + 2);
-        const segment_len = @as(u16, len_buf[0]) << 8 | len_buf[1];
+        const len_bytes = reader.peek(2) catch |err| {
+            if (err == error.EndOfStream) return error.JpegTooShort;
+            return err;
+        };
+        const segment_len = @as(u16, len_bytes[0]) << 8 | len_bytes[1];
+        reader.toss(2);
+
+        if (segment_len < 2) return error.InvalidJpeg;
 
         // SOF (Start of Frame) markers that contain dimensions.
-        // SOF0 (0xC0) through SOF3 (0xC3) are baseline/progressive, plus other SOFs.
         const is_sof = (marker >= 0xc0 and marker <= 0xc3) or
             (marker >= 0xc5 and marker <= 0xc7) or
             (marker >= 0xc9 and marker <= 0xcb) or
             (marker >= 0xcd and marker <= 0xcf);
 
         if (is_sof) {
-            if (offset + 9 > size) return error.JpegTooShort;
-            var sof_buf: [5]u8 = undefined;
-            // Read precision (1 byte), height (2 bytes), and width (2 bytes)
-            _ = try std.Io.File.readPositionalAll(file, io, &sof_buf, offset + 4);
-            const h = @as(u16, sof_buf[1]) << 8 | sof_buf[2];
-            const w = @as(u16, sof_buf[3]) << 8 | sof_buf[4];
+            const sof_bytes = reader.peek(5) catch |err| {
+                if (err == error.EndOfStream) return error.JpegTooShort;
+                return err;
+            };
+            const h = @as(u16, sof_bytes[1]) << 8 | sof_bytes[2];
+            const w = @as(u16, sof_bytes[3]) << 8 | sof_bytes[4];
             return .{ .width = w, .height = h };
         }
 
-        // Skip current segment by jumping over the marker prefix (2B) + segment length payload.
-        offset += 2 + segment_len;
+        // Skip current segment payload
+        try reader.discardAll(segment_len - 2);
     }
-
-    return error.JpegNoDimensions;
 }
 
 /// Try parsing a file as an image. Returns dimensions and format on success.
@@ -326,7 +329,10 @@ pub fn parseFile(path: []const u8, io: anytype) !struct { format: []const u8, wi
 
     // Try parsing based on identified magic bytes.
     if (data.len >= 2 and data[0] == jpegMagic[0] and data[1] == jpegMagic[1]) {
-        const dims = try parseJpegFile(file, io);
+        var read_buf: [1024]u8 = undefined;
+        var f_reader = std.Io.File.reader(file, io, &read_buf);
+        const reader = &f_reader.interface;
+        const dims = try parseJpegFile(reader);
         return .{ .format = "jpeg", .width = @as(u32, dims.width), .height = @as(u32, dims.height) };
     } else if (data.len >= 8 and std.mem.eql(u8, data[0..8], &pngMagic)) {
         const dims = try parsePng(data);
