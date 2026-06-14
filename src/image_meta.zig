@@ -314,6 +314,16 @@ fn parseIfd(
         }
 
         switch (tag) {
+            0x0100 => { // ImageWidth
+                if (count == 1) {
+                    meta.width = if (type_id == 3) try val_reader.readU16() else try val_reader.readU32();
+                }
+            },
+            0x0101 => { // ImageLength
+                if (count == 1) {
+                    meta.height = if (type_id == 3) try val_reader.readU16() else try val_reader.readU32();
+                }
+            },
             0x0112 => { // Orientation
                 if (type_id == 3 and count == 1) {
                     meta.orientation = try val_reader.readU16();
@@ -701,6 +711,16 @@ pub fn parseFile(allocator: std.mem.Allocator, path: []const u8, io: anytype) !I
     } else if (data.len >= 12 and std.mem.eql(u8, data[0..4], &webpRiffMagic) and std.mem.eql(u8, data[8..12], &webpWebpMagic)) {
         meta.format = "webp";
         try parseWebpFile(allocator, file, io, &meta);
+        return meta;
+    } else if (data.len >= 4 and ((std.mem.eql(u8, data[0..2], "II") and data[2] == 42 and data[3] == 0) or
+        (std.mem.eql(u8, data[0..2], "MM") and data[2] == 0 and data[3] == 42)))
+    {
+        meta.format = "tiff";
+        const size = try std.Io.File.length(file, io);
+        const tiff_buf = try allocator.alloc(u8, size);
+        defer allocator.free(tiff_buf);
+        _ = try std.Io.File.readPositionalAll(file, io, tiff_buf, 0);
+        try parseTiff(allocator, tiff_buf, &meta);
         return meta;
     }
 
@@ -1128,4 +1148,61 @@ test "parseTiff EXIF and GPS tags" {
     try std.testing.expectEqualStrings("A7C", meta.camera_model.?);
     try std.testing.expect(meta.gps_latitude.? > 37.7583 and meta.gps_latitude.? < 37.7584);
     try std.testing.expectEqual(@as(f64, -122.0), meta.gps_longitude.?);
+}
+
+test "parseTiff width and height tags" {
+    const allocator = std.testing.allocator;
+    var meta = ImageMetadata{
+        .format = "tiff",
+        .width = 0,
+        .height = 0,
+    };
+    defer meta.deinit(allocator);
+
+    var buf = [_]u8{0} ** 100;
+    // TIFF Header
+    buf[0] = 'I';
+    buf[1] = 'I';
+    buf[2] = 42;
+    buf[3] = 0;
+    buf[4] = 8;
+    buf[5] = 0;
+    buf[6] = 0;
+    buf[7] = 0;
+
+    // First IFD (offset 8)
+    buf[8] = 2; // 2 entries
+    buf[9] = 0;
+
+    // Entry 1: ImageWidth (tag 0x0100) - LONG, count 1, value 1920
+    buf[10] = 0x00;
+    buf[11] = 0x01; // Tag 0x0100
+    buf[12] = 4;
+    buf[13] = 0; // LONG
+    buf[14] = 1;
+    buf[15] = 0;
+    buf[16] = 0;
+    buf[17] = 0; // count = 1
+    buf[18] = 0x80;
+    buf[19] = 0x07;
+    buf[20] = 0x00;
+    buf[21] = 0x00; // value = 1920 (0x0780)
+
+    // Entry 2: ImageLength (tag 0x0101) - SHORT, count 1, value 1080
+    buf[22] = 0x01;
+    buf[23] = 0x01; // Tag 0x0101
+    buf[24] = 3;
+    buf[25] = 0; // SHORT
+    buf[26] = 1;
+    buf[27] = 0;
+    buf[28] = 0;
+    buf[29] = 0; // count = 1
+    buf[30] = 0x38;
+    buf[31] = 0x04;
+    buf[32] = 0x00;
+    buf[33] = 0x00; // value = 1080 (0x0438)
+
+    try parseTiff(allocator, &buf, &meta);
+    try std.testing.expectEqual(@as(u32, 1920), meta.width);
+    try std.testing.expectEqual(@as(u32, 1080), meta.height);
 }
