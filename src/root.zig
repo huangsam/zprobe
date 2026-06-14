@@ -11,11 +11,30 @@
 
 const std = @import("std");
 
-pub const media_scan = @import("media_scan.zig");
-pub const image_meta = @import("image_meta.zig");
-pub const video_meta = @import("video_meta.zig");
-pub const byte_reader = @import("byte_reader.zig");
+pub const media_scan = @import("crawler/media_scan.zig");
+pub const image_meta = struct {
+    pub const ImageMetadata = @import("formats/images/common.zig").ImageMetadata;
+    pub const parseFile = @import("formats/images/common.zig").parseFile;
+};
+pub const video_meta = struct {
+    pub const VideoInfo = @import("formats/videos/common.zig").VideoInfo;
+    pub const getVideoMetadata = @import("formats/videos/common.zig").getVideoMetadata;
+};
+pub const byte_reader = @import("core/byte_reader.zig");
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("core/byte_reader.zig");
+    _ = @import("core/utils.zig");
+    _ = @import("crawler/media_scan.zig");
+    _ = @import("formats/images/common.zig");
+    _ = @import("formats/images/jpeg.zig");
+    _ = @import("formats/images/png.zig");
+    _ = @import("formats/images/gif.zig");
+    _ = @import("formats/images/bmp.zig");
+    _ = @import("formats/images/webp.zig");
+    _ = @import("formats/images/tiff.zig");
+    _ = @import("formats/videos/common.zig");
+    _ = @import("formats/videos/mp4.zig");
+    _ = @import("formats/videos/ebml.zig");
 }

@@ -7,9 +7,10 @@
 //! 4. Absolute path resolution and heap memory allocation tracking.
 
 const std = @import("std");
-const media_scan = @import("media_scan.zig");
-const image_meta = @import("image_meta.zig");
-const video_meta = @import("video_meta.zig");
+const root = @import("root.zig");
+const media_scan = root.media_scan;
+const image_meta = root.image_meta;
+const video_meta = root.video_meta;
 
 /// Print usage instructions to the given Io writer.
 ///
