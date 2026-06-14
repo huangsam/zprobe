@@ -19,5 +19,3 @@ See the [User Guide](USERGUIDE.md) and [Developer & Agent Guide](AGENTS.md) to d
 | MP4    | ✓          | ✓        | ✓           |
 | WebM   | ✓          | ✓        | ✗           |
 | MKV    | ✓          | ✓        | ✗           |
-
-For detailed metadata capabilities, see the [User Guide](USERGUIDE.md).
