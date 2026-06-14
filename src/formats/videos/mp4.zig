@@ -16,7 +16,7 @@ pub const Dims = struct {
 
 /// Parse a `tkhd` (Track Header) box payload.
 pub fn parseTkhd(reader: *ByteReader) ?Dims {
-    const version = reader.readU8() catch return null;
+    const version = reader.readInt(u8) catch return null;
     reader.skip(3) catch return null; // flags
 
     if (version == 0) {
@@ -30,24 +30,24 @@ pub fn parseTkhd(reader: *ByteReader) ?Dims {
     reader.skip(8) catch return null; // reserved2
     reader.skip(8) catch return null; // layer, alternate_group, volume, reserved3
 
-    const a = reader.readI32() catch return null;
-    const b = reader.readI32() catch return null;
-    const u = reader.readI32() catch return null;
-    const c = reader.readI32() catch return null;
-    const d = reader.readI32() catch return null;
-    const v = reader.readI32() catch return null;
-    const x = reader.readI32() catch return null;
-    const y = reader.readI32() catch return null;
-    const w_coeff = reader.readI32() catch return null;
+    const a = reader.readInt(i32) catch return null;
+    const b = reader.readInt(i32) catch return null;
+    const u = reader.readInt(i32) catch return null;
+    const c = reader.readInt(i32) catch return null;
+    const d = reader.readInt(i32) catch return null;
+    const v = reader.readInt(i32) catch return null;
+    const x = reader.readInt(i32) catch return null;
+    const y = reader.readInt(i32) catch return null;
+    const w_coeff = reader.readInt(i32) catch return null;
     _ = u;
     _ = v;
     _ = x;
     _ = y;
     _ = w_coeff;
 
-    const width_int = reader.readU16() catch return null;
+    const width_int = reader.readInt(u16) catch return null;
     reader.skip(2) catch return null;
-    const height_int = reader.readU16() catch return null;
+    const height_int = reader.readInt(u16) catch return null;
     reader.skip(2) catch return null;
 
     var orientation: u16 = 1;
@@ -71,7 +71,7 @@ pub fn findTkhdInPayload(payload: []const u8) ?Dims {
 /// Scan boxes in a ByteReader recursively to locate and parse the `tkhd` track header box.
 pub fn findTkhdInReader(reader: *ByteReader) ?Dims {
     while (reader.remaining() >= 8) {
-        const box_size = reader.readU32() catch return null;
+        const box_size = reader.readInt(u32) catch return null;
         if (box_size < 8) return null;
         const box_type = reader.peek(4) catch return null;
         reader.skip(4) catch return null;
@@ -109,7 +109,7 @@ pub fn parseMvhd(allocator: std.mem.Allocator, payload: []const u8, info: *Video
 /// Read details from a `mvhd` box payload via a ByteReader, computing duration in seconds
 /// and formatting the creation epoch.
 pub fn parseMvhdInReader(allocator: std.mem.Allocator, reader: *ByteReader, info: *VideoInfo) !void {
-    const version = try reader.readU8();
+    const version = try reader.readInt(u8);
     try reader.skip(3); // flags
 
     var creation_time: u64 = 0;
@@ -117,15 +117,15 @@ pub fn parseMvhdInReader(allocator: std.mem.Allocator, reader: *ByteReader, info
     var duration: u64 = 0;
 
     if (version == 0) {
-        creation_time = try reader.readU32();
-        _ = try reader.readU32(); // modification_time
-        timescale = try reader.readU32();
-        duration = try reader.readU32();
+        creation_time = try reader.readInt(u32);
+        _ = try reader.readInt(u32); // modification_time
+        timescale = try reader.readInt(u32);
+        duration = try reader.readInt(u32);
     } else if (version == 1) {
-        creation_time = try reader.readU64();
-        _ = try reader.readU64(); // modification_time
-        timescale = try reader.readU32();
-        duration = try reader.readU64();
+        creation_time = try reader.readInt(u64);
+        _ = try reader.readInt(u64); // modification_time
+        timescale = try reader.readInt(u32);
+        duration = try reader.readInt(u64);
     } else {
         return;
     }

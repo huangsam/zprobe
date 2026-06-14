@@ -19,6 +19,8 @@
 //!    type parsing—it isolates the parser scope to a single block, making it impossible
 //!    to read past the block's size and keeping offset arithmetic relative to the block's start.
 //! 3. **Endianness Abstraction**: Easily supports big-endian and little-endian conversions.
+//! 4. **Comptime Generic Reads**: `readInt(comptime T: type)` resolves the integer width at
+//!    compile time, eliminating boilerplate without any runtime cost.
 
 const std = @import("std");
 
@@ -62,63 +64,22 @@ pub const ByteReader = struct {
         return ByteReader.init(sub_buf, self.endian);
     }
 
-    /// Read a single byte and advance the cursor by 1.
-    pub fn readU8(self: *ByteReader) !u8 {
-        if (self.offset + 1 > self.buffer.len) return error.OutOfBounds;
-        const val = self.buffer[self.offset];
-        self.offset += 1;
-        return val;
-    }
-
-    /// Read a 16-bit integer and advance the cursor by 2.
-    pub fn readU16(self: *ByteReader) !u16 {
-        if (self.offset + 2 > self.buffer.len) return error.OutOfBounds;
-        const bytes = self.buffer[self.offset .. self.offset + 2];
-        self.offset += 2;
-        return switch (self.endian) {
-            .little => std.mem.readInt(u16, bytes[0..2], .little),
-            .big => std.mem.readInt(u16, bytes[0..2], .big),
-        };
-    }
-
-    /// Read a 32-bit unsigned integer and advance the cursor by 4.
-    pub fn readU32(self: *ByteReader) !u32 {
-        if (self.offset + 4 > self.buffer.len) return error.OutOfBounds;
-        const bytes = self.buffer[self.offset .. self.offset + 4];
-        self.offset += 4;
-        return switch (self.endian) {
-            .little => std.mem.readInt(u32, bytes[0..4], .little),
-            .big => std.mem.readInt(u32, bytes[0..4], .big),
-        };
-    }
-
-    /// Read a 32-bit signed integer and advance the cursor by 4.
-    pub fn readI32(self: *ByteReader) !i32 {
-        if (self.offset + 4 > self.buffer.len) return error.OutOfBounds;
-        const bytes = self.buffer[self.offset .. self.offset + 4];
-        self.offset += 4;
-        return switch (self.endian) {
-            .little => std.mem.readInt(i32, bytes[0..4], .little),
-            .big => std.mem.readInt(i32, bytes[0..4], .big),
-        };
-    }
-
-    /// Read a 64-bit unsigned integer and advance the cursor by 8.
-    pub fn readU64(self: *ByteReader) !u64 {
-        if (self.offset + 8 > self.buffer.len) return error.OutOfBounds;
-        const bytes = self.buffer[self.offset .. self.offset + 8];
-        self.offset += 8;
-        return switch (self.endian) {
-            .little => std.mem.readInt(u64, bytes[0..8], .little),
-            .big => std.mem.readInt(u64, bytes[0..8], .big),
-        };
+    /// Read an integer of type `T` and advance the cursor by `@sizeOf(T)` bytes.
+    /// The width and signedness are resolved at compile time — zero runtime overhead.
+    /// Supports any integer type: `u8`, `u16`, `u32`, `u64`, `i32`, etc.
+    pub fn readInt(self: *ByteReader, comptime T: type) !T {
+        const size = @sizeOf(T);
+        if (self.offset + size > self.buffer.len) return error.OutOfBounds;
+        const bytes = self.buffer[self.offset .. self.offset + size];
+        self.offset += size;
+        return std.mem.readInt(T, bytes[0..size], self.endian);
     }
 
     /// Read a TIFF-style Rational (two 32-bit unsigned integers: numerator and denominator)
     /// and return it as a 64-bit float. Returns 0.0 if the denominator is zero.
     pub fn readRational(self: *ByteReader) !f64 {
-        const num = try self.readU32();
-        const den = try self.readU32();
+        const num = try self.readInt(u32);
+        const den = try self.readInt(u32);
         if (den == 0) return 0.0;
         return @as(f64, @floatFromInt(num)) / @as(f64, @floatFromInt(den));
     }
@@ -145,17 +106,17 @@ test "ByteReader primitives and endianness" {
     // 1. Little Endian buffer
     var le_buf = [_]u8{ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
     var le_reader = ByteReader.init(&le_buf, .little);
-    try std.testing.expectEqual(@as(u8, 0x01), try le_reader.readU8());
-    try std.testing.expectEqual(@as(u16, 0x0302), try le_reader.readU16());
-    try std.testing.expectEqual(@as(u32, 0x07060504), try le_reader.readU32());
+    try std.testing.expectEqual(@as(u8, 0x01), try le_reader.readInt(u8));
+    try std.testing.expectEqual(@as(u16, 0x0302), try le_reader.readInt(u16));
+    try std.testing.expectEqual(@as(u32, 0x07060504), try le_reader.readInt(u32));
     try std.testing.expectEqual(@as(usize, 1), le_reader.remaining());
 
     // 2. Big Endian buffer
     var be_buf = [_]u8{ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
     var be_reader = ByteReader.init(&be_buf, .big);
-    try std.testing.expectEqual(@as(u8, 0x01), try be_reader.readU8());
-    try std.testing.expectEqual(@as(u16, 0x0203), try be_reader.readU16());
-    try std.testing.expectEqual(@as(u32, 0x04050607), try be_reader.readU32());
+    try std.testing.expectEqual(@as(u8, 0x01), try be_reader.readInt(u8));
+    try std.testing.expectEqual(@as(u16, 0x0203), try be_reader.readInt(u16));
+    try std.testing.expectEqual(@as(u32, 0x04050607), try be_reader.readInt(u32));
 }
 
 test "ByteReader sub-readers and bounds protection" {
@@ -168,16 +129,16 @@ test "ByteReader sub-readers and bounds protection" {
     try std.testing.expectEqual(@as(usize, 4), parent.remaining());
 
     // Read elements inside child
-    try std.testing.expectEqual(@as(u8, 0x01), try child.readU8());
-    try std.testing.expectEqual(@as(u16, 0x0203), try child.readU16());
-    try std.testing.expectEqual(@as(u8, 0x04), try child.readU8());
+    try std.testing.expectEqual(@as(u8, 0x01), try child.readInt(u8));
+    try std.testing.expectEqual(@as(u16, 0x0203), try child.readInt(u16));
+    try std.testing.expectEqual(@as(u8, 0x04), try child.readInt(u8));
     try std.testing.expectEqual(@as(usize, 0), child.remaining());
 
     // Out of bounds on child
-    try std.testing.expectError(error.OutOfBounds, child.readU8());
+    try std.testing.expectError(error.OutOfBounds, child.readInt(u8));
 
     // Parent is still fully functional
-    try std.testing.expectEqual(@as(u32, 0x05060708), try parent.readU32());
+    try std.testing.expectEqual(@as(u32, 0x05060708), try parent.readInt(u32));
 }
 
 test "ByteReader readAscii string trimming" {
@@ -196,13 +157,13 @@ test "ByteReader skip, peek, signed ints, and rationals" {
     const peeked = try reader1.peek(2);
     try std.testing.expectEqualSlices(u8, &.{ 0x01, 0x02 }, peeked);
     try reader1.skip(2);
-    try std.testing.expectEqual(@as(u16, 0x0304), try reader1.readU16());
+    try std.testing.expectEqual(@as(u16, 0x0304), try reader1.readInt(u16));
 
     // 2. signed ints and U64
     var buf2 = [_]u8{ 0xff, 0xff, 0xff, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
     var reader2 = ByteReader.init(&buf2, .big);
-    try std.testing.expectEqual(@as(i32, -256), try reader2.readI32()); // 0xffffff00 is -256
-    try std.testing.expectEqual(@as(u64, 0x0102030405060708), try reader2.readU64());
+    try std.testing.expectEqual(@as(i32, -256), try reader2.readInt(i32)); // 0xffffff00 is -256
+    try std.testing.expectEqual(@as(u64, 0x0102030405060708), try reader2.readInt(u64));
 
     // 3. rationals
     var buf3 = [_]u8{ 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x02 }; // 10, 2

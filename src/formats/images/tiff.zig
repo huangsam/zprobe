@@ -27,7 +27,7 @@ pub fn parseIfd(
     if (ifd_offset == 0 or ifd_offset + 2 > root_reader.buffer.len) return;
 
     var ifd_reader = ByteReader.init(root_reader.buffer[ifd_offset..], root_reader.endian);
-    const num_entries = try ifd_reader.readU16();
+    const num_entries = try ifd_reader.readInt(u16);
 
     var i: usize = 0;
     while (i < num_entries) : (i += 1) {
@@ -35,10 +35,10 @@ pub fn parseIfd(
 
         const entry_abs_offset = ifd_offset + 2 + i * 12;
 
-        const tag = try ifd_reader.readU16();
-        const type_id = try ifd_reader.readU16();
-        const count = try ifd_reader.readU32();
-        const inline_or_offset_val = try ifd_reader.readU32();
+        const tag = try ifd_reader.readInt(u16);
+        const type_id = try ifd_reader.readInt(u16);
+        const count = try ifd_reader.readInt(u32);
+        const inline_or_offset_val = try ifd_reader.readInt(u32);
 
         const type_size = getTypeSize(type_id);
         if (type_size == 0) continue;
@@ -55,17 +55,17 @@ pub fn parseIfd(
         switch (tag) {
             0x0100 => { // ImageWidth
                 if (count == 1) {
-                    meta.width = if (type_id == 3) try val_reader.readU16() else try val_reader.readU32();
+                    meta.width = if (type_id == 3) try val_reader.readInt(u16) else try val_reader.readInt(u32);
                 }
             },
             0x0101 => { // ImageLength
                 if (count == 1) {
-                    meta.height = if (type_id == 3) try val_reader.readU16() else try val_reader.readU32();
+                    meta.height = if (type_id == 3) try val_reader.readInt(u16) else try val_reader.readInt(u32);
                 }
             },
             0x0112 => { // Orientation
                 if (type_id == 3 and count == 1) {
-                    meta.orientation = try val_reader.readU16();
+                    meta.orientation = try val_reader.readInt(u16);
                 }
             },
             0x010f => { // Make
@@ -108,7 +108,7 @@ pub fn parseGpsIfd(
     if (ifd_offset == 0 or ifd_offset + 2 > root_reader.buffer.len) return;
 
     var gps_reader = ByteReader.init(root_reader.buffer[ifd_offset..], root_reader.endian);
-    const num_entries = try gps_reader.readU16();
+    const num_entries = try gps_reader.readInt(u16);
 
     var lat_ref: ?u8 = null;
     var lat_val: ?f64 = null;
@@ -121,10 +121,10 @@ pub fn parseGpsIfd(
 
         const entry_abs_offset = ifd_offset + 2 + i * 12;
 
-        const tag = try gps_reader.readU16();
-        const type_id = try gps_reader.readU16();
-        const count = try gps_reader.readU32();
-        const inline_or_offset_val = try gps_reader.readU32();
+        const tag = try gps_reader.readInt(u16);
+        const type_id = try gps_reader.readInt(u16);
+        const count = try gps_reader.readInt(u32);
+        const inline_or_offset_val = try gps_reader.readInt(u32);
 
         const type_size = getTypeSize(type_id);
         if (type_size == 0) continue;
@@ -141,7 +141,7 @@ pub fn parseGpsIfd(
         switch (tag) {
             1 => { // GPSLatitudeRef
                 if (type_id == 2 and count >= 2) {
-                    lat_ref = try val_reader.readU8();
+                    lat_ref = try val_reader.readInt(u8);
                 }
             },
             2 => { // GPSLatitude
@@ -154,7 +154,7 @@ pub fn parseGpsIfd(
             },
             3 => { // GPSLongitudeRef
                 if (type_id == 2 and count >= 2) {
-                    lon_ref = try val_reader.readU8();
+                    lon_ref = try val_reader.readInt(u8);
                 }
             },
             4 => { // GPSLongitude
@@ -210,9 +210,9 @@ pub fn parseTiff(
     var reader = ByteReader.init(tiff_buf, endian);
     try reader.skip(2); // Skip II/MM
 
-    const magic = try reader.readU16();
+    const magic = try reader.readInt(u16);
     if (magic != 42) return error.InvalidTiffMagic;
 
-    const first_ifd_offset = try reader.readU32();
+    const first_ifd_offset = try reader.readInt(u32);
     try parseIfd(allocator, &reader, @as(usize, first_ifd_offset), meta, 0);
 }
