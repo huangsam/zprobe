@@ -11,6 +11,7 @@ const root = @import("root.zig");
 const media_scan = root.media_scan;
 const image_meta = root.image_meta;
 const video_meta = root.video_meta;
+const test_utils = @import("core/test_utils.zig");
 
 /// Helper to initialize a buffered file writer targeting stdout.
 ///
@@ -351,27 +352,9 @@ test "concurrent file processing integration test" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    const cwd = std.Io.Dir.cwd();
-    const temp_dir_name = "temp_main_concurrent_test";
-
-    // Pre-cleanup if directory was left behind from a crashed test run
-    if (std.Io.Dir.openDir(cwd, io, temp_dir_name, .{})) |d| {
-        var i: usize = 0;
-        while (i < 50) : (i += 1) {
-            var filename_buf: [32]u8 = undefined;
-            const filename = try std.fmt.bufPrint(&filename_buf, "image_{d}.png", .{i});
-            _ = std.Io.Dir.deleteFile(d, io, filename) catch {};
-        }
-        std.Io.Dir.close(d, io);
-        _ = std.Io.Dir.deleteDir(cwd, io, temp_dir_name) catch {};
-    } else |_| {}
-
-    // Create temp directory
-    try std.Io.Dir.createDir(cwd, io, temp_dir_name, .default_dir);
-    defer std.Io.Dir.deleteDir(cwd, io, temp_dir_name) catch {};
-
-    const temp_dir = try std.Io.Dir.openDir(cwd, io, temp_dir_name, .{});
-    defer std.Io.Dir.close(temp_dir, io);
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
 
     // Create 50 mock PNG files
     const png_header = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x02\x80\x00\x00\x01\xe0\x08\x02\x00\x00\x00";
@@ -394,12 +377,8 @@ test "concurrent file processing integration test" {
         }
     }
 
-    // Get absolute path
-    const abs_path = try cwd.realPathFileAlloc(io, temp_dir_name, allocator);
-    defer allocator.free(abs_path);
-
     // Scan
-    var list = try media_scan.scan(abs_path, io, allocator);
+    var list = try media_scan.scan(temp_ctx.abs_path, io, allocator);
     defer {
         for (list.items) |entry| {
             allocator.free(entry.path);

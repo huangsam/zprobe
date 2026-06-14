@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const Dir = @import("std").Io.Dir;
+const test_utils = @import("../core/test_utils.zig");
 
 /// Represents a media file found during a directory scan.
 ///
@@ -247,23 +248,9 @@ test "concurrent scan and mock processing" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    const cwd = std.Io.Dir.cwd();
-    const temp_dir_name = "temp_concurrent_scan_test";
-
-    // Pre-cleanup if directory was left behind from a crashed test run
-    if (std.Io.Dir.openDir(cwd, io, temp_dir_name, .{})) |d| {
-        _ = std.Io.Dir.deleteFile(d, io, "image1.png") catch {};
-        _ = std.Io.Dir.deleteFile(d, io, "image2.jpg") catch {};
-        std.Io.Dir.close(d, io);
-        _ = std.Io.Dir.deleteDir(cwd, io, temp_dir_name) catch {};
-    } else |_| {}
-
-    // Create temp directory
-    try std.Io.Dir.createDir(cwd, io, temp_dir_name, .default_dir);
-    defer std.Io.Dir.deleteDir(cwd, io, temp_dir_name) catch {};
-
-    const temp_dir = try std.Io.Dir.openDir(cwd, io, temp_dir_name, .{});
-    defer std.Io.Dir.close(temp_dir, io);
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
 
     // Create mock files
     const file1 = try std.Io.Dir.createFile(temp_dir, io, "image1.png", .{});
@@ -274,12 +261,8 @@ test "concurrent scan and mock processing" {
     std.Io.File.close(file2, io);
     defer std.Io.Dir.deleteFile(temp_dir, io, "image2.jpg") catch {};
 
-    // Get absolute path of temp directory
-    const abs_path = try cwd.realPathFileAlloc(io, temp_dir_name, allocator);
-    defer allocator.free(abs_path);
-
     // Scan
-    var list = try scan(abs_path, io, allocator);
+    var list = try scan(temp_ctx.abs_path, io, allocator);
     defer {
         for (list.items) |entry| {
             allocator.free(entry.path);
