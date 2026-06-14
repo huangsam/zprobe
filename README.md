@@ -8,21 +8,16 @@ See the [User Guide](USERGUIDE.md) and [Developer & Agent Guide](AGENTS.md) to d
 
 ## Supported Formats
 
-### Images
+| Format | Dimensions | Duration | Orientation |
+| ------ | ---------- | -------- | ----------- |
+| JPEG   | ✓          | ✗        | ✓           |
+| PNG    | ✓          | ✗        | ✗           |
+| GIF    | ✓          | ✗        | ✗           |
+| BMP    | ✓          | ✗        | ✗           |
+| WebP   | ✓          | ✗        | ✓           |
+| TIFF   | ✓          | ✗        | ✓           |
+| MP4    | ✓          | ✓        | ✓           |
+| WebM   | ✓          | ✓        | ✗           |
+| MKV    | ✓          | ✓        | ✗           |
 
-| Format | Dimensions | Orientation | Metadata                                   |
-| ------ | ---------- | ----------- | ------------------------------------------ |
-| JPEG   | ✓          | ✓           | EXIF: Capture Date, Camera Make/Model, GPS |
-| PNG    | ✓          | ✗           | None                                       |
-| GIF    | ✓          | ✗           | None                                       |
-| BMP    | ✓          | ✗           | None                                       |
-| WebP   | ✓          | ✓           | EXIF: Capture Date, GPS                    |
-| TIFF   | ✓          | ✓           | EXIF: Capture Date, Camera Make/Model, GPS |
-
-### Videos
-
-| Format | Dimensions | Duration | Orientation | Metadata                |
-| ------ | ---------- | -------- | ----------- | ----------------------- |
-| MP4    | ✓          | ✓        | ✓           | Creation Date, Rotation |
-| WebM   | ✓          | ✓        | ✗           | None                    |
-| MKV    | ✓          | ✓        | ✗           | None                    |
+For detailed metadata capabilities, see the [User Guide](USERGUIDE.md).
