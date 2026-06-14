@@ -2,8 +2,6 @@
 
 This guide provides instructions on how to install, build, run, and cross-compile `zprobe` for different platforms.
 
----
-
 ## Getting Started
 
 ### Prerequisites
@@ -27,8 +25,6 @@ zig build -OReleaseSafe
 # Run in JSON mode
 ./zig-out/bin/zprobe --json /path/to/media/directory
 ```
-
----
 
 ## Cross-Compilation
 
