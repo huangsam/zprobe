@@ -6,7 +6,7 @@ Most media metadata tools are bloated and not built for constrained environments
 
 See the [User Guide](USERGUIDE.md) and [Developer & Agent Guide](AGENTS.md) to dive deeper.
 
-## Supported Formats & Metadata
+## Supported Formats
 
 ### Images
 
