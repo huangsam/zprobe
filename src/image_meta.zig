@@ -959,3 +959,211 @@ test "parse WebP: VP8 not keyframe" {
     const result = parseWebp(header);
     try std.testing.expectError(error.InvalidWebpVP8Keyframe, result);
 }
+
+test "parseTiff EXIF and GPS tags" {
+    const allocator = std.testing.allocator;
+    var meta = ImageMetadata{
+        .format = "jpeg",
+        .width = 100,
+        .height = 100,
+    };
+    defer meta.deinit(allocator);
+
+    var buf = [_]u8{0} ** 200;
+    // TIFF Header
+    buf[0] = 'I';
+    buf[1] = 'I';
+    buf[2] = 42;
+    buf[3] = 0;
+    buf[4] = 8;
+    buf[5] = 0;
+    buf[6] = 0;
+    buf[7] = 0;
+
+    // First IFD (offset 8)
+    buf[8] = 4;
+    buf[9] = 0; // 4 entries
+
+    // Entry 1: Orientation (tag 0x0112)
+    buf[10] = 0x12;
+    buf[11] = 0x01; // Tag
+    buf[12] = 3;
+    buf[13] = 0; // SHORT
+    buf[14] = 1;
+    buf[15] = 0;
+    buf[16] = 0;
+    buf[17] = 0; // count = 1
+    buf[18] = 6;
+    buf[19] = 0;
+    buf[20] = 0;
+    buf[21] = 0; // value = 6
+
+    // Entry 2: Make (tag 0x010f)
+    buf[22] = 0x0f;
+    buf[23] = 0x01; // Tag
+    buf[24] = 2;
+    buf[25] = 0; // ASCII
+    buf[26] = 5;
+    buf[27] = 0;
+    buf[28] = 0;
+    buf[29] = 0; // count = 5
+    buf[30] = 62;
+    buf[31] = 0;
+    buf[32] = 0;
+    buf[33] = 0; // offset = 62
+
+    // Entry 3: Model (tag 0x0110)
+    buf[34] = 0x10;
+    buf[35] = 0x01; // Tag
+    buf[36] = 2;
+    buf[37] = 0; // ASCII
+    buf[38] = 4;
+    buf[39] = 0;
+    buf[40] = 0;
+    buf[41] = 0; // count = 4
+    buf[42] = 'A';
+    buf[43] = '7';
+    buf[44] = 'C';
+    buf[45] = 0; // inline value
+
+    // Entry 4: GPS IFD (tag 0x8825)
+    buf[46] = 0x25;
+    buf[47] = 0x88; // Tag
+    buf[48] = 4;
+    buf[49] = 0; // LONG
+    buf[50] = 1;
+    buf[51] = 0;
+    buf[52] = 0;
+    buf[53] = 0; // count = 1
+    buf[54] = 72;
+    buf[55] = 0;
+    buf[56] = 0;
+    buf[57] = 0; // offset = 72
+
+    // next IFD offset (0) -> buf[58..61]
+
+    // ASCII strings
+    @memcpy(buf[62..67], "Sony\x00");
+
+    // GPS IFD (offset 72)
+    buf[72] = 4;
+    buf[73] = 0; // 4 entries
+
+    // GPSLatitudeRef (tag 0x0001)
+    buf[74] = 1;
+    buf[75] = 0;
+    buf[76] = 2;
+    buf[77] = 0; // ASCII
+    buf[78] = 2;
+    buf[79] = 0;
+    buf[80] = 0;
+    buf[81] = 0; // count = 2
+    buf[82] = 'N';
+    buf[83] = 0;
+    buf[84] = 0;
+    buf[85] = 0;
+
+    // GPSLatitude (tag 0x0002)
+    buf[86] = 2;
+    buf[87] = 0;
+    buf[88] = 5;
+    buf[89] = 0; // RATIONAL
+    buf[90] = 3;
+    buf[91] = 0;
+    buf[92] = 0;
+    buf[93] = 0; // count = 3
+    buf[94] = 124;
+    buf[95] = 0;
+    buf[96] = 0;
+    buf[97] = 0; // offset = 124
+
+    // GPSLongitudeRef (tag 0x0003)
+    buf[98] = 3;
+    buf[99] = 0;
+    buf[100] = 2;
+    buf[101] = 0; // ASCII
+    buf[102] = 2;
+    buf[103] = 0;
+    buf[104] = 0;
+    buf[105] = 0; // count = 2
+    buf[106] = 'W';
+    buf[107] = 0;
+    buf[108] = 0;
+    buf[109] = 0;
+
+    // GPSLongitude (tag 0x0004)
+    buf[110] = 4;
+    buf[111] = 0;
+    buf[112] = 5;
+    buf[113] = 0; // RATIONAL
+    buf[114] = 3;
+    buf[115] = 0;
+    buf[116] = 0;
+    buf[117] = 0; // count = 3
+    buf[118] = 148;
+    buf[119] = 0;
+    buf[120] = 0;
+    buf[121] = 0; // offset = 148
+
+    // next IFD offset (0) -> buf[122..125]
+
+    // GPSLatitude rationals: 37/1, 45/1, 3000/100 (30.00)
+    buf[124] = 0x25;
+    buf[125] = 0;
+    buf[126] = 0;
+    buf[127] = 0;
+    buf[128] = 1;
+    buf[129] = 0;
+    buf[130] = 0;
+    buf[131] = 0;
+    buf[132] = 0x2d;
+    buf[133] = 0;
+    buf[134] = 0;
+    buf[135] = 0;
+    buf[136] = 1;
+    buf[137] = 0;
+    buf[138] = 0;
+    buf[139] = 0;
+    buf[140] = 0xb8;
+    buf[141] = 0x0b;
+    buf[142] = 0;
+    buf[143] = 0;
+    buf[144] = 0x64;
+    buf[145] = 0;
+    buf[146] = 0;
+    buf[147] = 0;
+
+    // GPSLongitude rationals: 122/1, 0/1, 0/1
+    buf[148] = 0x7a;
+    buf[149] = 0;
+    buf[150] = 0;
+    buf[151] = 0;
+    buf[152] = 1;
+    buf[153] = 0;
+    buf[154] = 0;
+    buf[155] = 0;
+    buf[156] = 0;
+    buf[157] = 0;
+    buf[158] = 0;
+    buf[159] = 0;
+    buf[160] = 1;
+    buf[161] = 0;
+    buf[162] = 0;
+    buf[163] = 0;
+    buf[164] = 0;
+    buf[165] = 0;
+    buf[166] = 0;
+    buf[167] = 0;
+    buf[168] = 1;
+    buf[169] = 0;
+    buf[170] = 0;
+    buf[171] = 0;
+
+    try parseTiff(allocator, &buf, &meta);
+
+    try std.testing.expectEqual(@as(u16, 6), meta.orientation.?);
+    try std.testing.expectEqualStrings("Sony", meta.camera_make.?);
+    try std.testing.expectEqualStrings("A7C", meta.camera_model.?);
+    try std.testing.expect(meta.gps_latitude.? > 37.7583 and meta.gps_latitude.? < 37.7584);
+    try std.testing.expectEqual(@as(f64, -122.0), meta.gps_longitude.?);
+}
