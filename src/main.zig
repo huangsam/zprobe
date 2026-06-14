@@ -43,6 +43,10 @@ fn formatOrientation(orient: u16) []const u8 {
     };
 }
 
+pub fn computeWorkerCount(cpu_count: usize) usize {
+    return @min(@max(cpu_count * 4, 8), 16);
+}
+
 const JsonOutput = struct {
     path: []const u8,
     size: u64,
@@ -303,7 +307,7 @@ pub fn main(init: std.process.Init) !void {
     var success_count = std.atomic.Value(usize).init(0);
 
     const cpu_count = std.Thread.getCpuCount() catch 4;
-    const num_workers = @max(cpu_count * 4, 16);
+    const num_workers = computeWorkerCount(cpu_count);
 
     const threads = try allocator.alloc(std.Thread, num_workers);
     defer allocator.free(threads);
@@ -454,4 +458,13 @@ test "concurrent file processing integration test" {
 
     // Verify all 50 files were parsed successfully
     try std.testing.expectEqual(@as(usize, 50), success_count.load(.monotonic));
+}
+
+test "computeWorkerCount boundaries" {
+    try std.testing.expectEqual(@as(usize, 8), computeWorkerCount(1));
+    try std.testing.expectEqual(@as(usize, 8), computeWorkerCount(2));
+    try std.testing.expectEqual(@as(usize, 12), computeWorkerCount(3));
+    try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(4));
+    try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(8));
+    try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(16));
 }
