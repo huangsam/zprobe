@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const Dir = std.Io.Dir;
+const ByteReader = @import("byte_reader.zig").ByteReader;
 
 /// Magic bytes (file signatures) used to identify image formats.
 pub const jpegMagic: [2]u8 = .{ 0xff, 0xd8 };
@@ -266,216 +267,176 @@ pub const ImageMetadata = struct {
     }
 };
 
-const TiffParser = struct {
-    buffer: []const u8,
-    is_be: bool,
+fn getTypeSize(t: u16) usize {
+    return switch (t) {
+        1, 2, 7 => 1,
+        3 => 2,
+        4, 9 => 4,
+        5, 10 => 8,
+        else => 0,
+    };
+}
 
-    fn readU16(self: TiffParser, offset: usize) !u16 {
-        if (offset + 2 > self.buffer.len) return error.TiffCorrupt;
-        const slice = self.buffer[offset .. offset + 2];
-        if (self.is_be) {
-            return std.mem.readInt(u16, slice[0..2], .big);
-        } else {
-            return std.mem.readInt(u16, slice[0..2], .little);
-        }
-    }
+fn parseIfd(
+    allocator: std.mem.Allocator,
+    root_reader: *ByteReader,
+    ifd_offset: usize,
+    meta: *ImageMetadata,
+    depth: usize,
+) !void {
+    if (depth > 4) return;
+    if (ifd_offset == 0 or ifd_offset + 2 > root_reader.buffer.len) return;
 
-    fn readU32(self: TiffParser, offset: usize) !u32 {
-        if (offset + 4 > self.buffer.len) return error.TiffCorrupt;
-        const slice = self.buffer[offset .. offset + 4];
-        if (self.is_be) {
-            return std.mem.readInt(u32, slice[0..4], .big);
-        } else {
-            return std.mem.readInt(u32, slice[0..4], .little);
-        }
-    }
+    var ifd_reader = ByteReader.init(root_reader.buffer[ifd_offset..], root_reader.endian);
+    const num_entries = try ifd_reader.readU16();
 
-    fn readRational(self: TiffParser, offset: usize) !f64 {
-        const num = try self.readU32(offset);
-        const den = try self.readU32(offset + 4);
-        if (den == 0) return 0.0;
-        return @as(f64, @floatFromInt(num)) / @as(f64, @floatFromInt(den));
-    }
+    var i: usize = 0;
+    while (i < num_entries) : (i += 1) {
+        if (ifd_reader.remaining() < 12) break;
 
-    fn getTypeSize(t: u16) usize {
-        return switch (t) {
-            1, 2, 7 => 1,
-            3 => 2,
-            4, 9 => 4,
-            5, 10 => 8,
-            else => 0,
-        };
-    }
+        const entry_abs_offset = ifd_offset + 2 + i * 12;
 
-    fn entryValueOffset(self: TiffParser, entry_offset: usize, type_id: u16, count: u32) !usize {
+        const tag = try ifd_reader.readU16();
+        const type_id = try ifd_reader.readU16();
+        const count = try ifd_reader.readU32();
+        const inline_or_offset_val = try ifd_reader.readU32();
+
         const type_size = getTypeSize(type_id);
-        if (type_size == 0) return error.TiffUnsupportedType;
+        if (type_size == 0) continue;
         const total_size = @as(u64, count) * type_size;
+
+        var val_reader: ByteReader = undefined;
         if (total_size <= 4) {
-            return entry_offset + 8;
+            val_reader = ByteReader.init(root_reader.buffer[entry_abs_offset + 8 .. entry_abs_offset + 12], root_reader.endian);
         } else {
-            const offset = try self.readU32(entry_offset + 8);
-            return @as(usize, offset);
-        }
-    }
-
-    fn readAscii(self: TiffParser, allocator: std.mem.Allocator, offset: usize, count: u32) ![]const u8 {
-        if (offset + count > self.buffer.len) return error.TiffCorrupt;
-        var len = count;
-        while (len > 0 and (self.buffer[offset + len - 1] == 0 or self.buffer[offset + len - 1] == ' ')) {
-            len -= 1;
-        }
-        const slice = self.buffer[offset .. offset + len];
-        return try allocator.dupe(u8, slice);
-    }
-
-    fn parseIfd(
-        self: TiffParser,
-        allocator: std.mem.Allocator,
-        ifd_offset: usize,
-        meta: *ImageMetadata,
-        depth: usize,
-    ) !void {
-        if (depth > 4) return;
-        if (ifd_offset == 0 or ifd_offset + 2 > self.buffer.len) return;
-
-        const num_entries = try self.readU16(ifd_offset);
-        var entry_offset = ifd_offset + 2;
-
-        var i: usize = 0;
-        while (i < num_entries) : (i += 1) {
-            if (entry_offset + 12 > self.buffer.len) break;
-
-            const tag = try self.readU16(entry_offset);
-            const type_id = try self.readU16(entry_offset + 2);
-            const count = try self.readU32(entry_offset + 4);
-
-            const val_off = self.entryValueOffset(entry_offset, type_id, count) catch {
-                entry_offset += 12;
-                continue;
-            };
-
-            switch (tag) {
-                0x0112 => { // Orientation
-                    if (type_id == 3 and count == 1) {
-                        meta.orientation = try self.readU16(val_off);
-                    }
-                },
-                0x010f => { // Make
-                    if (type_id == 2) {
-                        meta.camera_make = try self.readAscii(allocator, val_off, count);
-                    }
-                },
-                0x0110 => { // Model
-                    if (type_id == 2) {
-                        meta.camera_model = try self.readAscii(allocator, val_off, count);
-                    }
-                },
-                0x8769 => { // Exif IFD Offset
-                    if (type_id == 4 and count == 1) {
-                        const offset = try self.readU32(entry_offset + 8);
-                        try self.parseIfd(allocator, @as(usize, offset), meta, depth + 1);
-                    }
-                },
-                0x8825 => { // GPS Info IFD Offset
-                    if (type_id == 4 and count == 1) {
-                        const offset = try self.readU32(entry_offset + 8);
-                        try self.parseGpsIfd(allocator, @as(usize, offset), meta);
-                    }
-                },
-                0x9003 => { // DateTimeOriginal
-                    if (type_id == 2) {
-                        meta.create_time = try self.readAscii(allocator, val_off, count);
-                    }
-                },
-                else => {},
-            }
-
-            entry_offset += 12;
-        }
-    }
-
-    fn parseGpsIfd(self: TiffParser, allocator: std.mem.Allocator, ifd_offset: usize, meta: *ImageMetadata) !void {
-        _ = allocator;
-        if (ifd_offset == 0 or ifd_offset + 2 > self.buffer.len) return;
-
-        const num_entries = try self.readU16(ifd_offset);
-        var entry_offset = ifd_offset + 2;
-
-        var lat_rational: ?[3]f64 = null;
-        var lon_rational: ?[3]f64 = null;
-        var lat_ref: ?u8 = null;
-        var lon_ref: ?u8 = null;
-
-        var i: usize = 0;
-        while (i < num_entries) : (i += 1) {
-            if (entry_offset + 12 > self.buffer.len) break;
-
-            const tag = try self.readU16(entry_offset);
-            const type_id = try self.readU16(entry_offset + 2);
-            const count = try self.readU32(entry_offset + 4);
-
-            const val_off = self.entryValueOffset(entry_offset, type_id, count) catch {
-                entry_offset += 12;
-                continue;
-            };
-
-            switch (tag) {
-                0x0001 => { // GPSLatitudeRef
-                    if (type_id == 2 and count >= 1) {
-                        lat_ref = self.buffer[val_off];
-                    }
-                },
-                0x0002 => { // GPSLatitude
-                    if (type_id == 5 and count == 3) {
-                        lat_rational = .{
-                            try self.readRational(val_off),
-                            try self.readRational(val_off + 8),
-                            try self.readRational(val_off + 16),
-                        };
-                    }
-                },
-                0x0003 => { // GPSLongitudeRef
-                    if (type_id == 2 and count >= 1) {
-                        lon_ref = self.buffer[val_off];
-                    }
-                },
-                0x0004 => { // GPSLongitude
-                    if (type_id == 5 and count == 3) {
-                        lon_rational = .{
-                            try self.readRational(val_off),
-                            try self.readRational(val_off + 8),
-                            try self.readRational(val_off + 16),
-                        };
-                    }
-                },
-                else => {},
-            }
-
-            entry_offset += 12;
+            if (inline_or_offset_val + total_size > root_reader.buffer.len) continue;
+            val_reader = ByteReader.init(root_reader.buffer[inline_or_offset_val .. inline_or_offset_val + total_size], root_reader.endian);
         }
 
-        if (lat_rational) |lat| {
-            var val = lat[0] + lat[1] / 60.0 + lat[2] / 3600.0;
-            if (lat_ref) |ref| {
-                if (ref == 'S' or ref == 's') {
-                    val = -val;
+        switch (tag) {
+            0x0112 => { // Orientation
+                if (type_id == 3 and count == 1) {
+                    meta.orientation = try val_reader.readU16();
                 }
-            }
-            meta.gps_latitude = val;
-        }
-
-        if (lon_rational) |lon| {
-            var val = lon[0] + lon[1] / 60.0 + lon[2] / 3600.0;
-            if (lon_ref) |ref| {
-                if (ref == 'W' or ref == 'w') {
-                    val = -val;
+            },
+            0x010f => { // Make
+                if (type_id == 2) {
+                    meta.camera_make = try val_reader.readAscii(allocator, count);
                 }
-            }
-            meta.gps_longitude = val;
+            },
+            0x0110 => { // Model
+                if (type_id == 2) {
+                    meta.camera_model = try val_reader.readAscii(allocator, count);
+                }
+            },
+            0x8769 => { // Exif IFD Offset
+                if (type_id == 4 and count == 1) {
+                    try parseIfd(allocator, root_reader, @as(usize, inline_or_offset_val), meta, depth + 1);
+                }
+            },
+            0x8825 => { // GPS Info IFD Offset
+                if (type_id == 4 and count == 1) {
+                    try parseGpsIfd(root_reader, @as(usize, inline_or_offset_val), meta);
+                }
+            },
+            0x9003 => { // DateTimeOriginal
+                if (type_id == 2) {
+                    meta.create_time = try val_reader.readAscii(allocator, count);
+                }
+            },
+            else => {},
         }
     }
-};
+}
+
+fn parseGpsIfd(
+    root_reader: *ByteReader,
+    ifd_offset: usize,
+    meta: *ImageMetadata,
+) !void {
+    if (ifd_offset == 0 or ifd_offset + 2 > root_reader.buffer.len) return;
+
+    var gps_reader = ByteReader.init(root_reader.buffer[ifd_offset..], root_reader.endian);
+    const num_entries = try gps_reader.readU16();
+
+    var lat_ref: ?u8 = null;
+    var lat_val: ?f64 = null;
+    var lon_ref: ?u8 = null;
+    var lon_val: ?f64 = null;
+
+    var i: usize = 0;
+    while (i < num_entries) : (i += 1) {
+        if (gps_reader.remaining() < 12) break;
+
+        const entry_abs_offset = ifd_offset + 2 + i * 12;
+
+        const tag = try gps_reader.readU16();
+        const type_id = try gps_reader.readU16();
+        const count = try gps_reader.readU32();
+        const inline_or_offset_val = try gps_reader.readU32();
+
+        const type_size = getTypeSize(type_id);
+        if (type_size == 0) continue;
+        const total_size = @as(u64, count) * type_size;
+
+        var val_reader: ByteReader = undefined;
+        if (total_size <= 4) {
+            val_reader = ByteReader.init(root_reader.buffer[entry_abs_offset + 8 .. entry_abs_offset + 12], root_reader.endian);
+        } else {
+            if (inline_or_offset_val + total_size > root_reader.buffer.len) continue;
+            val_reader = ByteReader.init(root_reader.buffer[inline_or_offset_val .. inline_or_offset_val + total_size], root_reader.endian);
+        }
+
+        switch (tag) {
+            1 => { // GPSLatitudeRef
+                if (type_id == 2 and count >= 2) {
+                    lat_ref = try val_reader.readU8();
+                }
+            },
+            2 => { // GPSLatitude
+                if (type_id == 5 and count == 3) {
+                    const deg = try val_reader.readRational();
+                    const min = try val_reader.readRational();
+                    const sec = try val_reader.readRational();
+                    lat_val = deg + min / 60.0 + sec / 3600.0;
+                }
+            },
+            3 => { // GPSLongitudeRef
+                if (type_id == 2 and count >= 2) {
+                    lon_ref = try val_reader.readU8();
+                }
+            },
+            4 => { // GPSLongitude
+                if (type_id == 5 and count == 3) {
+                    const deg = try val_reader.readRational();
+                    const min = try val_reader.readRational();
+                    const sec = try val_reader.readRational();
+                    lon_val = deg + min / 60.0 + sec / 3600.0;
+                }
+            },
+            else => {},
+        }
+    }
+
+    if (lat_val) |lat| {
+        var val = lat;
+        if (lat_ref) |ref| {
+            if (ref == 'S' or ref == 's') {
+                val = -val;
+            }
+        }
+        meta.gps_latitude = val;
+    }
+    if (lon_val) |lon| {
+        var val = lon;
+        if (lon_ref) |ref| {
+            if (ref == 'W' or ref == 'w') {
+                val = -val;
+            }
+        }
+        meta.gps_longitude = val;
+    }
+}
 
 fn parseTiff(
     allocator: std.mem.Allocator,
@@ -484,22 +445,23 @@ fn parseTiff(
 ) !void {
     if (tiff_buf.len < 8) return error.TiffTooShort;
 
-    var is_be = false;
+    var endian: std.builtin.Endian = .little;
     if (std.mem.eql(u8, tiff_buf[0..2], "II")) {
-        is_be = false;
+        endian = .little;
     } else if (std.mem.eql(u8, tiff_buf[0..2], "MM")) {
-        is_be = true;
+        endian = .big;
     } else {
         return error.InvalidTiffHeader;
     }
 
-    const parser = TiffParser{ .buffer = tiff_buf, .is_be = is_be };
+    var reader = ByteReader.init(tiff_buf, endian);
+    try reader.skip(2); // Skip II/MM
 
-    const magic = try parser.readU16(2);
+    const magic = try reader.readU16();
     if (magic != 42) return error.InvalidTiffMagic;
 
-    const first_ifd_offset = try parser.readU32(4);
-    try parser.parseIfd(allocator, @as(usize, first_ifd_offset), meta, 0);
+    const first_ifd_offset = try reader.readU32();
+    try parseIfd(allocator, &reader, @as(usize, first_ifd_offset), meta, 0);
 }
 
 fn parseJpegFile(allocator: std.mem.Allocator, reader: *std.Io.Reader, meta: *ImageMetadata) !struct { width: u16, height: u16 } {

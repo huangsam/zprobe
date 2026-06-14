@@ -9,6 +9,7 @@
 const std = @import("std");
 const Dir = std.Io.Dir;
 const utils = @import("utils.zig");
+const ByteReader = @import("byte_reader.zig").ByteReader;
 
 pub const VideoInfo = struct {
     format: []const u8,
@@ -30,37 +31,40 @@ const Dims = struct {
 };
 
 /// Parse a `tkhd` (Track Header) box payload.
-fn parseTkhd(payload: []const u8) ?Dims {
-    if (payload.len < 80) return null;
-
-    const version = payload[0];
-    var w_off: usize = 0;
-    var h_off: usize = 0;
-    var m_off: usize = 0;
+fn parseTkhd(reader: *ByteReader) ?Dims {
+    const version = reader.readU8() catch return null;
+    reader.skip(3) catch return null; // flags
 
     if (version == 0) {
-        if (payload.len < 84) return null;
-        w_off = 76;
-        h_off = 80;
-        m_off = 40;
+        reader.skip(20) catch return null;
     } else if (version == 1) {
-        if (payload.len < 96) return null;
-        w_off = 88;
-        h_off = 92;
-        m_off = 52;
+        reader.skip(32) catch return null;
     } else {
         return null;
     }
 
-    // Decode Big-Endian 16-bit integer part of the 16.16 fixed point value.
-    const w = @as(u32, payload[w_off]) << 8 | @as(u32, payload[w_off + 1]);
-    const h = @as(u32, payload[h_off]) << 8 | @as(u32, payload[h_off + 1]);
+    reader.skip(8) catch return null; // reserved2
+    reader.skip(8) catch return null; // layer, alternate_group, volume, reserved3
 
-    // Parse matrix for rotation
-    const a = @as(i32, @bitCast(@as(u32, payload[m_off]) << 24 | @as(u32, payload[m_off + 1]) << 16 | @as(u32, payload[m_off + 2]) << 8 | payload[m_off + 3]));
-    const b = @as(i32, @bitCast(@as(u32, payload[m_off + 4]) << 24 | @as(u32, payload[m_off + 5]) << 16 | @as(u32, payload[m_off + 6]) << 8 | payload[m_off + 7]));
-    const c = @as(i32, @bitCast(@as(u32, payload[m_off + 12]) << 24 | @as(u32, payload[m_off + 13]) << 16 | @as(u32, payload[m_off + 14]) << 8 | payload[m_off + 15]));
-    const d = @as(i32, @bitCast(@as(u32, payload[m_off + 16]) << 24 | @as(u32, payload[m_off + 17]) << 16 | @as(u32, payload[m_off + 18]) << 8 | payload[m_off + 19]));
+    const a = reader.readI32() catch return null;
+    const b = reader.readI32() catch return null;
+    const u = reader.readI32() catch return null;
+    const c = reader.readI32() catch return null;
+    const d = reader.readI32() catch return null;
+    const v = reader.readI32() catch return null;
+    const x = reader.readI32() catch return null;
+    const y = reader.readI32() catch return null;
+    const w_coeff = reader.readI32() catch return null;
+    _ = u;
+    _ = v;
+    _ = x;
+    _ = y;
+    _ = w_coeff;
+
+    const width_int = reader.readU16() catch return null;
+    reader.skip(2) catch return null;
+    const height_int = reader.readU16() catch return null;
+    reader.skip(2) catch return null;
 
     var orientation: u16 = 1;
     if (b == 0x00010000 and c == -0x00010000) {
@@ -71,66 +75,69 @@ fn parseTkhd(payload: []const u8) ?Dims {
         orientation = 8;
     }
 
-    return .{ .width = w, .height = h, .orientation = orientation };
+    return .{ .width = width_int, .height = height_int, .orientation = orientation };
 }
 
 /// Recursively search for the `tkhd` box within nested container boxes.
 fn findTkhdInPayload(payload: []const u8) ?Dims {
-    var off: usize = 0;
-    while (off + 8 <= payload.len) {
-        // Read box size (4 bytes, Big-Endian)
-        const box_size = @as(u32, payload[off]) << 24 |
-            @as(u32, payload[off + 1]) << 16 |
-            @as(u32, payload[off + 2]) << 8 |
-            @as(u32, payload[off + 3]);
-        if (box_size < 8 or off + box_size > payload.len) return null;
+    var reader = ByteReader.init(payload, .big);
+    return findTkhdInReader(&reader);
+}
 
-        // Read box type (4 bytes ASCII)
-        const box_type = payload[off + 4 .. off + 8];
+fn findTkhdInReader(reader: *ByteReader) ?Dims {
+    while (reader.remaining() >= 8) {
+        const box_size = reader.readU32() catch return null;
+        if (box_size < 8) return null;
+        const box_type = reader.peek(4) catch return null;
+        reader.skip(4) catch return null;
+
+        const payload_size = box_size - 8;
+        if (payload_size > reader.remaining()) return null;
+
+        var sub = reader.subReader(payload_size) catch return null;
+
         if (std.mem.eql(u8, box_type, "tkhd")) {
-            const tkhd_payload = payload[off + 8 .. off + box_size];
-            if (parseTkhd(tkhd_payload)) |dims| {
+            if (parseTkhd(&sub)) |dims| {
                 if (dims.width > 0 and dims.height > 0) {
                     return dims;
                 }
             }
-        }
-
-        // If this box is a container type, recurse into its inner payload.
-        if (std.mem.eql(u8, box_type, "trak") or
+        } else if (std.mem.eql(u8, box_type, "trak") or
             std.mem.eql(u8, box_type, "mdia") or
             std.mem.eql(u8, box_type, "minf") or
             std.mem.eql(u8, box_type, "stbl"))
         {
-            if (findTkhdInPayload(payload[off + 8 .. off + box_size])) |dims| {
+            if (findTkhdInReader(&sub)) |dims| {
                 return dims;
             }
         }
-
-        off += box_size;
     }
     return null;
 }
 
 fn parseMvhd(allocator: std.mem.Allocator, payload: []const u8, info: *VideoInfo) !void {
-    if (payload.len < 20) return;
+    var reader = ByteReader.init(payload, .big);
+    try parseMvhdInReader(allocator, &reader, info);
+}
 
-    const version = payload[0];
+fn parseMvhdInReader(allocator: std.mem.Allocator, reader: *ByteReader, info: *VideoInfo) !void {
+    const version = try reader.readU8();
+    try reader.skip(3); // flags
+
+    var creation_time: u64 = 0;
     var timescale: u32 = 0;
     var duration: u64 = 0;
-    var creation_time: u64 = 0;
 
     if (version == 0) {
-        creation_time = @as(u32, payload[4]) << 24 | @as(u32, payload[5]) << 16 | @as(u32, payload[6]) << 8 | payload[7];
-        timescale = @as(u32, payload[12]) << 24 | @as(u32, payload[13]) << 16 | @as(u32, payload[14]) << 8 | payload[15];
-        duration = @as(u32, payload[16]) << 24 | @as(u32, payload[17]) << 16 | @as(u32, payload[18]) << 8 | payload[19];
+        creation_time = try reader.readU32();
+        _ = try reader.readU32(); // modification_time
+        timescale = try reader.readU32();
+        duration = try reader.readU32();
     } else if (version == 1) {
-        if (payload.len < 32) return;
-        creation_time = @as(u64, payload[4]) << 56 | @as(u64, payload[5]) << 48 | @as(u64, payload[6]) << 40 | @as(u64, payload[7]) << 32 |
-            @as(u64, payload[8]) << 24 | @as(u64, payload[9]) << 16 | @as(u64, payload[10]) << 8 | payload[11];
-        timescale = @as(u32, payload[20]) << 24 | @as(u32, payload[21]) << 16 | @as(u32, payload[22]) << 8 | payload[23];
-        duration = @as(u64, payload[24]) << 56 | @as(u64, payload[25]) << 48 | @as(u64, payload[26]) << 40 | @as(u64, payload[27]) << 32 |
-            @as(u64, payload[28]) << 24 | @as(u64, payload[29]) << 16 | @as(u64, payload[30]) << 8 | payload[31];
+        creation_time = try reader.readU64();
+        _ = try reader.readU64(); // modification_time
+        timescale = try reader.readU32();
+        duration = try reader.readU64();
     } else {
         return;
     }
@@ -139,7 +146,6 @@ fn parseMvhd(allocator: std.mem.Allocator, payload: []const u8, info: *VideoInfo
         info.duration_sec = @as(f64, @floatFromInt(duration)) / @as(f64, @floatFromInt(timescale));
     }
 
-    // Convert creation_time (seconds since Jan 1, 1904) to Unix time
     if (creation_time >= 2082844800) {
         const unix_secs = creation_time - 2082844800;
         info.create_time = utils.formatEpoch(allocator, unix_secs) catch null;
@@ -193,7 +199,8 @@ fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: anytyp
             var tkhd_buf: [96]u8 = undefined;
             const read_len = @min(payload_len, tkhd_buf.len);
             _ = try std.Io.File.readPositionalAll(file, io, tkhd_buf[0..read_len], offset + header_len);
-            if (parseTkhd(tkhd_buf[0..read_len])) |dims| {
+            var reader = ByteReader.init(tkhd_buf[0..read_len], .big);
+            if (parseTkhd(&reader)) |dims| {
                 if (dims.width > 0 and dims.height > 0) {
                     info.width = dims.width;
                     info.height = dims.height;
@@ -914,7 +921,8 @@ test "parseTkhd rotation matrices" {
         payload[58] = 0x00;
         payload[59] = 0x00;
 
-        const dims = parseTkhd(&payload) orelse return error.TestFailed;
+        var reader = ByteReader.init(&payload, .big);
+        const dims = parseTkhd(&reader) orelse return error.TestFailed;
         try std.testing.expectEqual(@as(u16, 1), dims.orientation);
     }
 
@@ -933,7 +941,8 @@ test "parseTkhd rotation matrices" {
         payload[54] = 0x00;
         payload[55] = 0x00;
 
-        const dims = parseTkhd(&payload) orelse return error.TestFailed;
+        var reader = ByteReader.init(&payload, .big);
+        const dims = parseTkhd(&reader) orelse return error.TestFailed;
         try std.testing.expectEqual(@as(u16, 6), dims.orientation);
     }
 
@@ -952,7 +961,8 @@ test "parseTkhd rotation matrices" {
         payload[58] = 0x00;
         payload[59] = 0x00;
 
-        const dims = parseTkhd(&payload) orelse return error.TestFailed;
+        var reader = ByteReader.init(&payload, .big);
+        const dims = parseTkhd(&reader) orelse return error.TestFailed;
         try std.testing.expectEqual(@as(u16, 3), dims.orientation);
     }
 
@@ -971,7 +981,8 @@ test "parseTkhd rotation matrices" {
         payload[54] = 0x00;
         payload[55] = 0x00;
 
-        const dims = parseTkhd(&payload) orelse return error.TestFailed;
+        var reader = ByteReader.init(&payload, .big);
+        const dims = parseTkhd(&reader) orelse return error.TestFailed;
         try std.testing.expectEqual(@as(u16, 8), dims.orientation);
     }
 }

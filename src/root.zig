@@ -14,6 +14,7 @@ const std = @import("std");
 pub const media_scan = @import("media_scan.zig");
 pub const image_meta = @import("image_meta.zig");
 pub const video_meta = @import("video_meta.zig");
+pub const byte_reader = @import("byte_reader.zig");
 
 test {
     std.testing.refAllDecls(@This());
