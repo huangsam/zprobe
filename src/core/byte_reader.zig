@@ -170,3 +170,28 @@ test "ByteReader skip, peek, signed ints, and rationals" {
     var reader3 = ByteReader.init(&buf3, .big);
     try std.testing.expectEqual(@as(f64, 5.0), try reader3.readRational());
 }
+
+test "ByteReader readAscii edge cases (all-null, all-space)" {
+    const allocator = std.testing.allocator;
+
+    // Test 1: All nulls should return empty string
+    const buf1 = "\x00\x00";
+    var reader1 = ByteReader.init(buf1, .little);
+    const str1 = try reader1.readAscii(allocator, 2);
+    defer allocator.free(str1);
+    try std.testing.expectEqual(@as(usize, 0), str1.len);
+
+    // Test 2: All spaces should return empty string
+    const buf2 = "    ";
+    var reader2 = ByteReader.init(buf2, .little);
+    const str2 = try reader2.readAscii(allocator, 4);
+    defer allocator.free(str2);
+    try std.testing.expectEqual(@as(usize, 0), str2.len);
+
+    // Test 3: Single null should return empty string
+    const buf3 = "\x00";
+    var reader3 = ByteReader.init(buf3, .little);
+    const str3 = try reader3.readAscii(allocator, 1);
+    defer allocator.free(str3);
+    try std.testing.expectEqual(@as(usize, 0), str3.len);
+}
