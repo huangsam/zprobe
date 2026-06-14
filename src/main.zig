@@ -71,7 +71,77 @@ const JsonOutput = struct {
     gps_latitude: ?f64 = null,
     gps_longitude: ?f64 = null,
     duration_sec: ?f64 = null,
+
+    /// Free heap-allocated strings stored within JsonOutput.
+    pub fn deinit(self: *JsonOutput, allocator: std.mem.Allocator) void {
+        if (self.create_time) |s| allocator.free(s);
+        if (self.camera_make) |s| allocator.free(s);
+        if (self.camera_model) |s| allocator.free(s);
+    }
 };
+
+/// Helper to convert ImageMetadata to JsonOutput, allocating strings in the process.
+fn populateJsonFromImage(
+    allocator: std.mem.Allocator,
+    meta: *const image_meta.ImageMetadata,
+    path: []const u8,
+    size: u64,
+) !JsonOutput {
+    var json_out = JsonOutput{
+        .path = path,
+        .size = size,
+        .format = meta.format,
+        .width = meta.width,
+        .height = meta.height,
+        .orientation = meta.orientation,
+        .create_time = null,
+        .camera_make = null,
+        .camera_model = null,
+        .gps_latitude = meta.gps_latitude,
+        .gps_longitude = meta.gps_longitude,
+    };
+
+    // Single errdefer at the top: if any allocation fails, deinit() will free
+    // only the strings that were successfully allocated (Zig's errdefer runs LIFO
+    // but deinit() safely handles null/zero values).
+    errdefer json_out.deinit(allocator);
+
+    if (meta.create_time) |ct| json_out.create_time = try allocator.dupe(u8, ct);
+    if (meta.camera_make) |cm| json_out.camera_make = try allocator.dupe(u8, cm);
+    if (meta.camera_model) |cm| json_out.camera_model = try allocator.dupe(u8, cm);
+
+    return json_out;
+}
+
+/// Helper to convert VideoInfo to JsonOutput.
+fn populateJsonFromVideo(
+    allocator: std.mem.Allocator,
+    meta: *const video_meta.VideoInfo,
+    path: []const u8,
+    size: u64,
+) !JsonOutput {
+    var json_out = JsonOutput{
+        .path = path,
+        .size = size,
+        .format = meta.format,
+        .width = meta.width,
+        .height = meta.height,
+        .orientation = meta.orientation,
+        .create_time = null,
+        .camera_make = null,
+        .camera_model = null,
+        .gps_latitude = null,
+        .gps_longitude = null,
+        .duration_sec = meta.duration_sec,
+    };
+
+    // Single errdefer: if allocation fails, deinit() safely handles partial state.
+    errdefer json_out.deinit(allocator);
+
+    if (meta.create_time) |ct| json_out.create_time = try allocator.dupe(u8, ct);
+
+    return json_out;
+}
 
 /// Main application entrypoint.
 ///
@@ -141,19 +211,10 @@ pub fn main(init: std.process.Init) !void {
         fn call(c: *@TypeOf(ctx), entry: media_scan.ScanEntry) !void {
             c.count += 1;
             const ext = media_scan.getExtension(entry.path);
-            var json_out = JsonOutput{
-                .path = entry.path,
-                .size = entry.size,
-                .format = "unknown",
-            };
-
-            defer {
-                if (json_out.create_time) |s| c.allocator.free(s);
-                if (json_out.camera_make) |s| c.allocator.free(s);
-                if (json_out.camera_model) |s| c.allocator.free(s);
-            }
-
             const is_video = isVideoExtension(ext);
+
+            var json_out: JsonOutput = undefined;
+
             if (is_video) {
                 var res = video_meta.getVideoMetadata(c.allocator, entry.path, c.io) catch |err| {
                     std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
@@ -161,12 +222,7 @@ pub fn main(init: std.process.Init) !void {
                 };
                 defer res.deinit(c.allocator);
 
-                json_out.format = res.format;
-                json_out.width = res.width;
-                json_out.height = res.height;
-                json_out.orientation = res.orientation;
-                if (res.create_time) |ct| json_out.create_time = try c.allocator.dupe(u8, ct);
-                json_out.duration_sec = res.duration_sec;
+                json_out = try populateJsonFromVideo(c.allocator, &res, entry.path, entry.size);
             } else {
                 // Attempt image metadata extraction.
                 var res = image_meta.parseFile(c.allocator, entry.path, c.io) catch |err| {
@@ -175,16 +231,9 @@ pub fn main(init: std.process.Init) !void {
                 };
                 defer res.deinit(c.allocator);
 
-                json_out.format = res.format;
-                json_out.width = res.width;
-                json_out.height = res.height;
-                json_out.orientation = res.orientation;
-                if (res.create_time) |ct| json_out.create_time = try c.allocator.dupe(u8, ct);
-                if (res.camera_make) |cm| json_out.camera_make = try c.allocator.dupe(u8, cm);
-                if (res.camera_model) |cm| json_out.camera_model = try c.allocator.dupe(u8, cm);
-                json_out.gps_latitude = res.gps_latitude;
-                json_out.gps_longitude = res.gps_longitude;
+                json_out = try populateJsonFromImage(c.allocator, &res, entry.path, entry.size);
             }
+            defer json_out.deinit(c.allocator);
 
             if (c.json_mode) {
                 try std.json.fmt(json_out, .{}).format(c.out);
