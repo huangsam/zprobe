@@ -7,6 +7,9 @@ const gif = @import("gif.zig");
 const bmp = @import("bmp.zig");
 const webp = @import("webp.zig");
 const tiff = @import("tiff.zig");
+const ico = @import("ico.zig");
+const avif = @import("avif.zig");
+const jxl = @import("jxl.zig");
 
 /// Extracted metadata from an image file.
 pub const ImageMetadata = struct {
@@ -82,6 +85,26 @@ pub fn parseFile(allocator: std.mem.Allocator, path: []const u8, io: anytype) !I
     } else if (data.len >= 12 and std.mem.eql(u8, data[0..4], &webp.webpRiffMagic) and std.mem.eql(u8, data[8..12], &webp.webpWebpMagic)) {
         meta.format = "webp";
         try webp.parseWebpFile(allocator, file, io, &meta);
+        return meta;
+    } else if (data.len >= 4 and std.mem.eql(u8, data[0..4], &ico.icoMagic)) {
+        meta.format = "ico";
+        const dims = try ico.parseIco(data);
+        meta.width = dims.width;
+        meta.height = dims.height;
+        return meta;
+    } else if (data.len >= 12 and std.mem.eql(u8, data[4..8], &avif.avifMagic) and (std.mem.eql(u8, data[8..12], "avif") or std.mem.eql(u8, data[8..12], "avis"))) {
+        meta.format = "avif";
+        const size = try std.Io.File.length(file, io);
+        const dims = try avif.parseAvif(allocator, file, io, size);
+        meta.width = dims.width;
+        meta.height = dims.height;
+        return meta;
+    } else if (data.len >= 2 and (std.mem.eql(u8, data[0..2], &jxl.jxlBareMagic) or (data.len >= 12 and std.mem.eql(u8, data[0..12], &jxl.jxlBoxMagic)))) {
+        meta.format = "jxl";
+        const size = try std.Io.File.length(file, io);
+        const dims = try jxl.parseJxl(allocator, file, io, data, size);
+        meta.width = dims.width;
+        meta.height = dims.height;
         return meta;
     } else if (data.len >= 4 and ((std.mem.eql(u8, data[0..2], "II") and data[2] == 42 and data[3] == 0) or
         (std.mem.eql(u8, data[0..2], "MM") and data[2] == 0 and data[3] == 42)))

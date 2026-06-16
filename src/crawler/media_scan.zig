@@ -23,7 +23,7 @@ pub const ScanEntry = struct {
 
 /// Supported image extensions.
 pub const imageExtensions = [_][]const u8{
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".webp", ".svg",
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".webp", ".svg", ".ico", ".avif", ".jxl",
 };
 
 /// Supported video extensions.
