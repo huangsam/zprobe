@@ -76,7 +76,9 @@ pub fn parseWebpFile(allocator: std.mem.Allocator, file: anytype, io: anytype, m
 
         const real_size = chunk_size + (chunk_size & 1);
 
-        if (offset + 8 + real_size > size) return error.WebpTooShort;
+        // Use subtraction to avoid integer overflow in bounds check
+        // Check: offset + 8 + real_size > size  =>  real_size > size - offset - 8
+        if (real_size > size - offset - 8) return error.WebpTooShort;
 
         if (std.mem.eql(u8, chunk_tag, "VP8X")) {
             var payload: [10]u8 = undefined;

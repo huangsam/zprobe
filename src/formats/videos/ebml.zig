@@ -119,7 +119,7 @@ pub fn parseEbmlElements(file: anytype, io: anytype, start_offset: u64, end_offs
         if (read_bytes == 0) break;
 
         const id_size = try getVintSize(first_id_byte[0]);
-        if (offset + id_size > end_offset) break;
+        if (id_size > end_offset - offset) break;
 
         var id_buf: [4]u8 = undefined;
         _ = try std.Io.File.readPositionalAll(file, io, id_buf[0..id_size], offset);
@@ -134,7 +134,7 @@ pub fn parseEbmlElements(file: anytype, io: anytype, start_offset: u64, end_offs
         var first_size_byte: [1]u8 = undefined;
         _ = try std.Io.File.readPositionalAll(file, io, &first_size_byte, offset);
         const size_len = try getVintSize(first_size_byte[0]);
-        if (offset + size_len > end_offset) break;
+        if (size_len > end_offset - offset) break;
 
         var size_buf: [8]u8 = undefined;
         _ = try std.Io.File.readPositionalAll(file, io, size_buf[0..size_len], offset);
@@ -149,7 +149,7 @@ pub fn parseEbmlElements(file: anytype, io: anytype, start_offset: u64, end_offs
             actual_elem_size = end_offset - offset;
         }
 
-        if (offset + actual_elem_size > end_offset) break;
+        if (actual_elem_size > end_offset - offset) break;
 
         switch (id) {
             0x18538067, // Segment

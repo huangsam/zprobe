@@ -1,5 +1,6 @@
 const std = @import("std");
 const ByteReader = @import("../../core/byte_reader.zig").ByteReader;
+const test_utils = @import("../../core/test_utils.zig");
 
 pub const avifMagic: [4]u8 = .{ 'f', 't', 'y', 'p' };
 
@@ -41,7 +42,8 @@ fn walkBoxes(file: anytype, io: anytype, start_offset: u64, end_offset: u64) !Im
             real_size = end_offset - offset;
         }
 
-        if (real_size < header_len or offset + real_size > end_offset) return error.InvalidAvif;
+        // Use subtraction to avoid integer overflow in bounds check
+        if (real_size < header_len or real_size > end_offset - offset) return error.InvalidAvif;
 
         if (std.mem.eql(u8, box_type, "meta")) {
             // meta box is a FullBox, skip 4 bytes of version/flags
@@ -89,12 +91,14 @@ test "parse AVIF mock boxes" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    const cwd = std.Io.Dir.cwd();
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
     const temp_filename = "temp_test_avif.avif";
 
-    const file = try std.Io.Dir.createFile(cwd, io, temp_filename, .{});
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
     defer std.Io.File.close(file, io);
-    defer std.Io.Dir.deleteFile(cwd, io, temp_filename) catch {};
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
     // Let's build a mock AVIF with ftyp box, meta box, iprp, ipco, ispe.
     // Box structure:
@@ -183,10 +187,7 @@ test "parse AVIF mock boxes" {
 
     try std.Io.File.writePositionalAll(file, io, &buf, 0);
 
-    const abs_path = try cwd.realPathFileAlloc(io, temp_filename, allocator);
-    defer allocator.free(abs_path);
-
-    const check_file = try std.Io.Dir.openFileAbsolute(io, abs_path, .{ .mode = .read_only });
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, temp_filename, .{ .mode = .read_only });
     defer std.Io.File.close(check_file, io);
 
     const res = try parseAvif(allocator, check_file, io, buf.len);

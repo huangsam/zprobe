@@ -1,5 +1,6 @@
 const std = @import("std");
 const Dir = std.Io.Dir;
+const test_utils = @import("../../core/test_utils.zig");
 
 const jpeg = @import("jpeg.zig");
 const png = @import("png.zig");
@@ -566,4 +567,58 @@ test "parseTiff width and height tags" {
     try tiff.parseTiff(allocator, &buf, &meta);
     try std.testing.expectEqual(@as(u32, 1920), meta.width);
     try std.testing.expectEqual(@as(u32, 1080), meta.height);
+}
+
+test "parse PNG file with oversized unrecognized chunk" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    var buf = [_]u8{0} ** 40;
+    // PNG magic
+    @memcpy(buf[0..8], &png.pngMagic);
+    // Unrecognized chunk: size = 0xFFFFFFFF, tag = "test"
+    buf[8] = 0xFF;
+    buf[9] = 0xFF;
+    buf[10] = 0xFF;
+    buf[11] = 0xFF;
+    buf[12] = 't';
+    buf[13] = 'e';
+    buf[14] = 's';
+    buf[15] = 't';
+
+    const temp_filename = "temp_test_png_overflow.png";
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+    std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    var meta = ImageMetadata{
+        .format = "png",
+        .width = 0,
+        .height = 0,
+    };
+    defer meta.deinit(allocator);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, temp_filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    try std.testing.expectError(error.PngTooShort, png.parsePngFile(allocator, check_file, io, &meta));
+}
+
+test "parse ICO file with zero images" {
+    var header = [_]u8{0} ** 22;
+    // Magic: 00 00 01 00
+    header[0] = 0x00;
+    header[1] = 0x00;
+    header[2] = 0x01;
+    header[3] = 0x00;
+    // Number of images: 00 00 (zero!)
+    header[4] = 0x00;
+    header[5] = 0x00;
+
+    try std.testing.expectError(error.NotIco, ico.parseIco(&header));
 }

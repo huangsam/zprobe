@@ -1,5 +1,6 @@
 const std = @import("std");
 const Dir = std.Io.Dir;
+const test_utils = @import("../../core/test_utils.zig");
 const mp4 = @import("mp4.zig");
 const ebml = @import("ebml.zig");
 
@@ -99,7 +100,8 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
             real_size = size - offset;
         }
 
-        if (real_size < header_len or offset + real_size > size) return error.InvalidMp4;
+        // Use subtraction to avoid integer overflow in bounds check
+        if (real_size < header_len or real_size > size - offset) return error.InvalidMp4;
 
         if (std.mem.eql(u8, box_type, "moov")) {
             try mp4.findTkhdAndMvhdInFile(allocator, file, io, offset + header_len, offset + real_size, &info);
@@ -119,12 +121,14 @@ test "getVideoMetadata: parse mock WebM file" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    const cwd = std.Io.Dir.cwd();
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
     const temp_filename = "temp_test_ebml.webm";
 
-    const file = try std.Io.Dir.createFile(cwd, io, temp_filename, .{});
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
     defer std.Io.File.close(file, io);
-    defer std.Io.Dir.deleteFile(cwd, io, temp_filename) catch {};
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
     var buf = [_]u8{0} ** 59;
     buf[0] = 0x1A;
@@ -214,7 +218,7 @@ test "getVideoMetadata: parse mock WebM file" {
 
     try std.Io.File.writePositionalAll(file, io, &buf, 0);
 
-    const abs_path = try cwd.realPathFileAlloc(io, temp_filename, allocator);
+    const abs_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, temp_filename });
     defer allocator.free(abs_path);
 
     var res = try getVideoMetadata(allocator, abs_path, io);

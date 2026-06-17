@@ -176,7 +176,8 @@ pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: an
             real_size = end_offset - offset;
         }
 
-        if (real_size < header_len or offset + real_size > end_offset) return error.InvalidMp4;
+        // Use subtraction to avoid integer overflow in bounds check
+        if (real_size < header_len or real_size > end_offset - offset) return error.InvalidMp4;
 
         if (std.mem.eql(u8, box_type, "mvhd")) {
             const payload_len = real_size - header_len;

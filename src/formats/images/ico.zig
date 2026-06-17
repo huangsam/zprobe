@@ -10,6 +10,11 @@ pub fn parseIco(header: []const u8) !struct { width: u32, height: u32 } {
         return error.NotIco;
     }
 
+    const num_images = @as(u16, header[4]) | (@as(u16, header[5]) << 8);
+    if (num_images == 0) {
+        return error.NotIco;
+    }
+
     const w = header[6];
     const h = header[7];
 

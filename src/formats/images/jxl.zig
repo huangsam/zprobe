@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_utils = @import("../../core/test_utils.zig");
 
 pub const jxlBareMagic: [2]u8 = .{ 0xFF, 0x0A };
 pub const jxlBoxMagic: [12]u8 = .{ 0x00, 0x00, 0x00, 0x0C, 0x4A, 0x58, 0x4C, 0x20, 0x0D, 0x0A, 0x87, 0x0A };
@@ -112,7 +113,8 @@ fn walkJxlBoxes(file: anytype, io: anytype, start_offset: u64, end_offset: u64) 
             real_size = end_offset - offset;
         }
 
-        if (real_size < header_len or offset + real_size > end_offset) return error.InvalidJxl;
+        // Use subtraction to avoid integer overflow in bounds check
+        if (real_size < header_len or real_size > end_offset - offset) return error.InvalidJxl;
 
         if (std.mem.eql(u8, box_type, "jxlc") or std.mem.eql(u8, box_type, "jxli")) {
             const payload_len = real_size - header_len;
@@ -172,12 +174,14 @@ test "parse JXL container walk" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    const cwd = std.Io.Dir.cwd();
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
     const temp_filename = "temp_test_jxl.jxl";
 
-    const file = try std.Io.Dir.createFile(cwd, io, temp_filename, .{});
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
     defer std.Io.File.close(file, io);
-    defer std.Io.Dir.deleteFile(cwd, io, temp_filename) catch {};
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
     var buf = [_]u8{0} ** 30;
     // JXL box magic
@@ -200,10 +204,7 @@ test "parse JXL container walk" {
 
     try std.Io.File.writePositionalAll(file, io, &buf, 0);
 
-    const abs_path = try cwd.realPathFileAlloc(io, temp_filename, allocator);
-    defer allocator.free(abs_path);
-
-    const check_file = try std.Io.Dir.openFileAbsolute(io, abs_path, .{ .mode = .read_only });
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, temp_filename, .{ .mode = .read_only });
     defer std.Io.File.close(check_file, io);
 
     const res = try parseJxl(allocator, check_file, io, &buf, buf.len);
