@@ -16,6 +16,9 @@ See the [User Guide](USERGUIDE.md) and [Developer & Agent Guide](AGENTS.md) to d
 | BMP    | ✓          | ✗        | ✗           |
 | WebP   | ✓          | ✗        | ✓           |
 | TIFF   | ✓          | ✗        | ✓           |
+| AVIF   | ✓          | ✗        | ✗           |
+| ICO    | ✓          | ✗        | ✗           |
+| JXL    | ✓          | ✗        | ✗           |
 | MP4    | ✓          | ✓        | ✓           |
 | WebM   | ✓          | ✓        | ✗           |
 | MKV    | ✓          | ✓        | ✗           |

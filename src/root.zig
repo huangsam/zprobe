@@ -46,6 +46,9 @@ test {
     _ = @import("formats/images/bmp.zig");
     _ = @import("formats/images/webp.zig");
     _ = @import("formats/images/tiff.zig");
+    _ = @import("formats/images/avif.zig");
+    _ = @import("formats/images/ico.zig");
+    _ = @import("formats/images/jxl.zig");
     _ = @import("formats/videos/common.zig");
     _ = @import("formats/videos/mp4.zig");
     _ = @import("formats/videos/ebml.zig");
