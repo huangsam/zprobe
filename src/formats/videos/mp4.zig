@@ -3,6 +3,7 @@ const utils = @import("../../core/utils.zig");
 const ByteReader = @import("../../core/byte_reader.zig").ByteReader;
 const common = @import("common.zig");
 const VideoInfo = common.VideoInfo;
+const test_utils = @import("../../core/test_utils.zig");
 
 /// Dimensions and orientation extracted from a video track.
 pub const Dims = struct {
@@ -65,11 +66,12 @@ pub fn parseTkhd(reader: *ByteReader) ?Dims {
 /// Recursively search for the `tkhd` box within nested container boxes.
 pub fn findTkhdInPayload(payload: []const u8) ?Dims {
     var reader = ByteReader.init(payload, .big);
-    return findTkhdInReader(&reader);
+    return findTkhdInReader(&reader, 0);
 }
 
 /// Scan boxes in a ByteReader recursively to locate and parse the `tkhd` track header box.
-pub fn findTkhdInReader(reader: *ByteReader) ?Dims {
+pub fn findTkhdInReader(reader: *ByteReader, depth: usize) ?Dims {
+    if (depth > 16) return null;
     while (reader.remaining() >= 8) {
         const box_size = reader.readInt(u32) catch return null;
         if (box_size < 8) return null;
@@ -92,7 +94,7 @@ pub fn findTkhdInReader(reader: *ByteReader) ?Dims {
             std.mem.eql(u8, box_type, "minf") or
             std.mem.eql(u8, box_type, "stbl"))
         {
-            if (findTkhdInReader(&sub)) |dims| {
+            if (findTkhdInReader(&sub, depth + 1)) |dims| {
                 return dims;
             }
         }
@@ -142,7 +144,8 @@ pub fn parseMvhdInReader(allocator: std.mem.Allocator, reader: *ByteReader, info
 
 /// Walk the ISO base media file (MP4/MOV) structure in the specified range to locate
 /// `mvhd` (Movie Header) and `tkhd` (Track Header) boxes, extracting duration and layout info.
-pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: anytype, start_offset: u64, end_offset: u64, info: *VideoInfo) !void {
+pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: anytype, start_offset: u64, end_offset: u64, info: *VideoInfo, depth: usize) !void {
+    if (depth > 16) return error.Mp4TooDeep;
     var offset = start_offset;
     while (offset + 8 <= end_offset) {
         var header_buf: [8]u8 = undefined;
@@ -203,7 +206,7 @@ pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: an
             std.mem.eql(u8, box_type, "minf") or
             std.mem.eql(u8, box_type, "stbl"))
         {
-            try findTkhdAndMvhdInFile(allocator, file, io, offset + header_len, offset + real_size, info);
+            try findTkhdAndMvhdInFile(allocator, file, io, offset + header_len, offset + real_size, info, depth + 1);
         }
 
         offset += real_size;
@@ -841,4 +844,68 @@ test "parseTkhd rotation matrices" {
         const dims = parseTkhd(&reader) orelse return error.TestFailed;
         try std.testing.expectEqual(@as(u16, 8), dims.orientation);
     }
+}
+
+test "findTkhdInPayload deeply nested trak boxes returns null" {
+    var buf = [_]u8{0} ** (8 * 18);
+    var i: usize = 0;
+    while (i < 18) : (i += 1) {
+        const offset = i * 8;
+        const box_size = @as(u32, @intCast(8 * (18 - i)));
+        buf[offset + 0] = @intCast(box_size >> 24);
+        buf[offset + 1] = @intCast((box_size >> 16) & 0xff);
+        buf[offset + 2] = @intCast((box_size >> 8) & 0xff);
+        buf[offset + 3] = @intCast(box_size & 0xff);
+        buf[offset + 4] = 't';
+        buf[offset + 5] = 'r';
+        buf[offset + 6] = 'a';
+        buf[offset + 7] = 'k';
+    }
+
+    const dims = findTkhdInPayload(&buf);
+    try std.testing.expectEqual(null, dims);
+}
+
+test "findTkhdAndMvhdInFile deeply nested boxes returns Mp4TooDeep" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+    const temp_filename = "temp_test_mp4_deep.mp4";
+
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    defer std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    // 18 levels of nested trak boxes.
+    var buf = [_]u8{0} ** (8 * 18);
+    var i: usize = 0;
+    while (i < 18) : (i += 1) {
+        const offset = i * 8;
+        const box_size = @as(u32, @intCast(8 * (18 - i)));
+        buf[offset + 0] = @intCast(box_size >> 24);
+        buf[offset + 1] = @intCast((box_size >> 16) & 0xff);
+        buf[offset + 2] = @intCast((box_size >> 8) & 0xff);
+        buf[offset + 3] = @intCast(box_size & 0xff);
+        buf[offset + 4] = 't';
+        buf[offset + 5] = 'r';
+        buf[offset + 6] = 'a';
+        buf[offset + 7] = 'k';
+    }
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, temp_filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    var info = VideoInfo{
+        .format = "mp4",
+        .width = 0,
+        .height = 0,
+    };
+    defer info.deinit(allocator);
+
+    try std.testing.expectError(error.Mp4TooDeep, findTkhdAndMvhdInFile(allocator, check_file, io, 0, buf.len, &info, 0));
 }

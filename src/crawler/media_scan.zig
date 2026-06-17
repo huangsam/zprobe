@@ -36,8 +36,9 @@ pub const videoExtensions = [_][]const u8{
 /// This does not allocate any heap memory. It performs case conversion on
 /// a stack-allocated buffer (`ext_lower`).
 pub fn isMediaExtension(ext: []const u8) bool {
+    if (ext.len == 0 or ext.len > 16) return false;
     var ext_lower: [16]u8 = undefined;
-    const slice = std.ascii.lowerString(&ext_lower, ext);
+    const slice = std.ascii.lowerString(ext_lower[0..ext.len], ext);
 
     for (imageExtensions) |ie| {
         if (std.mem.eql(u8, slice, ie)) return true;
@@ -242,6 +243,10 @@ test "isMediaExtension: unknown extension returns false" {
 
 test "isMediaExtension: empty string returns false" {
     try std.testing.expect(!isMediaExtension(""));
+}
+
+test "isMediaExtension: extremely long extension does not panic" {
+    try std.testing.expect(!isMediaExtension(".extremelylongextensionnamethatshouldnotcausepanic"));
 }
 
 test "concurrent scan and mock processing" {

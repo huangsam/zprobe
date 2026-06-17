@@ -22,8 +22,9 @@ fn file_writer(io: anytype, buffer: []u8) std.Io.File.Writer {
 }
 
 fn isVideoExtension(ext: []const u8) bool {
+    if (ext.len == 0 or ext.len > 16) return false;
     var ext_lower: [16]u8 = undefined;
-    const slice = std.ascii.lowerString(&ext_lower, ext);
+    const slice = std.ascii.lowerString(ext_lower[0..ext.len], ext);
     for (media_scan.videoExtensions) |ve| {
         if (std.mem.eql(u8, slice, ve)) return true;
     }
@@ -446,4 +447,12 @@ test "computeWorkerCount boundaries" {
     try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(4));
     try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(8));
     try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(16));
+}
+
+test "isVideoExtension boundaries" {
+    try std.testing.expect(isVideoExtension(".mp4"));
+    try std.testing.expect(isVideoExtension(".mkv"));
+    try std.testing.expect(!isVideoExtension(".png"));
+    try std.testing.expect(!isVideoExtension(".extremelylongextensionnamehere"));
+    try std.testing.expect(!isVideoExtension(""));
 }

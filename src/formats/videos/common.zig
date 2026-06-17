@@ -53,9 +53,15 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
             }
             const media_scan = @import("../../crawler/media_scan.zig");
             const ext = media_scan.getExtension(path);
-            var ext_lower: [16]u8 = undefined;
-            const slice = std.ascii.lowerString(&ext_lower, ext);
-            if (std.mem.eql(u8, slice, ".webm")) {
+            var is_webm = false;
+            if (ext.len > 0 and ext.len <= 16) {
+                var ext_lower: [16]u8 = undefined;
+                const slice = std.ascii.lowerString(ext_lower[0..ext.len], ext);
+                if (std.mem.eql(u8, slice, ".webm")) {
+                    is_webm = true;
+                }
+            }
+            if (is_webm) {
                 info.format = "webm";
             } else {
                 info.format = "mkv";
@@ -104,7 +110,7 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
         if (real_size < header_len or real_size > size - offset) return error.InvalidMp4;
 
         if (std.mem.eql(u8, box_type, "moov")) {
-            try mp4.findTkhdAndMvhdInFile(allocator, file, io, offset + header_len, offset + real_size, &info);
+            try mp4.findTkhdAndMvhdInFile(allocator, file, io, offset + header_len, offset + real_size, &info, 0);
             if (info.width > 0 and info.height > 0) {
                 return info;
             }
@@ -228,4 +234,115 @@ test "getVideoMetadata: parse mock WebM file" {
     try std.testing.expectEqual(@as(u32, 1920), res.width);
     try std.testing.expectEqual(@as(u32, 1080), res.height);
     try std.testing.expect(res.duration_sec.? > 0.00549 and res.duration_sec.? < 0.00551);
+}
+
+test "getVideoMetadata: parse mock EBML file with long extension does not panic" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+    const temp_filename = "temp_test_ebml.extremelylongextensionnamehere";
+
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    defer std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    var buf = [_]u8{0} ** 59;
+    buf[0] = 0x1A;
+    buf[1] = 0x45;
+    buf[2] = 0xDF;
+    buf[3] = 0xA3; // EBML Header ID
+    buf[4] = 0x8A; // EBML Header Size (10 bytes)
+
+    // Segment ID (0x18538067)
+    buf[15] = 0x18;
+    buf[16] = 0x53;
+    buf[17] = 0x80;
+    buf[18] = 0x67;
+    // Segment Size (39 -> 0xA7)
+    buf[19] = 0xA7;
+
+    // Info ID (0x1549A966)
+    buf[20] = 0x15;
+    buf[21] = 0x49;
+    buf[22] = 0xA9;
+    buf[23] = 0x66;
+    // Info Size (14 -> 0x8E)
+    buf[24] = 0x8E;
+
+    // TimecodeScale ID (0x2AD7B1)
+    buf[25] = 0x2A;
+    buf[26] = 0xD7;
+    buf[27] = 0xB1;
+    // TimecodeScale Size (3 -> 0x83)
+    buf[28] = 0x83;
+    // TimecodeScale Value (1,000,000 -> 0x0F4240)
+    buf[29] = 0x0F;
+    buf[30] = 0x42;
+    buf[31] = 0x40;
+
+    // Duration ID (0x4489)
+    buf[32] = 0x44;
+    buf[33] = 0x89;
+    // Duration Size (4 -> 0x84)
+    buf[34] = 0x84;
+    // Duration Value (5.5 -> 0x40B00000)
+    buf[35] = 0x40;
+    buf[36] = 0xB0;
+    buf[37] = 0x00;
+    buf[38] = 0x00;
+
+    // Tracks ID (0x1654AE6B)
+    buf[39] = 0x16;
+    buf[40] = 0x54;
+    buf[41] = 0xAE;
+    buf[42] = 0x6B;
+    // Tracks Size (15 -> 0x8F)
+    buf[43] = 0x8F;
+
+    // TrackEntry ID (0xAE)
+    buf[44] = 0xAE;
+    // TrackEntry Size (13 -> 0x8D)
+    buf[45] = 0x8D;
+
+    // TrackType ID (0x83)
+    buf[46] = 0x83;
+    // TrackType Size (1 -> 0x81)
+    buf[47] = 0x81;
+    // TrackType Value (1 -> 0x01)
+    buf[48] = 0x01;
+
+    // Video ID (0xE0)
+    buf[49] = 0xE0;
+    // Video Size (8 -> 0x88)
+    buf[50] = 0x88;
+
+    // PixelWidth ID (0xB0)
+    buf[51] = 0xB0;
+    // PixelWidth Size (2 -> 0x82)
+    buf[52] = 0x82;
+    // PixelWidth Value (1920 -> 0x0780)
+    buf[53] = 0x07;
+    buf[54] = 0x80;
+
+    // PixelHeight ID (0xBA)
+    buf[55] = 0xBA;
+    // PixelHeight Size (2 -> 0x82)
+    buf[56] = 0x82;
+    // PixelHeight Value (1080 -> 0x0438)
+    buf[57] = 0x04;
+    buf[58] = 0x38;
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+
+    const abs_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, temp_filename });
+    defer allocator.free(abs_path);
+
+    var res = try getVideoMetadata(allocator, abs_path, io);
+    defer res.deinit(allocator);
+
+    // Format should fallback to "mkv" because extension is not ".webm"
+    try std.testing.expectEqualStrings("mkv", res.format);
 }

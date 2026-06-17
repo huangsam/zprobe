@@ -6,7 +6,8 @@ pub const avifMagic: [4]u8 = .{ 'f', 't', 'y', 'p' };
 
 pub const ImageDims = struct { width: u32, height: u32 };
 
-fn walkBoxes(file: anytype, io: anytype, start_offset: u64, end_offset: u64) !ImageDims {
+fn walkBoxes(file: anytype, io: anytype, start_offset: u64, end_offset: u64, depth: usize) !ImageDims {
+    if (depth > 16) return error.AvifTooDeep;
     var offset = start_offset;
     while (offset + 8 <= end_offset) {
         var header_buf: [8]u8 = undefined;
@@ -48,14 +49,18 @@ fn walkBoxes(file: anytype, io: anytype, start_offset: u64, end_offset: u64) !Im
         if (std.mem.eql(u8, box_type, "meta")) {
             // meta box is a FullBox, skip 4 bytes of version/flags
             if (real_size >= header_len + 4) {
-                if (walkBoxes(file, io, offset + header_len + 4, offset + real_size)) |dims| {
+                if (walkBoxes(file, io, offset + header_len + 4, offset + real_size, depth + 1)) |dims| {
                     return dims;
-                } else |_| {}
+                } else |err| {
+                    if (err == error.AvifTooDeep) return err;
+                }
             }
         } else if (std.mem.eql(u8, box_type, "iprp") or std.mem.eql(u8, box_type, "ipco")) {
-            if (walkBoxes(file, io, offset + header_len, offset + real_size)) |dims| {
+            if (walkBoxes(file, io, offset + header_len, offset + real_size, depth + 1)) |dims| {
                 return dims;
-            } else |_| {}
+            } else |err| {
+                if (err == error.AvifTooDeep) return err;
+            }
         } else if (std.mem.eql(u8, box_type, "ispe")) {
             // ispe is a FullBox: 4 bytes version/flags, then width: u32, height: u32
             if (real_size >= header_len + 12) {
@@ -84,7 +89,7 @@ fn walkBoxes(file: anytype, io: anytype, start_offset: u64, end_offset: u64) !Im
 
 pub fn parseAvif(allocator: std.mem.Allocator, file: anytype, io: anytype, size: u64) !ImageDims {
     _ = allocator;
-    return walkBoxes(file, io, 0, size);
+    return walkBoxes(file, io, 0, size, 0);
 }
 
 test "parse AVIF mock boxes" {
@@ -193,4 +198,46 @@ test "parse AVIF mock boxes" {
     const res = try parseAvif(allocator, check_file, io, buf.len);
     try std.testing.expectEqual(@as(u32, 800), res.width);
     try std.testing.expectEqual(@as(u32, 600), res.height);
+}
+
+test "parse AVIF deeply nested boxes returns AvifTooDeep" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+    const temp_filename = "temp_test_avif_deep.avif";
+
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    defer std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    // 18 levels of nested meta boxes.
+    // Each meta box has size 12 * (18 - i).
+    var buf: [12 * 18]u8 = undefined;
+    var i: usize = 0;
+    while (i < 18) : (i += 1) {
+        const offset = i * 12;
+        const box_size = @as(u32, @intCast(12 * (18 - i)));
+        buf[offset + 0] = @intCast(box_size >> 24);
+        buf[offset + 1] = @intCast((box_size >> 16) & 0xff);
+        buf[offset + 2] = @intCast((box_size >> 8) & 0xff);
+        buf[offset + 3] = @intCast(box_size & 0xff);
+        buf[offset + 4] = 'm';
+        buf[offset + 5] = 'e';
+        buf[offset + 6] = 't';
+        buf[offset + 7] = 'a';
+        buf[offset + 8] = 0;
+        buf[offset + 9] = 0;
+        buf[offset + 10] = 0;
+        buf[offset + 11] = 0;
+    }
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, temp_filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    try std.testing.expectError(error.AvifTooDeep, parseAvif(allocator, check_file, io, buf.len));
 }
