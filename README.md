@@ -20,5 +20,6 @@ See the [User Guide](USERGUIDE.md) and [Developer & Agent Guide](AGENTS.md) to d
 | ICO    | ✓          | ✗        | ✗           |
 | JXL    | ✓          | ✗        | ✗           |
 | MP4    | ✓          | ✓        | ✓           |
+| MOV    | ✓          | ✓        | ✓           |
 | WebM   | ✓          | ✓        | ✗           |
 | MKV    | ✓          | ✓        | ✗           |
