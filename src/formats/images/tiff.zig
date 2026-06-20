@@ -16,6 +16,7 @@ fn getTypeSize(t: u16) usize {
 /// Parse an Image File Directory (IFD) from a TIFF stream, reading EXIF tags
 /// (e.g. dimensions, camera make/model, orientation) and recursing into sub-IFDs
 /// (such as EXIF and GPS sub-IFDs) up to a maximum recursion depth of 4.
+/// Depth limit prevents stack exhaustion on malformed files with circular IFD chains.
 pub fn parseIfd(
     allocator: std.mem.Allocator,
     root_reader: *ByteReader,
@@ -53,42 +54,42 @@ pub fn parseIfd(
         }
 
         switch (tag) {
-            0x0100 => { // ImageWidth
+            0x0100 => { // ImageWidth (TIFF tag 256)
                 if (count == 1) {
                     meta.width = if (type_id == 3) try val_reader.readInt(u16) else try val_reader.readInt(u32);
                 }
             },
-            0x0101 => { // ImageLength
+            0x0101 => { // ImageLength (TIFF tag 257): image height
                 if (count == 1) {
                     meta.height = if (type_id == 3) try val_reader.readInt(u16) else try val_reader.readInt(u32);
                 }
             },
-            0x0112 => { // Orientation
+            0x0112 => { // Orientation (TIFF tag 274): 1=normal, 3=180°, 6=90°CW, 8=270°CW
                 if (type_id == 3 and count == 1) {
                     meta.orientation = try val_reader.readInt(u16);
                 }
             },
-            0x010f => { // Make
+            0x010f => { // Make (TIFF tag 271): camera manufacturer name
                 if (type_id == 2) {
                     meta.camera_make = try val_reader.readAscii(allocator, count);
                 }
             },
-            0x0110 => { // Model
+            0x0110 => { // Model (TIFF tag 272): camera model name
                 if (type_id == 2) {
                     meta.camera_model = try val_reader.readAscii(allocator, count);
                 }
             },
-            0x8769 => { // Exif IFD Offset
+            0x8769 => { // ExifOffset (TIFF tag 34665): pointer to nested EXIF IFD
                 if (type_id == 4 and count == 1) {
                     try parseIfd(allocator, root_reader, @as(usize, inline_or_offset_val), meta, depth + 1);
                 }
             },
-            0x8825 => { // GPS Info IFD Offset
+            0x8825 => { // GPSInfo (TIFF tag 34853): pointer to nested GPS IFD
                 if (type_id == 4 and count == 1) {
                     try parseGpsIfd(root_reader, @as(usize, inline_or_offset_val), meta);
                 }
             },
-            0x9003 => { // DateTimeOriginal
+            0x9003 => { // DateTimeOriginal (EXIF tag 36867): capture timestamp in "YYYY:MM:DD HH:MM:SS" format
                 if (type_id == 2) {
                     meta.create_time = try val_reader.readAscii(allocator, count);
                 }

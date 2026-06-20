@@ -33,19 +33,25 @@ pub fn getVintSize(first_byte: u8) !usize {
 }
 
 /// Decode the value of a VINT, clearing the leading marker bit.
+/// VINT encoding in EBML uses the first set bit to indicate total length:
+/// 1xxxxxxx = 1 byte, 01xxxxxx = 2 bytes, 001xxxxx = 3 bytes, etc.
+/// This function masks out the leading marker bits and reassembles the actual value.
 pub fn decodeVintVal(buf: []const u8) u64 {
     if (buf.len == 0) return 0;
+    // Mask selects only the data bits after the length indicator.
+    // Example: for 2-byte VINT (01xxxxxx), mask is 0x3f to keep only xxxxxx.
     const mask: u8 = switch (buf.len) {
-        1 => 0x7f,
-        2 => 0x3f,
-        3 => 0x1f,
-        4 => 0x0f,
-        5 => 0x07,
-        6 => 0x03,
-        7 => 0x01,
-        8 => 0x00,
+        1 => 0x7f, // 1xxxxxxx -> keep 7 bits
+        2 => 0x3f, // 01xxxxxx -> keep 6 bits
+        3 => 0x1f, // 001xxxxx -> keep 5 bits
+        4 => 0x0f, // 0001xxxx -> keep 4 bits
+        5 => 0x07, // 00001xxx -> keep 3 bits
+        6 => 0x03, // 000001xx -> keep 2 bits
+        7 => 0x01, // 0000001x -> keep 1 bit
+        8 => 0x00, // 00000001 -> keep 0 bits, all data in remaining bytes
         else => 0,
     };
+    // Accumulate value by shifting and combining bytes: (byte1 << 8) | byte2, etc.
     var val = @as(u64, buf[0] & mask);
     for (buf[1..]) |b| {
         val = (val << 8) | b;

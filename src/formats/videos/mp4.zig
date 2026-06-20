@@ -31,6 +31,9 @@ pub fn parseTkhd(reader: *ByteReader) ?Dims {
     reader.skip(8) catch return null; // reserved2
     reader.skip(8) catch return null; // layer, alternate_group, volume, reserved3
 
+    // Read the 3x3 transformation matrix from the tkhd box.
+    // Matrix format: [a, b, u] [c, d, v] [x, y, w_coeff]
+    // Only a, b, c, d are relevant for rotation; others handle translation/scaling.
     const a = reader.readInt(i32) catch return null;
     const b = reader.readInt(i32) catch return null;
     const u = reader.readInt(i32) catch return null;
@@ -51,12 +54,18 @@ pub fn parseTkhd(reader: *ByteReader) ?Dims {
     const height_int = reader.readInt(u16) catch return null;
     reader.skip(2) catch return null;
 
+    // Decode orientation from the transformation matrix.
+    // Matrix values are fixed-point (16.16 format): 0x00010000 = 1.0, -0x00010000 = -1.0.
+    // Orientation values per EXIF spec: 1=normal, 3=180°, 6=90°CW, 8=270°CW.
     var orientation: u16 = 1;
     if (b == 0x00010000 and c == -0x00010000) {
+        // b=1, c=-1: 90° clockwise rotation
         orientation = 6;
     } else if (a == -0x00010000 and d == -0x00010000) {
+        // a=-1, d=-1: 180° rotation
         orientation = 3;
     } else if (b == -0x00010000 and c == 0x00010000) {
+        // b=-1, c=1: 270° clockwise rotation (90° counter-clockwise)
         orientation = 8;
     }
 
@@ -70,6 +79,7 @@ pub fn findTkhdInPayload(payload: []const u8) ?Dims {
 }
 
 /// Scan boxes in a ByteReader recursively to locate and parse the `tkhd` track header box.
+/// Depth limit of 16 prevents stack exhaustion on pathological/malformed files with deep nesting.
 pub fn findTkhdInReader(reader: *ByteReader, depth: usize) ?Dims {
     if (depth > 16) return null;
     while (reader.remaining() >= 8) {

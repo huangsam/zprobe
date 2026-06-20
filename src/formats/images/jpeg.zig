@@ -21,11 +21,14 @@ pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
 
         const marker = header[off + 1];
 
+        // 0xff 0xff is a stuffed byte in JPEG streams—skip and continue scanning.
         if (marker == 0xff) {
             off += 1;
             continue;
         }
 
+        // SOF (Start of Frame) markers 0xc0–0xc3 contain image dimensions.
+        // Dimensions are at offsets +5, +6 (height) and +7, +8 (width) from the marker.
         if (marker >= 0xc0 and marker <= 0xc3) {
             if (off + 9 > header.len) return error.JpegTooShort;
             const h = @as(u16, header[off + 5]) << 8 | @as(u16, header[off + 6]);
@@ -33,13 +36,19 @@ pub fn parseJpeg(header: []const u8) !struct { width: u16, height: u16 } {
             return .{ .width = w, .height = h };
         }
 
+        // Handle markers that don't include a length field (no segment to skip).
         if (marker == 0x00 or marker == 0x01) {
+            // Null/padding byte: skip the marker pair only
             off += 2;
         } else if (marker >= 0xd0 and marker <= 0xd7) {
+            // RSTn (Restart) markers: no data segment
             off += 2;
         } else if (marker == 0xd8) {
+            // SOI (Start of Image): no data segment
             off += 2;
         } else {
+            // Other markers (e.g., APP0, APP1, DQT, DHT): have a 2-byte length field.
+            // Length includes the 2 bytes for the length itself.
             const seg_len = @as(u16, header[off + 2]) << 8 | @as(u16, header[off + 3]);
             off += 2 + seg_len;
         }
