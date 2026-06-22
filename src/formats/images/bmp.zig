@@ -20,7 +20,7 @@ pub fn parseBmp(header: []const u8) !struct { width: u32, height: u32 } {
         @as(u32, header[25]) << 24;
 
     const h_raw = @as(i32, @bitCast(h_u32));
-    const h = if (h_raw < 0) @as(u32, @intCast(-h_raw)) else h_u32;
+    const h = @abs(h_raw);
 
     return .{ .width = w, .height = h };
 }

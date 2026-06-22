@@ -722,3 +722,18 @@ test "parse WebP: truncated chunk size" {
 
     try std.testing.expectError(error.WebpTooShort, webp.parseWebpFile(allocator, check_file, io, &meta));
 }
+
+test "parse bmp header: height i32.min" {
+    var header = [_]u8{0} ** 26;
+    header[0] = 'B';
+    header[1] = 'M';
+    header[18] = 100;
+    header[22] = 0x00;
+    header[23] = 0x00;
+    header[24] = 0x00;
+    header[25] = 0x80;
+
+    const dims = try bmp.parseBmp(&header);
+    try std.testing.expectEqual(@as(u32, 100), dims.width);
+    try std.testing.expectEqual(@as(u32, 2147483648), dims.height);
+}
