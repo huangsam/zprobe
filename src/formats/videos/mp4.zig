@@ -83,12 +83,24 @@ pub fn findTkhdInPayload(payload: []const u8) ?Dims {
 pub fn findTkhdInReader(reader: *ByteReader, depth: usize) ?Dims {
     if (depth > 16) return null;
     while (reader.remaining() >= 8) {
-        const box_size = reader.readInt(u32) catch return null;
-        if (box_size < 8) return null;
+        const box_size_32 = reader.readInt(u32) catch return null;
         const box_type = reader.peek(4) catch return null;
         reader.skip(4) catch return null;
 
-        const payload_size = box_size - 8;
+        var header_len: u64 = 8;
+        var box_size: u64 = box_size_32;
+
+        if (box_size_32 == 1) {
+            if (reader.remaining() < 8) return null;
+            box_size = reader.readInt(u64) catch return null;
+            header_len = 16;
+        } else if (box_size_32 == 0) {
+            box_size = reader.remaining() + 8;
+        }
+
+        if (box_size < header_len) return null;
+
+        const payload_size = box_size - header_len;
         if (payload_size > reader.remaining()) return null;
 
         var sub = reader.subReader(payload_size) catch return null;
@@ -172,6 +184,7 @@ pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: an
         var real_size = box_size;
 
         if (box_size == 1) {
+            if (offset + 16 > end_offset) return error.InvalidMp4;
             var ext_size_buf: [8]u8 = undefined;
             _ = try std.Io.File.readPositionalAll(file, io, &ext_size_buf, offset + 8);
             real_size = @as(u64, ext_size_buf[0]) << 56 |
@@ -918,4 +931,53 @@ test "findTkhdAndMvhdInFile deeply nested boxes returns Mp4TooDeep" {
     defer info.deinit(allocator);
 
     try std.testing.expectError(error.Mp4TooDeep, findTkhdAndMvhdInFile(allocator, check_file, io, 0, buf.len, &info, 0));
+}
+
+test "parse MP4 64-bit size box payload in findTkhdInPayload" {
+    var buf = [_]u8{0} ** 130;
+
+    // trak box size is 120, represented as 64-bit size box:
+    // first 4 bytes = 1
+    buf[0] = 0;
+    buf[1] = 0;
+    buf[2] = 0;
+    buf[3] = 1;
+    // type = 'trak'
+    buf[4] = 't';
+    buf[5] = 'r';
+    buf[6] = 'a';
+    buf[7] = 'k';
+    // 64-bit size = 120
+    const trak_size: u64 = 120;
+    buf[8] = @intCast(trak_size >> 56);
+    buf[9] = @intCast((trak_size >> 48) & 0xff);
+    buf[10] = @intCast((trak_size >> 40) & 0xff);
+    buf[11] = @intCast((trak_size >> 32) & 0xff);
+    buf[12] = @intCast((trak_size >> 24) & 0xff);
+    buf[13] = @intCast((trak_size >> 16) & 0xff);
+    buf[14] = @intCast((trak_size >> 8) & 0xff);
+    buf[15] = @intCast(trak_size & 0xff);
+
+    // tkhd box size is 92 (standard 32-bit size) starting at offset 16
+    const tkhd_size: u32 = 92;
+    buf[16] = @intCast(tkhd_size >> 24);
+    buf[17] = @intCast((tkhd_size >> 16) & 0xff);
+    buf[18] = @intCast((tkhd_size >> 8) & 0xff);
+    buf[19] = @intCast(tkhd_size & 0xff);
+    buf[20] = 't';
+    buf[21] = 'k';
+    buf[22] = 'h';
+    buf[23] = 'd';
+
+    buf[24] = 0; // version 0
+
+    // width = 640, height = 480
+    buf[100] = 0x02;
+    buf[101] = 0x80;
+    buf[104] = 0x01;
+    buf[105] = 0xe0;
+
+    const dims = findTkhdInPayload(buf[0..trak_size]) orelse return error.TestFailed;
+    try std.testing.expectEqual(@as(u32, 640), dims.width);
+    try std.testing.expectEqual(@as(u32, 480), dims.height);
 }

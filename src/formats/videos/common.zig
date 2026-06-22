@@ -92,6 +92,7 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
 
         // Extended 64-bit size box (indicated by size == 1)
         if (box_size == 1) {
+            if (offset + 16 > size) return error.InvalidMp4;
             var ext_size_buf: [8]u8 = undefined;
             _ = try std.Io.File.readPositionalAll(file, io, &ext_size_buf, offset + 8);
             real_size = @as(u64, ext_size_buf[0]) << 56 |
@@ -571,4 +572,72 @@ test "getVideoMetadata: legacy MOV without ftyp box falls back to extension" {
     try std.testing.expectEqualStrings("mov", res.format);
     try std.testing.expectEqual(@as(u32, 1920), res.width);
     try std.testing.expectEqual(@as(u32, 1080), res.height);
+}
+
+test "getVideoMetadata: EBML file with invalid ID size does not panic" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+    const temp_filename = "temp_invalid_ebml.webm";
+
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    defer std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    var buf = [_]u8{0} ** 59;
+    buf[0] = 0x1A;
+    buf[1] = 0x45;
+    buf[2] = 0xDF;
+    buf[3] = 0xA3; // EBML Header ID
+    buf[4] = 0x8A; // EBML Header Size
+
+    // Segment ID starts with 0x08, indicating a 5-byte VINT ID, which is invalid (must be 1-4 bytes)
+    buf[15] = 0x08;
+    buf[16] = 0x00;
+    buf[17] = 0x00;
+    buf[18] = 0x00;
+    buf[19] = 0x00;
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+
+    const abs_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, temp_filename });
+    defer allocator.free(abs_path);
+
+    try std.testing.expectError(error.InvalidEbmlId, getVideoMetadata(allocator, abs_path, io));
+}
+
+test "getVideoMetadata: MP4 with truncated 64-bit size box returns InvalidMp4" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+    const temp_filename = "temp_truncated_64bit.mp4";
+
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    defer std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    // 12 bytes of data (size is 12)
+    var buf = [_]u8{0} ** 12;
+    buf[0] = 0x00;
+    buf[1] = 0x00;
+    buf[2] = 0x00;
+    buf[3] = 0x01; // box_size = 1 (indicates 64-bit size, which requires 8 more bytes)
+    buf[4] = 'f';
+    buf[5] = 't';
+    buf[6] = 'y';
+    buf[7] = 'p';
+    // Only 4 more bytes left, so cannot read the 8-byte 64-bit size.
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+
+    const abs_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, temp_filename });
+    defer allocator.free(abs_path);
+
+    try std.testing.expectError(error.InvalidMp4, getVideoMetadata(allocator, abs_path, io));
 }

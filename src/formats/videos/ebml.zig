@@ -125,6 +125,7 @@ pub fn parseEbmlElements(file: anytype, io: anytype, start_offset: u64, end_offs
         if (read_bytes == 0) break;
 
         const id_size = try getVintSize(first_id_byte[0]);
+        if (id_size > 4) return error.InvalidEbmlId;
         if (id_size > end_offset - offset) break;
 
         var id_buf: [4]u8 = undefined;
