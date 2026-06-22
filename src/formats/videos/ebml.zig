@@ -21,15 +21,11 @@ pub const EbmlState = struct {
 /// Get the size in bytes of an EBML Variable-Size Integer (VINT) based on
 /// the position of the first set bit (leading zeroes) in its first byte.
 pub fn getVintSize(first_byte: u8) !usize {
-    if (first_byte & 0x80 != 0) return 1;
-    if (first_byte & 0x40 != 0) return 2;
-    if (first_byte & 0x20 != 0) return 3;
-    if (first_byte & 0x10 != 0) return 4;
-    if (first_byte & 0x08 != 0) return 5;
-    if (first_byte & 0x04 != 0) return 6;
-    if (first_byte & 0x02 != 0) return 7;
-    if (first_byte & 0x01 != 0) return 8;
-    return error.InvalidVint;
+    if (first_byte == 0) return error.InvalidVint;
+    // In EBML, VINT size is determined by the number of leading zero bits plus one.
+    // e.g., 1xxxxxxx (0 leading zeros) -> size 1, 01xxxxxx (1 leading zero) -> size 2.
+    // `@clz` is a Zig built-in that counts the leading zero bits of the byte.
+    return @clz(first_byte) + 1;
 }
 
 /// Decode the value of a VINT, clearing the leading marker bit.
