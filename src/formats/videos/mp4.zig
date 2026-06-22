@@ -171,7 +171,8 @@ pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: an
     var offset = start_offset;
     while (offset + 8 <= end_offset) {
         var header_buf: [8]u8 = undefined;
-        _ = try std.Io.File.readPositionalAll(file, io, &header_buf, offset);
+        const h_read = try std.Io.File.readPositionalAll(file, io, &header_buf, offset);
+        if (h_read < 8) return error.InvalidMp4;
 
         const box_size = @as(u64, header_buf[0]) << 24 |
             @as(u64, header_buf[1]) << 16 |
@@ -186,7 +187,8 @@ pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: an
         if (box_size == 1) {
             if (offset + 16 > end_offset) return error.InvalidMp4;
             var ext_size_buf: [8]u8 = undefined;
-            _ = try std.Io.File.readPositionalAll(file, io, &ext_size_buf, offset + 8);
+            const ext_read = try std.Io.File.readPositionalAll(file, io, &ext_size_buf, offset + 8);
+            if (ext_read < 8) return error.InvalidMp4;
             real_size = @as(u64, ext_size_buf[0]) << 56 |
                 @as(u64, ext_size_buf[1]) << 48 |
                 @as(u64, ext_size_buf[2]) << 40 |
@@ -209,19 +211,23 @@ pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: an
             const payload_len = real_size - header_len;
             var mvhd_buf: [36]u8 = undefined;
             const read_len = @min(payload_len, mvhd_buf.len);
-            _ = try std.Io.File.readPositionalAll(file, io, mvhd_buf[0..read_len], offset + header_len);
-            try parseMvhd(allocator, mvhd_buf[0..read_len], info);
+            const read = try std.Io.File.readPositionalAll(file, io, mvhd_buf[0..read_len], offset + header_len);
+            if (read == read_len) {
+                try parseMvhd(allocator, mvhd_buf[0..read], info);
+            }
         } else if (std.mem.eql(u8, box_type, "tkhd")) {
             const payload_len = real_size - header_len;
             var tkhd_buf: [96]u8 = undefined;
             const read_len = @min(payload_len, tkhd_buf.len);
-            _ = try std.Io.File.readPositionalAll(file, io, tkhd_buf[0..read_len], offset + header_len);
-            var reader = ByteReader.init(tkhd_buf[0..read_len], .big);
-            if (parseTkhd(&reader)) |dims| {
-                if (dims.width > 0 and dims.height > 0) {
-                    info.width = dims.width;
-                    info.height = dims.height;
-                    info.orientation = dims.orientation;
+            const read = try std.Io.File.readPositionalAll(file, io, tkhd_buf[0..read_len], offset + header_len);
+            if (read == read_len) {
+                var reader = ByteReader.init(tkhd_buf[0..read], .big);
+                if (parseTkhd(&reader)) |dims| {
+                    if (dims.width > 0 and dims.height > 0) {
+                        info.width = dims.width;
+                        info.height = dims.height;
+                        info.orientation = dims.orientation;
+                    }
                 }
             }
         } else if (std.mem.eql(u8, box_type, "trak") or
@@ -980,4 +986,44 @@ test "parse MP4 64-bit size box payload in findTkhdInPayload" {
     const dims = findTkhdInPayload(buf[0..trak_size]) orelse return error.TestFailed;
     try std.testing.expectEqual(@as(u32, 640), dims.width);
     try std.testing.expectEqual(@as(u32, 480), dims.height);
+}
+
+test "parse MP4 64-bit size box payload truncation in findTkhdAndMvhdInFile" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+    const temp_filename = "temp_truncated_64bit_nested.mp4";
+
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    defer std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    var buf = [_]u8{0} ** 12;
+    buf[0] = 0x00;
+    buf[1] = 0x00;
+    buf[2] = 0x00;
+    buf[3] = 0x01;
+    buf[4] = 't';
+    buf[5] = 'r';
+    buf[6] = 'a';
+    buf[7] = 'k';
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+
+    const abs_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, temp_filename });
+    defer allocator.free(abs_path);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, temp_filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    var info = VideoInfo{
+        .format = "mp4",
+        .width = 0,
+        .height = 0,
+    };
+
+    try std.testing.expectError(error.InvalidMp4, findTkhdAndMvhdInFile(allocator, check_file, io, 0, 12, &info, 0));
 }

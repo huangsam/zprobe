@@ -78,7 +78,8 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
     var offset: u64 = 0;
     while (offset + 8 <= size) {
         var header_buf: [8]u8 = undefined;
-        _ = try std.Io.File.readPositionalAll(file, io, &header_buf, offset);
+        const h_read = try std.Io.File.readPositionalAll(file, io, &header_buf, offset);
+        if (h_read < 8) return error.InvalidMp4;
 
         const box_size = @as(u64, header_buf[0]) << 24 |
             @as(u64, header_buf[1]) << 16 |
@@ -94,7 +95,8 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
         if (box_size == 1) {
             if (offset + 16 > size) return error.InvalidMp4;
             var ext_size_buf: [8]u8 = undefined;
-            _ = try std.Io.File.readPositionalAll(file, io, &ext_size_buf, offset + 8);
+            const ext_read = try std.Io.File.readPositionalAll(file, io, &ext_size_buf, offset + 8);
+            if (ext_read < 8) return error.InvalidMp4;
             real_size = @as(u64, ext_size_buf[0]) << 56 |
                 @as(u64, ext_size_buf[1]) << 48 |
                 @as(u64, ext_size_buf[2]) << 40 |
@@ -120,10 +122,12 @@ pub fn getVideoMetadata(allocator: std.mem.Allocator, path: []const u8, io: anyt
             const payload_len = real_size - header_len;
             if (payload_len >= 4) {
                 var brand_buf: [4]u8 = undefined;
-                _ = try std.Io.File.readPositionalAll(file, io, &brand_buf, offset + header_len);
-                found_ftyp = true;
-                if (std.mem.eql(u8, &brand_buf, "qt  ")) {
-                    is_qt_brand = true;
+                const b_read = try std.Io.File.readPositionalAll(file, io, &brand_buf, offset + header_len);
+                if (b_read == 4) {
+                    found_ftyp = true;
+                    if (std.mem.eql(u8, &brand_buf, "qt  ")) {
+                        is_qt_brand = true;
+                    }
                 }
             }
         } else if (std.mem.eql(u8, box_type, "moov")) {
@@ -640,4 +644,36 @@ test "getVideoMetadata: MP4 with truncated 64-bit size box returns InvalidMp4" {
     defer allocator.free(abs_path);
 
     try std.testing.expectError(error.InvalidMp4, getVideoMetadata(allocator, abs_path, io));
+}
+
+test "getVideoMetadata: EBML file with truncated ID size does not panic" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+    const temp_filename = "temp_trunc_ebml.webm";
+
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    defer std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    // EBML header (size 12)
+    var buf = [_]u8{0} ** 12;
+    buf[0] = 0x1A;
+    buf[1] = 0x45;
+    buf[2] = 0xDF;
+    buf[3] = 0xA3; // EBML Header ID
+    buf[4] = 0x85; // EBML Header Size (5 bytes)
+    // bytes 5..9 are EBML header payload
+    buf[10] = 0xAE; // TrackEntry ID (VINT size 1)
+    buf[11] = 0x82; // VINT size 1, but payload is at offset 12 (truncated)
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+
+    const abs_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, temp_filename });
+    defer allocator.free(abs_path);
+
+    try std.testing.expectError(error.InvalidEbml, getVideoMetadata(allocator, abs_path, io));
 }

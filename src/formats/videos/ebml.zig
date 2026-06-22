@@ -81,7 +81,8 @@ pub fn isVintUnknown(buf: []const u8) bool {
 pub fn readUint(file: anytype, io: anytype, offset: u64, size: u64) !u64 {
     if (size == 0 or size > 8) return 0;
     var buf: [8]u8 = undefined;
-    _ = try std.Io.File.readPositionalAll(file, io, buf[0..size], offset);
+    const read = try std.Io.File.readPositionalAll(file, io, buf[0..size], offset);
+    if (read < size) return error.InvalidEbml;
     var val: u64 = 0;
     for (buf[0..size]) |b| {
         val = (val << 8) | b;
@@ -94,13 +95,15 @@ pub fn readUint(file: anytype, io: anytype, offset: u64, size: u64) !u64 {
 pub fn readFloat(file: anytype, io: anytype, offset: u64, size: u64) !f64 {
     if (size == 4) {
         var buf: [4]u8 = undefined;
-        _ = try std.Io.File.readPositionalAll(file, io, &buf, offset);
+        const read = try std.Io.File.readPositionalAll(file, io, &buf, offset);
+        if (read < 4) return error.InvalidEbml;
         const u = std.mem.readInt(u32, &buf, .big);
         const f: f32 = @bitCast(u);
         return @as(f64, @floatCast(f));
     } else if (size == 8) {
         var buf: [8]u8 = undefined;
-        _ = try std.Io.File.readPositionalAll(file, io, &buf, offset);
+        const read = try std.Io.File.readPositionalAll(file, io, &buf, offset);
+        if (read < 8) return error.InvalidEbml;
         const u = std.mem.readInt(u64, &buf, .big);
         return @bitCast(u);
     }
@@ -122,10 +125,11 @@ pub fn parseEbmlElements(file: anytype, io: anytype, start_offset: u64, end_offs
 
         const id_size = try getVintSize(first_id_byte[0]);
         if (id_size > 4) return error.InvalidEbmlId;
-        if (id_size > end_offset - offset) break;
+        if (id_size > end_offset - offset) return error.InvalidEbml;
 
         var id_buf: [4]u8 = undefined;
-        _ = try std.Io.File.readPositionalAll(file, io, id_buf[0..id_size], offset);
+        const id_read = try std.Io.File.readPositionalAll(file, io, id_buf[0..id_size], offset);
+        if (id_read < id_size) return error.InvalidEbml;
 
         var id: u32 = 0;
         for (id_buf[0..id_size]) |b| {
@@ -135,12 +139,14 @@ pub fn parseEbmlElements(file: anytype, io: anytype, start_offset: u64, end_offs
         offset += id_size;
 
         var first_size_byte: [1]u8 = undefined;
-        _ = try std.Io.File.readPositionalAll(file, io, &first_size_byte, offset);
+        const fs_read = try std.Io.File.readPositionalAll(file, io, &first_size_byte, offset);
+        if (fs_read < 1) return error.InvalidEbml;
         const size_len = try getVintSize(first_size_byte[0]);
-        if (size_len > end_offset - offset) break;
+        if (size_len > end_offset - offset) return error.InvalidEbml;
 
         var size_buf: [8]u8 = undefined;
-        _ = try std.Io.File.readPositionalAll(file, io, size_buf[0..size_len], offset);
+        const sz_read = try std.Io.File.readPositionalAll(file, io, size_buf[0..size_len], offset);
+        if (sz_read < size_len) return error.InvalidEbml;
 
         const elem_size = decodeVintVal(size_buf[0..size_len]);
         const is_unknown = isVintUnknown(size_buf[0..size_len]);
@@ -152,7 +158,7 @@ pub fn parseEbmlElements(file: anytype, io: anytype, start_offset: u64, end_offs
             actual_elem_size = end_offset - offset;
         }
 
-        if (actual_elem_size > end_offset - offset) break;
+        if (actual_elem_size > end_offset - offset) return error.InvalidEbml;
 
         switch (id) {
             0x18538067, // Segment
