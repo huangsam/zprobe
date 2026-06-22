@@ -114,7 +114,8 @@ pub fn parseFile(allocator: std.mem.Allocator, path: []const u8, io: anytype) !I
         const size = try std.Io.File.length(file, io);
         const tiff_buf = try allocator.alloc(u8, size);
         defer allocator.free(tiff_buf);
-        _ = try std.Io.File.readPositionalAll(file, io, tiff_buf, 0);
+        const read = try std.Io.File.readPositionalAll(file, io, tiff_buf, 0);
+        if (read < size) return error.TiffTooShort;
         try tiff.parseTiff(allocator, tiff_buf, &meta);
         return meta;
     }
@@ -621,4 +622,103 @@ test "parse ICO file with zero images" {
     header[5] = 0x00;
 
     try std.testing.expectError(error.NotIco, ico.parseIco(&header));
+}
+
+test "parseTiff EXIF duplicate tags memory leak" {
+    const allocator = std.testing.allocator;
+    var meta = ImageMetadata{
+        .format = "jpeg",
+        .width = 100,
+        .height = 100,
+    };
+    defer meta.deinit(allocator);
+
+    var buf = [_]u8{0} ** 200;
+    buf[0] = 'I';
+    buf[1] = 'I';
+    buf[2] = 42;
+    buf[3] = 0;
+    buf[4] = 8;
+    buf[5] = 0;
+    buf[6] = 0;
+    buf[7] = 0;
+
+    // 2 entries, both are Make (0x010f)
+    buf[8] = 2;
+    buf[9] = 0;
+
+    // Entry 1: Make, type 2, count 5, offset 50
+    buf[10] = 0x0f;
+    buf[11] = 0x01;
+    buf[12] = 2;
+    buf[13] = 0;
+    buf[14] = 5;
+    buf[15] = 0;
+    buf[16] = 0;
+    buf[17] = 0;
+    buf[18] = 50;
+    buf[19] = 0;
+    buf[20] = 0;
+    buf[21] = 0;
+
+    // Entry 2: Make, type 2, count 6, offset 60
+    buf[22] = 0x0f;
+    buf[23] = 0x01;
+    buf[24] = 2;
+    buf[25] = 0;
+    buf[26] = 6;
+    buf[27] = 0;
+    buf[28] = 0;
+    buf[29] = 0;
+    buf[30] = 60;
+    buf[31] = 0;
+    buf[32] = 0;
+    buf[33] = 0;
+
+    @memcpy(buf[50..55], "Sony\x00");
+    @memcpy(buf[60..66], "Nikon\x00");
+
+    try tiff.parseTiff(allocator, &buf, &meta);
+    try std.testing.expectEqualStrings("Nikon", meta.camera_make.?);
+}
+
+test "parse WebP: truncated chunk size" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+    const temp_filename = "temp_test_webp_trunc.webp";
+
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    defer std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    // WEBP header: RIFF + size + WEBP
+    var buf = [_]u8{0} ** 30;
+    @memcpy(buf[0..4], &webp.webpRiffMagic);
+    // Size field (4 bytes): dummy
+    @memcpy(buf[8..12], &webp.webpWebpMagic);
+
+    // Chunk header VP8X: size is 2 (less than 10)
+    @memcpy(buf[12..16], "VP8X");
+    buf[16] = 2;
+    buf[17] = 0;
+    buf[18] = 0;
+    buf[19] = 0;
+
+    try std.Io.File.writePositionalAll(file, io, buf[0..22], 0);
+
+    var meta = ImageMetadata{
+        .format = "webp",
+        .width = 0,
+        .height = 0,
+    };
+    defer meta.deinit(allocator);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, temp_filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    try std.testing.expectError(error.WebpTooShort, webp.parseWebpFile(allocator, check_file, io, &meta));
 }

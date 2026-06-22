@@ -49,7 +49,7 @@ pub fn parseIfd(
         if (total_size <= 4) {
             val_reader = ByteReader.init(root_reader.buffer[entry_abs_offset + 8 .. entry_abs_offset + 12], root_reader.endian);
         } else {
-            if (inline_or_offset_val + total_size > root_reader.buffer.len) continue;
+            if (total_size > root_reader.buffer.len or inline_or_offset_val > root_reader.buffer.len - total_size) continue;
             val_reader = ByteReader.init(root_reader.buffer[inline_or_offset_val .. inline_or_offset_val + total_size], root_reader.endian);
         }
 
@@ -71,11 +71,13 @@ pub fn parseIfd(
             },
             0x010f => { // Make (TIFF tag 271): camera manufacturer name
                 if (type_id == 2) {
+                    if (meta.camera_make) |s| allocator.free(s);
                     meta.camera_make = try val_reader.readAscii(allocator, count);
                 }
             },
             0x0110 => { // Model (TIFF tag 272): camera model name
                 if (type_id == 2) {
+                    if (meta.camera_model) |s| allocator.free(s);
                     meta.camera_model = try val_reader.readAscii(allocator, count);
                 }
             },
@@ -91,6 +93,7 @@ pub fn parseIfd(
             },
             0x9003 => { // DateTimeOriginal (EXIF tag 36867): capture timestamp in "YYYY:MM:DD HH:MM:SS" format
                 if (type_id == 2) {
+                    if (meta.create_time) |s| allocator.free(s);
                     meta.create_time = try val_reader.readAscii(allocator, count);
                 }
             },
@@ -135,7 +138,7 @@ pub fn parseGpsIfd(
         if (total_size <= 4) {
             val_reader = ByteReader.init(root_reader.buffer[entry_abs_offset + 8 .. entry_abs_offset + 12], root_reader.endian);
         } else {
-            if (inline_or_offset_val + total_size > root_reader.buffer.len) continue;
+            if (total_size > root_reader.buffer.len or inline_or_offset_val > root_reader.buffer.len - total_size) continue;
             val_reader = ByteReader.init(root_reader.buffer[inline_or_offset_val .. inline_or_offset_val + total_size], root_reader.endian);
         }
 

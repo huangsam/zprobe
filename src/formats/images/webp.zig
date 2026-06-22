@@ -81,14 +81,18 @@ pub fn parseWebpFile(allocator: std.mem.Allocator, file: anytype, io: anytype, m
         if (real_size > size - offset - 8) return error.WebpTooShort;
 
         if (std.mem.eql(u8, chunk_tag, "VP8X")) {
+            if (real_size < 10) return error.WebpTooShort;
             var payload: [10]u8 = undefined;
-            _ = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            const read = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            if (read < 10) return error.WebpTooShort;
             meta.width = (@as(u32, payload[4]) | (@as(u32, payload[5]) << 8) | (@as(u32, payload[6]) << 16)) + 1;
             meta.height = (@as(u32, payload[7]) | (@as(u32, payload[8]) << 8) | (@as(u32, payload[9]) << 16)) + 1;
             dims_found = true;
         } else if (std.mem.eql(u8, chunk_tag, "VP8L")) {
+            if (real_size < 5) return error.WebpTooShort;
             var payload: [5]u8 = undefined;
-            _ = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            const read = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            if (read < 5) return error.WebpTooShort;
             if (payload[0] == 0x2f) {
                 const val = @as(u32, payload[1]) | (@as(u32, payload[2]) << 8) | (@as(u32, payload[3]) << 16) | (@as(u32, payload[4]) << 24);
                 meta.width = (val & 0x3fff) + 1;
@@ -96,8 +100,10 @@ pub fn parseWebpFile(allocator: std.mem.Allocator, file: anytype, io: anytype, m
                 dims_found = true;
             }
         } else if (std.mem.eql(u8, chunk_tag, "VP8 ")) {
+            if (real_size < 10) return error.WebpTooShort;
             var payload: [10]u8 = undefined;
-            _ = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            const read = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            if (read < 10) return error.WebpTooShort;
             if ((payload[0] & 0x01) == 0 and payload[3] == 0x9d and payload[4] == 0x01 and payload[5] == 0x2a) {
                 meta.width = (@as(u16, payload[6]) | (@as(u16, payload[7]) << 8)) & 0x3fff;
                 meta.height = (@as(u16, payload[8]) | (@as(u16, payload[9]) << 8)) & 0x3fff;
@@ -106,8 +112,10 @@ pub fn parseWebpFile(allocator: std.mem.Allocator, file: anytype, io: anytype, m
         } else if (std.mem.eql(u8, chunk_tag, "EXIF")) {
             const exif_buf = try allocator.alloc(u8, chunk_size);
             defer allocator.free(exif_buf);
-            _ = try std.Io.File.readPositionalAll(file, io, exif_buf, offset + 8);
-            tiff.parseTiff(allocator, exif_buf, meta) catch {};
+            const read = try std.Io.File.readPositionalAll(file, io, exif_buf, offset + 8);
+            if (read == chunk_size) {
+                tiff.parseTiff(allocator, exif_buf, meta) catch {};
+            }
         }
 
         offset += 8 + real_size;

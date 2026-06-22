@@ -58,15 +58,18 @@ pub fn parsePngFile(allocator: std.mem.Allocator, file: anytype, io: anytype, me
         if (std.mem.eql(u8, chunk_tag, "IHDR")) {
             if (chunk_len < 13 or offset + 8 + 13 > size) return error.PngTooShort;
             var payload: [8]u8 = undefined;
-            _ = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            const read = try std.Io.File.readPositionalAll(file, io, &payload, offset + 8);
+            if (read < 8) return error.PngTooShort;
             meta.width = @as(u32, payload[0]) << 24 | @as(u32, payload[1]) << 16 | @as(u32, payload[2]) << 8 | payload[3];
             meta.height = @as(u32, payload[4]) << 24 | @as(u32, payload[5]) << 16 | @as(u32, payload[6]) << 8 | payload[7];
             dims_found = true;
         } else if (std.mem.eql(u8, chunk_tag, "eXIf")) {
             const exif_buf = try allocator.alloc(u8, chunk_len);
             defer allocator.free(exif_buf);
-            _ = try std.Io.File.readPositionalAll(file, io, exif_buf, offset + 8);
-            tiff.parseTiff(allocator, exif_buf, meta) catch {};
+            const read = try std.Io.File.readPositionalAll(file, io, exif_buf, offset + 8);
+            if (read == chunk_len) {
+                tiff.parseTiff(allocator, exif_buf, meta) catch {};
+            }
         }
 
         offset += 12 + chunk_len;
