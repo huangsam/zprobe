@@ -252,6 +252,25 @@ const worker = struct {
     }
 };
 
+fn printHelp(out: anytype, exe_name: []const u8) !void {
+    try out.print(
+        \\zprobe - Media header scanning and metadata indexing tool
+        \\
+        \\Usage:
+        \\  {s} [options] <directory>
+        \\
+        \\Options:
+        \\  -h, --help           Show this help message and exit
+        \\  --json               Output metadata in JSON lines format
+        \\  --db <database>      Path to SQLite database for metadata caching and indexing
+        \\
+        \\Supported Formats:
+        \\  Images: JPEG, PNG, GIF, BMP, WebP, TIFF, AVIF, ICO, JXL
+        \\  Videos: MP4, MOV, WebM, MKV
+        \\
+    , .{exe_name});
+}
+
 /// Main application entrypoint.
 ///
 /// In Zig 0.16.0, `main` receives an `init` structure of type `std.process.Init`
@@ -273,12 +292,7 @@ pub fn main(init: std.process.Init) !void {
     var json_mode = false;
     var target_dir: []const u8 = "";
     var target_db: []const u8 = "";
-
-    if (args.len < 2) {
-        try out.print("Usage: {s} [--json] [--db <database>] <directory>\n", .{args[0]});
-        try out.flush();
-        return;
-    }
+    var show_help = false;
 
     var arg_idx: usize = 1;
     while (arg_idx < args.len) : (arg_idx += 1) {
@@ -294,9 +308,17 @@ pub fn main(init: std.process.Init) !void {
                 try out.flush();
                 return;
             }
+        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            show_help = true;
         } else {
             target_dir = arg;
         }
+    }
+
+    if (show_help or args.len < 2) {
+        try printHelp(out, args[0]);
+        try out.flush();
+        return;
     }
 
     if (target_dir.len == 0) {
