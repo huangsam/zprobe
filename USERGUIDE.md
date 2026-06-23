@@ -19,11 +19,11 @@ zig build test
 # Build the executable in ReleaseSafe mode
 zig build -OReleaseSafe
 
-# Run zprobe on a directory
-./zig-out/bin/zprobe /path/to/media/directory
+# Run zprobe on one or more directories
+./zig-out/bin/zprobe /path/to/media/directory1 /path/to/media/directory2
 
-# Run in JSON mode
-./zig-out/bin/zprobe --json /path/to/media/directory
+# Run in JSON mode with a SQLite caching database
+./zig-out/bin/zprobe --json --db /path/to/cache.db /path/to/media/directory
 ```
 
 ## Cross-Compilation
