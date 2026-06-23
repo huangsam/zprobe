@@ -257,7 +257,7 @@ fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\zprobe - Media header scanning and metadata indexing tool
         \\
         \\Usage:
-        \\  {s} [options] <directory>
+        \\  {s} [options] <directory>...
         \\
         \\Options:
         \\  -h, --help           Show this help message and exit
@@ -290,9 +290,10 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(args);
 
     var json_mode = false;
-    var target_dir: []const u8 = "";
     var target_db: []const u8 = "";
     var show_help = false;
+    var target_dirs: std.ArrayList([]const u8) = .empty;
+    defer target_dirs.deinit(allocator);
 
     var arg_idx: usize = 1;
     while (arg_idx < args.len) : (arg_idx += 1) {
@@ -311,7 +312,7 @@ pub fn main(init: std.process.Init) !void {
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             show_help = true;
         } else {
-            target_dir = arg;
+            try target_dirs.append(allocator, arg);
         }
     }
 
@@ -321,8 +322,8 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    if (target_dir.len == 0) {
-        try out.print("Error: No directory specified\n", .{});
+    if (target_dirs.items.len == 0) {
+        try out.print("Error: No directories specified\n", .{});
         try out.flush();
         return;
     }
@@ -341,21 +342,48 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    // Resolve target_dir to an absolute path.
-    const cwd = std.Io.Dir.cwd();
-    const abs_target_dir = try cwd.realPathFileAlloc(io, target_dir, allocator);
-    defer allocator.free(abs_target_dir);
-
-    if (!json_mode) {
-        std.debug.print("Scanning: {s}\n\n", .{target_dir});
-    }
-
-    var list = try media_scan.scan(abs_target_dir, io, allocator);
-    defer {
-        for (list.items) |entry| {
+    var all_entries: std.ArrayList(media_scan.ScanEntry) = .empty;
+    errdefer {
+        for (all_entries.items) |entry| {
             allocator.free(entry.path);
         }
-        list.deinit(allocator);
+        all_entries.deinit(allocator);
+    }
+
+    const cwd = std.Io.Dir.cwd();
+    for (target_dirs.items) |dir_path| {
+        const abs_dir = cwd.realPathFileAlloc(io, dir_path, allocator) catch |err| {
+            try out.print("Error: Failed to resolve path '{s}': {s}\n", .{ dir_path, @errorName(err) });
+            try out.flush();
+            return;
+        };
+        defer allocator.free(abs_dir);
+
+        if (!json_mode) {
+            std.debug.print("Scanning: {s}\n", .{dir_path});
+        }
+
+        var dir_list = try media_scan.scan(abs_dir, io, allocator);
+        errdefer {
+            for (dir_list.items) |entry| {
+                allocator.free(entry.path);
+            }
+            dir_list.deinit(allocator);
+        }
+
+        try all_entries.appendSlice(allocator, dir_list.items);
+        dir_list.deinit(allocator);
+    }
+
+    if (!json_mode) {
+        std.debug.print("\n", .{});
+    }
+
+    defer {
+        for (all_entries.items) |entry| {
+            allocator.free(entry.path);
+        }
+        all_entries.deinit(allocator);
     }
 
     var file_index = std.atomic.Value(usize).init(0);
@@ -373,7 +401,7 @@ pub fn main(init: std.process.Init) !void {
         .io = io,
         .out = &f_writer,
         .json_mode = json_mode,
-        .entries = list.items,
+        .entries = all_entries.items,
         .file_index = &file_index,
         .stdout_mutex = &stdout_mutex,
         .success_count = &success_count,
@@ -405,7 +433,7 @@ pub fn main(init: std.process.Init) !void {
     try out.flush();
 
     if (!json_mode) {
-        std.debug.print("Found {d} media file(s)\n", .{list.items.len});
+        std.debug.print("Found {d} media file(s)\n", .{all_entries.items.len});
     }
 }
 
