@@ -12,6 +12,7 @@ const media_scan = root.media_scan;
 const image_meta = root.image_meta;
 const video_meta = root.video_meta;
 const test_utils = @import("core/test_utils.zig");
+const db = root.db;
 
 /// Helper to initialize a buffered file writer targeting stdout.
 ///
@@ -49,36 +50,14 @@ pub fn computeWorkerCount(cpu_count: usize) usize {
     return @min(@max(cpu_count * 4, 8), 16);
 }
 
-const JsonOutput = struct {
-    path: []const u8,
-    size: u64,
-    format: []const u8,
-    width: ?u32 = null,
-    height: ?u32 = null,
-    orientation: ?u16 = null,
-    create_time: ?[]const u8 = null,
-    camera_make: ?[]const u8 = null,
-    camera_model: ?[]const u8 = null,
-    gps_latitude: ?f64 = null,
-    gps_longitude: ?f64 = null,
-    duration_sec: ?f64 = null,
-
-    /// Free heap-allocated strings stored within JsonOutput.
-    pub fn deinit(self: *const JsonOutput, allocator: std.mem.Allocator) void {
-        if (self.create_time) |s| allocator.free(s);
-        if (self.camera_make) |s| allocator.free(s);
-        if (self.camera_model) |s| allocator.free(s);
-    }
-};
-
-/// Helper to convert ImageMetadata to JsonOutput, allocating strings in the process.
+/// Helper to convert ImageMetadata to DbRecord, allocating strings in the process.
 fn populateJsonFromImage(
     allocator: std.mem.Allocator,
     meta: *const image_meta.ImageMetadata,
     path: []const u8,
     size: u64,
-) !JsonOutput {
-    var json_out = JsonOutput{
+) !db.DbRecord {
+    var json_out = db.DbRecord{
         .path = path,
         .size = size,
         .format = meta.format,
@@ -104,14 +83,14 @@ fn populateJsonFromImage(
     return json_out;
 }
 
-/// Helper to convert VideoInfo to JsonOutput.
+/// Helper to convert VideoInfo to DbRecord.
 fn populateJsonFromVideo(
     allocator: std.mem.Allocator,
     meta: *const video_meta.VideoInfo,
     path: []const u8,
     size: u64,
-) !JsonOutput {
-    var json_out = JsonOutput{
+) !db.DbRecord {
+    var json_out = db.DbRecord{
         .path = path,
         .size = size,
         .format = meta.format,
@@ -142,74 +121,102 @@ const WorkerContext = struct {
     file_index: *std.atomic.Value(usize),
     stdout_mutex: *std.Io.Mutex,
     success_count: *std.atomic.Value(usize),
+    db: ?*db.Db = null,
 };
 
 const worker = struct {
-    fn workerMain(c: WorkerContext) void {
+    fn workerMain(c_ctx: WorkerContext) void {
         while (true) {
-            const idx = c.file_index.fetchAdd(1, .monotonic);
-            if (idx >= c.entries.len) break;
+            const idx = c_ctx.file_index.fetchAdd(1, .monotonic);
+            if (idx >= c_ctx.entries.len) break;
 
-            const entry = c.entries[idx];
+            const entry = c_ctx.entries[idx];
             const ext = media_scan.getExtension(entry.path);
             const is_video = isVideoExtension(ext);
 
-            processFile(c, entry, is_video) catch {};
+            processFile(c_ctx, entry, is_video) catch {};
         }
     }
 
-    fn processFile(c: WorkerContext, entry: media_scan.ScanEntry, is_video: bool) !void {
-        const file = std.Io.Dir.openFileAbsolute(c.io, entry.path, .{ .mode = .read_only }) catch |err| {
-            c.stdout_mutex.lockUncancelable(c.io);
-            defer c.stdout_mutex.unlock(c.io);
-            c.out.flush() catch {};
+    fn processFile(c_ctx: WorkerContext, entry: media_scan.ScanEntry, is_video: bool) !void {
+        const file = std.Io.Dir.openFileAbsolute(c_ctx.io, entry.path, .{ .mode = .read_only }) catch |err| {
+            c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+            defer c_ctx.stdout_mutex.unlock(c_ctx.io);
+            c_ctx.out.flush() catch {};
             std.debug.print("Warning: failed to open '{s}': {s}\n", .{ entry.path, @errorName(err) });
             return;
         };
-        defer std.Io.File.close(file, c.io);
+        defer std.Io.File.close(file, c_ctx.io);
 
-        const fsize = std.Io.File.length(file, c.io) catch |err| {
-            c.stdout_mutex.lockUncancelable(c.io);
-            defer c.stdout_mutex.unlock(c.io);
-            c.out.flush() catch {};
-            std.debug.print("Warning: failed to get size of '{s}': {s}\n", .{ entry.path, @errorName(err) });
+        const st = std.Io.File.stat(file, c_ctx.io) catch |err| {
+            c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+            defer c_ctx.stdout_mutex.unlock(c_ctx.io);
+            c_ctx.out.flush() catch {};
+            std.debug.print("Warning: failed to get stat of '{s}': {s}\n", .{ entry.path, @errorName(err) });
             return;
         };
+        const fsize = st.size;
+        const mtime = @as(i64, @intCast(st.mtime.nanoseconds));
 
-        var arena = std.heap.ArenaAllocator.init(c.allocator);
+        var arena = std.heap.ArenaAllocator.init(c_ctx.allocator);
         defer arena.deinit();
         const arena_allocator = arena.allocator();
 
-        const json_out = blk: {
+        var cache_hit = false;
+        var json_out: db.DbRecord = undefined;
+
+        if (c_ctx.db) |d| {
+            d.mutex.lockUncancelable(c_ctx.io);
+            const cache_res = d.queryCache(arena_allocator, entry.path, fsize, mtime) catch |err| blk: {
+                std.debug.print("Warning: cache query failed: {s}\n", .{@errorName(err)});
+                break :blk db.CacheResult{ .hit = false };
+            };
+            d.mutex.unlock(c_ctx.io);
+
+            if (cache_res.hit) {
+                cache_hit = true;
+                json_out = cache_res.json_out;
+            }
+        }
+
+        if (!cache_hit) {
             if (is_video) {
-                var res = video_meta.getVideoMetadata(arena_allocator, entry.path, c.io) catch |err| {
-                    c.stdout_mutex.lockUncancelable(c.io);
-                    defer c.stdout_mutex.unlock(c.io);
-                    c.out.flush() catch {};
+                var res = video_meta.getVideoMetadata(arena_allocator, entry.path, c_ctx.io) catch |err| {
+                    c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+                    defer c_ctx.stdout_mutex.unlock(c_ctx.io);
+                    c_ctx.out.flush() catch {};
                     std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
                     return;
                 };
-                break :blk try populateJsonFromVideo(arena_allocator, &res, entry.path, fsize);
+                json_out = try populateJsonFromVideo(arena_allocator, &res, entry.path, fsize);
             } else {
-                var res = image_meta.parseFile(arena_allocator, entry.path, c.io) catch |err| {
-                    c.stdout_mutex.lockUncancelable(c.io);
-                    defer c.stdout_mutex.unlock(c.io);
-                    c.out.flush() catch {};
+                var res = image_meta.parseFile(arena_allocator, entry.path, c_ctx.io) catch |err| {
+                    c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+                    defer c_ctx.stdout_mutex.unlock(c_ctx.io);
+                    c_ctx.out.flush() catch {};
                     std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
                     return;
                 };
-                break :blk try populateJsonFromImage(arena_allocator, &res, entry.path, fsize);
+                json_out = try populateJsonFromImage(arena_allocator, &res, entry.path, fsize);
             }
-        };
 
-        c.stdout_mutex.lockUncancelable(c.io);
-        defer c.stdout_mutex.unlock(c.io);
+            if (c_ctx.db) |d| {
+                d.mutex.lockUncancelable(c_ctx.io);
+                d.insertMedia(&json_out, mtime) catch |err| {
+                    std.debug.print("Warning: failed to insert media to DB: {s}\n", .{@errorName(err)});
+                };
+                d.mutex.unlock(c_ctx.io);
+            }
+        }
 
-        _ = c.success_count.fetchAdd(1, .monotonic);
+        c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+        defer c_ctx.stdout_mutex.unlock(c_ctx.io);
 
-        const interface = &c.out.interface;
+        _ = c_ctx.success_count.fetchAdd(1, .monotonic);
 
-        if (c.json_mode) {
+        const interface = &c_ctx.out.interface;
+
+        if (c_ctx.json_mode) {
             try std.json.fmt(json_out, .{}).format(interface);
             try interface.print("\n", .{});
         } else {
@@ -261,21 +268,32 @@ pub fn main(init: std.process.Init) !void {
 
     // Get command-line args using the GPA allocator.
     const args = try init.minimal.args.toSlice(allocator);
-
     defer allocator.free(args);
 
     var json_mode = false;
     var target_dir: []const u8 = "";
+    var target_db: []const u8 = "";
 
     if (args.len < 2) {
-        try out.print("Usage: {s} [--json] <directory>\n", .{args[0]});
+        try out.print("Usage: {s} [--json] [--db <database>] <directory>\n", .{args[0]});
         try out.flush();
         return;
     }
 
-    for (args[1..]) |arg| {
+    var arg_idx: usize = 1;
+    while (arg_idx < args.len) : (arg_idx += 1) {
+        const arg = args[arg_idx];
         if (std.mem.eql(u8, arg, "--json")) {
             json_mode = true;
+        } else if (std.mem.eql(u8, arg, "--db")) {
+            if (arg_idx + 1 < args.len) {
+                arg_idx += 1;
+                target_db = args[arg_idx];
+            } else {
+                try out.print("Error: --db option requires a database path\n", .{});
+                try out.flush();
+                return;
+            }
         } else {
             target_dir = arg;
         }
@@ -285,6 +303,20 @@ pub fn main(init: std.process.Init) !void {
         try out.print("Error: No directory specified\n", .{});
         try out.flush();
         return;
+    }
+
+    // Initialize Database if path is provided
+    var database: db.Db = undefined;
+    var db_ptr: ?*db.Db = null;
+    if (target_db.len > 0) {
+        database = try db.Db.init(allocator, target_db);
+        db_ptr = &database;
+        database.beginTransaction();
+    }
+    defer {
+        if (db_ptr) |d| {
+            d.deinit();
+        }
     }
 
     // Resolve target_dir to an absolute path.
@@ -323,6 +355,7 @@ pub fn main(init: std.process.Init) !void {
         .file_index = &file_index,
         .stdout_mutex = &stdout_mutex,
         .success_count = &success_count,
+        .db = db_ptr,
     };
 
     var spawned_count: usize = 0;
@@ -332,8 +365,8 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    for (0..num_workers) |i| {
-        threads[i] = try std.Thread.spawn(.{}, worker.workerMain, .{worker_ctx});
+    for (0..num_workers) |k| {
+        threads[k] = try std.Thread.spawn(.{}, worker.workerMain, .{worker_ctx});
         spawned_count += 1;
     }
 
@@ -341,6 +374,11 @@ pub fn main(init: std.process.Init) !void {
         t.join();
     }
     spawned_count = 0;
+
+    // Commit transaction
+    if (db_ptr) |d| {
+        d.commitTransaction();
+    }
 
     try out.flush();
 
@@ -455,4 +493,131 @@ test "isVideoExtension boundaries" {
     try std.testing.expect(!isVideoExtension(".png"));
     try std.testing.expect(!isVideoExtension(".extremelylongextensionnamehere"));
     try std.testing.expect(!isVideoExtension(""));
+}
+
+test "sqlite db caching integration test" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    // Create 1 mock PNG file
+    const png_header = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x02\x80\x00\x00\x01\xe0\x08\x02\x00\x00\x00";
+    const filename = "cached_image.png";
+    const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+    try std.Io.File.writePositionalAll(file, io, png_header, 0);
+    std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+    // Get full path of cached_image.png
+    const full_image_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, filename });
+    defer allocator.free(full_image_path);
+
+    // Setup SQLite DB file
+    const db_filename = "test_cache.db";
+    const full_db_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, db_filename });
+    defer allocator.free(full_db_path);
+    defer std.Io.Dir.deleteFile(temp_dir, io, db_filename) catch {};
+
+    var database = try db.Db.init(allocator, full_db_path);
+    defer database.deinit();
+
+    // Scan
+    var list = try media_scan.scan(temp_ctx.abs_path, io, allocator);
+    defer {
+        for (list.items) |entry| {
+            allocator.free(entry.path);
+        }
+        list.deinit(allocator);
+    }
+    try std.testing.expectEqual(@as(usize, 1), list.items.len);
+
+    const out_filename = "test_output.txt";
+    const out_file = try std.Io.Dir.createFile(temp_dir, io, out_filename, .{});
+    defer {
+        std.Io.File.close(out_file, io);
+        std.Io.Dir.deleteFile(temp_dir, io, out_filename) catch {};
+    }
+
+    var io_buf: [256]u8 = undefined;
+    var f_writer = std.Io.File.Writer.init(out_file, io, &io_buf);
+
+    var file_index = std.atomic.Value(usize).init(0);
+    var stdout_mutex = std.Io.Mutex.init;
+    var success_count = std.atomic.Value(usize).init(0);
+
+    const worker_ctx = WorkerContext{
+        .allocator = allocator,
+        .io = io,
+        .out = &f_writer,
+        .json_mode = false,
+        .entries = list.items,
+        .file_index = &file_index,
+        .stdout_mutex = &stdout_mutex,
+        .success_count = &success_count,
+        .db = &database,
+    };
+
+    // First Run (should parse & cache)
+    worker.processFile(worker_ctx, list.items[0], false) catch |err| {
+        std.debug.print("First run processFile failed: {s}\n", .{@errorName(err)});
+        return err;
+    };
+    try f_writer.flush();
+    try std.testing.expectEqual(@as(usize, 1), success_count.load(.monotonic));
+
+    // Verify row is in DB by querying cache
+    // Get file stat to obtain current mtime
+    const file_for_stat_first = try std.Io.Dir.openFileAbsolute(io, full_image_path, .{ .mode = .read_only });
+    const st_first = try std.Io.File.stat(file_for_stat_first, io);
+    const mtime_first = @as(i64, @intCast(st_first.mtime.nanoseconds));
+    std.Io.File.close(file_for_stat_first, io);
+
+    const cache_res_first = try database.queryCache(allocator, full_image_path, png_header.len, mtime_first);
+    try std.testing.expect(cache_res_first.hit);
+    try std.testing.expectEqualStrings("png", cache_res_first.json_out.format);
+    allocator.free(cache_res_first.json_out.format);
+    cache_res_first.json_out.deinit(allocator);
+
+    // Corrupt the file on disk (overwrite with invalid data)
+    const corrupt_file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+    try std.Io.File.writePositionalAll(corrupt_file, io, "INVALID_PNG_HEADER", 0);
+    // Keep size same by writing padding
+    var pad: [24]u8 = undefined;
+    @memset(&pad, 0);
+    try std.Io.File.writePositionalAll(corrupt_file, io, &pad, 18);
+    std.Io.File.close(corrupt_file, io);
+
+    // Get the new file stat, and update the DB row's mtime to match the new mtime
+    const file_for_stat = try std.Io.Dir.openFileAbsolute(io, full_image_path, .{ .mode = .read_only });
+    const st_corrupt = try std.Io.File.stat(file_for_stat, io);
+    const new_size = st_corrupt.size;
+    const new_mtime = @as(i64, @intCast(st_corrupt.mtime.nanoseconds));
+    std.Io.File.close(file_for_stat, io);
+
+    // Insert the new record with the updated mtime and size to simulate cache hit
+    const updated_record = db.DbRecord{
+        .path = full_image_path,
+        .size = new_size,
+        .format = "png",
+        .width = 640,
+        .height = 480,
+    };
+    try database.insertMedia(&updated_record, new_mtime);
+
+    // Reset loop index & success counter
+    file_index.store(0, .monotonic);
+    success_count.store(0, .monotonic);
+
+    // Second Run (should cache hit and NOT fail on the corrupted PNG!)
+    worker.processFile(worker_ctx, list.items[0], false) catch |err| {
+        std.debug.print("Second run processFile failed: {s}\n", .{@errorName(err)});
+        return err;
+    };
+    try f_writer.flush();
+
+    // If it successfully hits the cache, it won't parse the file and will succeed!
+    try std.testing.expectEqual(@as(usize, 1), success_count.load(.monotonic));
 }

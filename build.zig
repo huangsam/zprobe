@@ -60,97 +60,120 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "zprobe",
         .root_module = b.createModule(.{
-            // b.createModule defines a new module just like b.addModule but,
-            // unlike b.addModule, it does not expose the module to consumers of
-            // this package, which is why in this case we don't have to give it a name.
             .root_source_file = b.path("src/main.zig"),
-            // Target and optimization levels must be explicitly wired in when
-            // defining an executable or library (in the root module), and you
-            // can also hardcode a specific target for an executable or library
-            // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
             .optimize = optimize,
-            // List of modules available for import in source files part of the
-            // root module.
             .imports = &.{
-                // Here "zprobe" is the name you will use in your source code to
-                // import this module (e.g. `@import("zprobe")`). The name is
-                // repeated because you are allowed to rename your imports, which
-                // can be extremely useful in case of collisions (which can happen
-                // importing modules from different packages).
                 .{ .name = "zprobe", .module = mod },
             },
         }),
     });
 
-    // This declares intent for the executable to be installed into the
-    // install prefix when running `zig build` (i.e. when executing the default
-    // step). By default the install prefix is `zig-out/` but can be overridden
-    // by passing `--prefix` or `-p`.
+    // Statically compile and link SQLite3 to default executable
+    const sqlite_lib = b.addLibrary(.{
+        .name = "sqlite3",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
+        .linkage = .static,
+    });
+    sqlite_lib.root_module.addCSourceFile(.{
+        .file = b.path("deps/sqlite/sqlite3.c"),
+        .flags = &.{ "-std=c99", "-DSQLITE_DQS=0" },
+    });
+    sqlite_lib.root_module.addIncludePath(b.path("deps/sqlite"));
+    sqlite_lib.root_module.linkSystemLibrary("c", .{});
+
+    exe.root_module.linkLibrary(sqlite_lib);
+    exe.root_module.addIncludePath(b.path("deps/sqlite"));
+    exe.root_module.linkSystemLibrary("c", .{});
+
     b.installArtifact(exe);
 
-    // This creates a top level step. Top level steps have a name and can be
-    // invoked by name when running `zig build` (e.g. `zig build run`).
-    // This will evaluate the `run` step rather than the default step.
-    // For a top level step to actually do something, it must depend on other
-    // steps (e.g. a Run step, as we will see in a moment).
-    const run_step = b.step("run", "Run the app");
+    // release-all step for building Apple Silicon and Synology NAS variants
+    const release_all_step = b.step("release-all", "Build all production variants of zprobe");
 
-    // This creates a RunArtifact step in the build graph. A RunArtifact step
-    // invokes an executable compiled by Zig. Steps will only be executed by the
-    // runner if invoked directly by the user (in the case of top level steps)
-    // or if another step depends on it, so it's up to you to define when and
-    // how this Run step will be executed. In our case we want to run it when
-    // the user runs `zig build run`, so we create a dependency link.
+    const targets = [_]struct {
+        name: []const u8,
+        query: std.Target.Query,
+    }{
+        .{ .name = "macos-arm64", .query = .{ .cpu_arch = .aarch64, .os_tag = .macos } },
+        .{ .name = "synology-x86_64", .query = .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl } },
+        .{ .name = "synology-arm64", .query = .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl } },
+    };
+
+    for (targets) |t| {
+        const resolved_target = b.resolveTargetQuery(t.query);
+        const variant_mod = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = resolved_target,
+            .optimize = .ReleaseSmall,
+        });
+
+        const variant_exe = b.addExecutable(.{
+            .name = b.fmt("zprobe-{s}", .{t.name}),
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = resolved_target,
+                .optimize = .ReleaseSmall,
+                .imports = &.{
+                    .{ .name = "zprobe", .module = variant_mod },
+                },
+            }),
+        });
+        variant_exe.root_module.strip = true;
+
+        const variant_sqlite = b.addLibrary(.{
+            .name = b.fmt("sqlite3-{s}", .{t.name}),
+            .root_module = b.createModule(.{
+                .target = resolved_target,
+                .optimize = .ReleaseSmall,
+            }),
+            .linkage = .static,
+        });
+        variant_sqlite.root_module.addCSourceFile(.{
+            .file = b.path("deps/sqlite/sqlite3.c"),
+            .flags = &.{ "-std=c99", "-DSQLITE_DQS=0" },
+        });
+        variant_sqlite.root_module.addIncludePath(b.path("deps/sqlite"));
+        variant_sqlite.root_module.linkSystemLibrary("c", .{});
+
+        variant_exe.root_module.linkLibrary(variant_sqlite);
+        variant_exe.root_module.addIncludePath(b.path("deps/sqlite"));
+        variant_exe.root_module.linkSystemLibrary("c", .{});
+
+        const install_variant = b.addInstallArtifact(variant_exe, .{});
+        release_all_step.dependOn(&install_variant.step);
+    }
+
+    const run_step = b.step("run", "Run the app");
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
-
-    // By making the run step depend on the default step, it will be run from the
-    // installation directory rather than directly from within the cache directory.
     run_cmd.step.dependOn(b.getInstallStep());
 
-    // This allows the user to pass arguments to the application in the build
-    // command itself, like this: `zig build run -- arg1 arg2 etc`
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
 
-    // Creates an executable that will run `test` blocks from the provided module.
-    // Here `mod` needs to define a target, which is why earlier we made sure to
-    // set the releative field.
     const mod_tests = b.addTest(.{
         .root_module = mod,
     });
-
-    // A run step that will run the test executable.
+    // Link SQLite3 to mod_tests as well since root.zig imports main.zig
+    mod_tests.root_module.linkLibrary(sqlite_lib);
+    mod_tests.root_module.linkSystemLibrary("c", .{});
     const run_mod_tests = b.addRunArtifact(mod_tests);
 
-    // Creates an executable that will run `test` blocks from the executable's
-    // root module. Note that test executables only test one module at a time,
-    // hence why we have to create two separate ones.
     const exe_tests = b.addTest(.{
         .root_module = exe.root_module,
     });
-
-    // A run step that will run the second test executable.
+    // Link SQLite3 to the test executable as well
+    exe_tests.root_module.linkLibrary(sqlite_lib);
+    exe_tests.root_module.linkSystemLibrary("c", .{});
+    
     const run_exe_tests = b.addRunArtifact(exe_tests);
 
-    // A top level step for running all tests. dependOn can be called multiple
-    // times and since the two run steps do not depend on one another, this will
-    // make the two of them run in parallel.
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
-
-    // Just like flags, top level steps are also listed in the `--help` menu.
-    //
-    // The Zig build system is entirely implemented in userland, which means
-    // that it cannot hook into private compiler APIs. All compilation work
-    // orchestrated by the build system will result in other Zig compiler
-    // subcommands being invoked with the right flags defined. You can observe
-    // these invocations when one fails (or you pass a flag to increase
-    // verbosity) to validate assumptions and diagnose problems.
-    //
-    // Lastly, the Zig build system is relatively simple and self-contained,
-    // and reading its source code will allow you to master it.
 }

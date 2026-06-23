@@ -33,9 +33,13 @@ pub const video_meta = struct {
 /// Endian-aware stream reading interface.
 pub const byte_reader = @import("core/byte_reader.zig");
 
+/// Database caching and cataloging interface.
+pub const db = @import("core/db.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = @import("main.zig");
+    _ = @import("core/db.zig");
     _ = @import("core/byte_reader.zig");
     _ = @import("core/utils.zig");
     _ = @import("crawler/media_scan.zig");
