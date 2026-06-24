@@ -56,6 +56,7 @@ pub fn parseFile(allocator: std.mem.Allocator, path: []const u8, io: anytype) !I
         .width = 0,
         .height = 0,
     };
+    errdefer meta.deinit(allocator);
 
     // Try parsing based on identified magic bytes.
     if (data.len >= 2 and data[0] == jpeg.jpegMagic[0] and data[1] == jpeg.jpegMagic[1]) {
