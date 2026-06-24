@@ -125,69 +125,7 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
     return list;
 }
 
-/// Recursively walk a directory tree and invoke the callback for each media entry.
-///
-/// This does not store the absolute paths of all files in memory, resulting in
-/// O(1) memory complexity during the directory walk.
-pub fn scanAndProcess(
-    root_path: []const u8,
-    io: anytype,
-    allocator: std.mem.Allocator,
-    context: anytype,
-    callback: anytype,
-) !void {
-    // Open root directory for iteration.
-    const root_dir = try Dir.openDirAbsolute(io, root_path, .{ .iterate = true });
-    defer Dir.close(root_dir, io);
 
-    var walker = try Dir.walkSelectively(root_dir, allocator);
-    defer walker.deinit();
-
-    while (true) {
-        const entry = walker.next(io) catch |err| {
-            std.debug.print("Warning: failed to walk next entry: {s}\n", .{@errorName(err)});
-            continue;
-        } orelse break;
-
-        if (entry.kind == .directory) {
-            walker.enter(io, entry) catch |err| {
-                std.debug.print("Warning: failed to enter directory '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            };
-            continue;
-        }
-
-        if (entry.kind != .file) continue;
-
-        // Check extension.
-        const ext = getExtension(entry.basename);
-        if (ext.len == 0 or !isMediaExtension(ext)) continue;
-
-        // Open file robustly.
-        const file = Dir.openFile(entry.dir, io, entry.basename, .{
-            .mode = .read_only,
-        }) catch |err| {
-            std.debug.print("Warning: failed to open '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            continue;
-        };
-        defer std.Io.File.close(file, io);
-
-        const fsize = std.Io.File.length(file, io) catch |err| {
-            std.debug.print("Warning: failed to get size of '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            continue;
-        };
-
-        // Join root_path and entry.path to get the full absolute path.
-        const full_path = try std.fs.path.join(allocator, &.{ root_path, entry.path });
-        defer allocator.free(full_path);
-
-        // Call user callback
-        try callback(context, ScanEntry{
-            .path = full_path,
-            .is_directory = false,
-            .size = fsize,
-        });
-    }
-}
 
 test "getExtension: simple filename" {
     const ext = getExtension("photo.jpg");
