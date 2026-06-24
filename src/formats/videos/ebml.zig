@@ -178,8 +178,10 @@ pub fn parseEbmlElements(file: anytype, io: anytype, start_offset: u64, end_offs
                 if (id == 0xAE) {
                     if (state.current_track_type == 1) {
                         if (state.current_track_width > 0 and state.current_track_height > 0) {
-                            state.width = state.current_track_width;
-                            state.height = state.current_track_height;
+                            if (state.width == 0) {
+                                state.width = state.current_track_width;
+                                state.height = state.current_track_height;
+                            }
                         }
                     }
                 }
@@ -218,4 +220,97 @@ test "EBML helper functions" {
     try std.testing.expect(isVintUnknown(&[_]u8{0xff}));
     try std.testing.expect(isVintUnknown(&[_]u8{ 0x7f, 0xff }));
     try std.testing.expect(!isVintUnknown(&[_]u8{ 0x7f, 0xfe }));
+}
+
+test "parseEbmlElements keeps first video track's dimensions" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const test_utils = @import("../../core/test_utils.zig");
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+    const temp_filename = "temp_test_ebml_multitrack.webm";
+
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    defer std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    // Build a mock EBML layout with two Tracks -> TrackEntry boxes.
+    // Segment ID (0x18538067)
+    //   Tracks ID (0x1654AE6B)
+    //     TrackEntry ID (0xAE) -> Type = 1, Width = 1920, Height = 1080
+    //     TrackEntry ID (0xAE) -> Type = 1, Width = 640, Height = 480
+    var buf = [_]u8{0} ** 40;
+
+    // Segment ID (0x18538067)
+    buf[0] = 0x18;
+    buf[1] = 0x53;
+    buf[2] = 0x80;
+    buf[3] = 0x67;
+    // Segment Size (35 -> 0xA3)
+    buf[4] = 0xA3;
+
+    // Tracks ID (0x1654AE6B)
+    buf[5] = 0x16;
+    buf[6] = 0x54;
+    buf[7] = 0xAE;
+    buf[8] = 0x6B;
+    // Tracks Size (30 -> 0x9E)
+    buf[9] = 0x9E;
+
+    // TrackEntry 1 (offset 10, size 13 -> 0x8D)
+    buf[10] = 0xAE;
+    buf[11] = 0x8D;
+    // TrackType ID (0x83), size 1 (0x81), type 1 (0x01)
+    buf[12] = 0x83;
+    buf[13] = 0x81;
+    buf[14] = 0x01;
+    // Video ID (0xE0), size 8 (0x88)
+    buf[15] = 0xE0;
+    buf[16] = 0x88;
+    // PixelWidth ID (0xB0), size 2 (0x82), width 1920 (0x0780)
+    buf[17] = 0xB0;
+    buf[18] = 0x82;
+    buf[19] = 0x07;
+    buf[20] = 0x80;
+    // PixelHeight ID (0xBA), size 2 (0x82), height 1080 (0x0438)
+    buf[21] = 0xBA;
+    buf[22] = 0x82;
+    buf[23] = 0x04;
+    buf[24] = 0x38;
+
+    // TrackEntry 2 (offset 25, size 13 -> 0x8D)
+    const t2_off = 25;
+    buf[t2_off + 0] = 0xAE;
+    buf[t2_off + 1] = 0x8D;
+    // TrackType ID (0x83), size 1 (0x81), type 1 (0x01)
+    buf[t2_off + 2] = 0x83;
+    buf[t2_off + 3] = 0x81;
+    buf[t2_off + 4] = 0x01;
+    // Video ID (0xE0), size 8 (0x88)
+    buf[t2_off + 5] = 0xE0;
+    buf[t2_off + 6] = 0x88;
+    // PixelWidth ID (0xB0), size 2 (0x82), width 640 (0x0280)
+    buf[t2_off + 7] = 0xB0;
+    buf[t2_off + 8] = 0x82;
+    buf[t2_off + 9] = 0x02;
+    buf[t2_off + 10] = 0x80;
+    // PixelHeight ID (0xBA), size 2 (0x82), height 480 (0x01E0)
+    buf[t2_off + 11] = 0xBA;
+    buf[t2_off + 12] = 0x82;
+    buf[t2_off + 13] = 0x01;
+    buf[t2_off + 14] = 0xE0;
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, temp_filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    var state = EbmlState{};
+    try parseEbmlElements(check_file, io, 0, 40, &state, 0);
+
+    // Track 1 dimensions should win (1920x1080), not overridden by Track 2 (640x480).
+    try std.testing.expectEqual(@as(u32, 1920), state.width);
+    try std.testing.expectEqual(@as(u32, 1080), state.height);
 }

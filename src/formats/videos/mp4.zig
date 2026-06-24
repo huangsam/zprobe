@@ -139,22 +139,33 @@ pub fn parseMvhdInReader(allocator: std.mem.Allocator, reader: *ByteReader, info
     var creation_time: u64 = 0;
     var timescale: u32 = 0;
     var duration: u64 = 0;
+    var is_duration_unknown = false;
 
     if (version == 0) {
         creation_time = try reader.readInt(u32);
         _ = try reader.readInt(u32); // modification_time
         timescale = try reader.readInt(u32);
-        duration = try reader.readInt(u32);
+        const dur = try reader.readInt(u32);
+        if (dur == 0xFFFFFFFF) {
+            is_duration_unknown = true;
+        } else {
+            duration = dur;
+        }
     } else if (version == 1) {
         creation_time = try reader.readInt(u64);
         _ = try reader.readInt(u64); // modification_time
         timescale = try reader.readInt(u32);
-        duration = try reader.readInt(u64);
+        const dur = try reader.readInt(u64);
+        if (dur == 0xFFFFFFFFFFFFFFFF) {
+            is_duration_unknown = true;
+        } else {
+            duration = dur;
+        }
     } else {
         return;
     }
 
-    if (timescale > 0) {
+    if (timescale > 0 and !is_duration_unknown) {
         info.duration_sec = @as(f64, @floatFromInt(duration)) / @as(f64, @floatFromInt(timescale));
     }
 
@@ -224,9 +235,11 @@ pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: an
                 var reader = ByteReader.init(tkhd_buf[0..read], .big);
                 if (parseTkhd(&reader)) |dims| {
                     if (dims.width > 0 and dims.height > 0) {
-                        info.width = dims.width;
-                        info.height = dims.height;
-                        info.orientation = dims.orientation;
+                        if (info.width == 0) {
+                            info.width = dims.width;
+                            info.height = dims.height;
+                            info.orientation = dims.orientation;
+                        }
                     }
                 }
             }
@@ -1026,4 +1039,142 @@ test "parse MP4 64-bit size box payload truncation in findTkhdAndMvhdInFile" {
     };
 
     try std.testing.expectError(error.InvalidMp4, findTkhdAndMvhdInFile(allocator, check_file, io, 0, 12, &info, 0));
+}
+
+test "parseMvhd handles v0 and v1 unknown duration sentinels" {
+    const allocator = std.testing.allocator;
+    var info = VideoInfo{
+        .format = "mp4",
+        .width = 0,
+        .height = 0,
+    };
+    defer info.deinit(allocator);
+
+    // Test v0 unknown duration: 0xFFFFFFFF
+    {
+        var payload = [_]u8{0} ** 36;
+        payload[0] = 0; // version 0
+        payload[12] = 0;
+        payload[13] = 0;
+        payload[14] = 0x03;
+        payload[15] = 0xe8; // timescale = 1000
+        payload[16] = 0xff;
+        payload[17] = 0xff;
+        payload[18] = 0xff;
+        payload[19] = 0xff; // duration = 0xFFFFFFFF
+
+        try parseMvhd(allocator, &payload, &info);
+        try std.testing.expectEqual(null, info.duration_sec);
+    }
+
+    // Test v1 unknown duration: 0xFFFFFFFFFFFFFFFF
+    {
+        var payload = [_]u8{0} ** 48;
+        payload[0] = 1; // version 1
+        payload[20] = 0;
+        payload[21] = 0;
+        payload[22] = 0x03;
+        payload[23] = 0xe8; // timescale = 1000
+        payload[24] = 0xff;
+        payload[25] = 0xff;
+        payload[26] = 0xff;
+        payload[27] = 0xff;
+        payload[28] = 0xff;
+        payload[29] = 0xff;
+        payload[30] = 0xff;
+        payload[31] = 0xff; // duration = 0xFFFFFFFFFFFFFFFF
+
+        try parseMvhd(allocator, &payload, &info);
+        try std.testing.expectEqual(null, info.duration_sec);
+    }
+}
+
+test "findTkhdAndMvhdInFile preserves first track's dimensions" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+    const temp_filename = "temp_multiple_tracks.mp4";
+
+    const file = try std.Io.Dir.createFile(temp_dir, io, temp_filename, .{});
+    defer std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
+
+    // We will build a file with two track boxes.
+    // Track 1 (width = 1920, height = 1080)
+    // Track 2 (width = 640, height = 480)
+    var buf = [_]u8{0} ** 200;
+
+    // Track 1
+    const trak1_size: u32 = 100;
+    buf[0] = @intCast(trak1_size >> 24);
+    buf[1] = @intCast((trak1_size >> 16) & 0xff);
+    buf[2] = @intCast((trak1_size >> 8) & 0xff);
+    buf[3] = @intCast(trak1_size & 0xff);
+    buf[4] = 't';
+    buf[5] = 'r';
+    buf[6] = 'a';
+    buf[7] = 'k';
+
+    const tkhd1_size: u32 = 92;
+    buf[8] = @intCast(tkhd1_size >> 24);
+    buf[9] = @intCast((tkhd1_size >> 16) & 0xff);
+    buf[10] = @intCast((tkhd1_size >> 8) & 0xff);
+    buf[11] = @intCast(tkhd1_size & 0xff);
+    buf[12] = 't';
+    buf[13] = 'k';
+    buf[14] = 'h';
+    buf[15] = 'd';
+    buf[16] = 0; // version 0
+    buf[92] = 0x07;
+    buf[93] = 0x80; // width = 1920
+    buf[96] = 0x04;
+    buf[97] = 0x38; // height = 1080
+
+    // Track 2
+    const trak2_size: u32 = 100;
+    const t2_off = 100;
+    buf[t2_off + 0] = @intCast(trak2_size >> 24);
+    buf[t2_off + 1] = @intCast((trak2_size >> 16) & 0xff);
+    buf[t2_off + 2] = @intCast((trak2_size >> 8) & 0xff);
+    buf[t2_off + 3] = @intCast(trak2_size & 0xff);
+    buf[t2_off + 4] = 't';
+    buf[t2_off + 5] = 'r';
+    buf[t2_off + 6] = 'a';
+    buf[t2_off + 7] = 'k';
+
+    const tkhd2_size: u32 = 92;
+    buf[t2_off + 8] = @intCast(tkhd2_size >> 24);
+    buf[t2_off + 9] = @intCast((tkhd2_size >> 16) & 0xff);
+    buf[t2_off + 10] = @intCast((tkhd2_size >> 8) & 0xff);
+    buf[t2_off + 11] = @intCast(tkhd2_size & 0xff);
+    buf[t2_off + 12] = 't';
+    buf[t2_off + 13] = 'k';
+    buf[t2_off + 14] = 'h';
+    buf[t2_off + 15] = 'd';
+    buf[t2_off + 16] = 0; // version 0
+    buf[t2_off + 92] = 0x02;
+    buf[t2_off + 93] = 0x80; // width = 640
+    buf[t2_off + 96] = 0x01;
+    buf[t2_off + 97] = 0xe0; // height = 480
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, temp_filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    var info = VideoInfo{
+        .format = "mp4",
+        .width = 0,
+        .height = 0,
+    };
+    defer info.deinit(allocator);
+
+    try findTkhdAndMvhdInFile(allocator, check_file, io, 0, buf.len, &info, 0);
+
+    // The first track's dimensions (1920x1080) should be preserved, not overwritten by 640x480.
+    try std.testing.expectEqual(@as(u32, 1920), info.width);
+    try std.testing.expectEqual(@as(u32, 1080), info.height);
 }
