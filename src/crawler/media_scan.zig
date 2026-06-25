@@ -125,8 +125,6 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
     return list;
 }
 
-
-
 test "getExtension: simple filename" {
     const ext = getExtension("photo.jpg");
     try std.testing.expectEqualStrings(".jpg", ext);
