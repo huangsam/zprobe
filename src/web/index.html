@@ -295,7 +295,7 @@
       let pageSize = 50;
       let sortConfig = { key: "path", direction: "asc" };
       let activeModalTab = "images";
-      let isFetching = false;
+      let currentFetchController = null;
       let statsData = null;
 
       let imgFormatChart = null;
@@ -350,8 +350,11 @@
 
       // Fetch database paged records
       async function fetchMedia(isInitial = false) {
-        if (isFetching) return;
-        isFetching = true;
+        // Cancel any previous in-flight request so rapid navigation always
+        // reflects the latest currentPage without waiting for stale fetches.
+        if (currentFetchController) currentFetchController.abort();
+        const controller = new AbortController();
+        currentFetchController = controller;
 
         const tbody = document.getElementById("media-tbody");
         tbody.innerHTML = `<tr><td colspan="5" class="loading-state">Fetching media metadata...</td></tr>`;
@@ -372,6 +375,9 @@
             await fetchStats();
           }
 
+          // If this request was superseded during the stats fetch, bail out.
+          if (controller.signal.aborted) return;
+
           const searchVal = encodeURIComponent(
             document.getElementById("search-input").value,
           );
@@ -387,7 +393,7 @@
           if (formatFilter) url += `&format=${formatFilter}`;
           if (typeFilter) url += `&type=${typeFilter}`;
 
-          const res = await fetch(url);
+          const res = await fetch(url, { signal: controller.signal });
           if (!res.ok) throw new Error("API request failed");
           const payload = await res.json();
 
@@ -397,18 +403,23 @@
           renderTable();
           updatePaginationControls();
         } catch (err) {
+          if (err.name === "AbortError") return;
           console.error(err);
           tbody.innerHTML = `<tr><td colspan="5" class="error-state">Failed to load media catalog: ${err.message}</td></tr>`;
         } finally {
-          const elapsedTime = Date.now() - startTime;
-          const minDuration = isInitial ? 0 : 500;
-          const remainingTime = Math.max(0, minDuration - elapsedTime);
+          if (controller === currentFetchController) {
+            const elapsedTime = Date.now() - startTime;
+            const minDuration = isInitial ? 0 : 500;
+            const remainingTime = Math.max(0, minDuration - elapsedTime);
 
-          setTimeout(() => {
-            if (!isInitial && refreshIcon) refreshIcon.classList.remove("spin");
-            if (refreshBtn) refreshBtn.disabled = false;
-            isFetching = false;
-          }, remainingTime);
+            setTimeout(() => {
+              if (controller !== currentFetchController) return;
+              if (!isInitial && refreshIcon)
+                refreshIcon.classList.remove("spin");
+              if (refreshBtn) refreshBtn.disabled = false;
+              currentFetchController = null;
+            }, remainingTime);
+          }
         }
       }
 
