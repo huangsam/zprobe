@@ -1,10 +1,18 @@
 # zprobe
 
-A lightweight, zero-dependency command-line utility and library written in Zig for recursively scanning directories and extracting dimensions, format, and metadata directly from image and video file headers.
+A lightweight, zero-dependency media toolkit written in Zig for recursively scanning directories and extracting dimensions, format, and metadata directly from image and video file headers.
 
-Most media metadata tools are bloated and not built for constrained environments like a NAS or Raspberry Pi. `zprobe` takes a deliberate approach — reading raw binary headers, managing memory explicitly, and compiling to any target without fighting a toolchain. It features an embedded SQLite database to cache metadata and enable near-instant incremental scans. The result is a single self-contained binary with no runtime dependencies, in the spirit of classic Unix utilities like `ls` or `grep`.
+The project ships as two focused binaries: `zprobe` for fast CLI scanning and metadata extraction, and `zprobe-server` for browsing cached results through a local web dashboard.
+
+Most media metadata tools are bloated and not built for constrained environments like a NAS or Raspberry Pi. `zprobe` takes a deliberate approach: read raw binary headers, manage memory explicitly, and compile to many targets without external toolchains. SQLite-backed caching enables near-instant incremental scans, while `zprobe-server` turns that same cache into an interactive catalog for search and filtering. The result is two self-contained binaries with no runtime dependencies, in the spirit of classic Unix utilities like `ls` or `grep`.
 
 See the [User Guide](USERGUIDE.md) and [Developer & Agent Guide](AGENTS.md) to dive deeper.
+
+## Dashboard Preview
+
+![zprobe dashboard showing scanned files, catalog size, and media filters](images/dashboard.png)
+
+> Live dashboard view backed by the SQLite metadata cache, with instant filters for format and media type.
 
 ## Usage
 
