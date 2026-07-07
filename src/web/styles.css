@@ -404,7 +404,7 @@ tr:last-child td {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 420px;
+  max-width: 80ch;
   direction: rtl;
   unicode-bidi: bidi-override;
   text-align: left;
