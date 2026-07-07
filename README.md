@@ -15,6 +15,9 @@ zprobe /path/to/photo /path/to/video
 # Scan with SQLite metadata caching enabled
 zprobe --db /path/to/cache.db /path/to/photo
 
+# Start the dashboard web server
+zprobe-server --port 8080 --db /path/to/cache.db
+
 # Show CLI options and supported formats
 zprobe --help
 ```

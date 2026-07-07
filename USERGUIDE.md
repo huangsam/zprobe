@@ -45,3 +45,43 @@ zig build -Dtarget=x86_64-windows-gnu -Doptimize=ReleaseSafe
 # Apple Silicon macOS (native ARM64 binary)
 zig build -Dtarget=aarch64-macos -Doptimize=ReleaseFast
 ```
+
+## Dashboard Web Server
+
+`zprobe` includes a self-contained web server (`zprobe-server`) that reads the SQLite cache database and displays a visual metadata dashboard (including metrics cards, interactive stats charts, and a catalog browser).
+
+### Running the Server
+
+Launch the server by specifying a port and your cache database:
+
+```bash
+./zig-out/bin/zprobe-server --port 8080 --db /path/to/cache.db
+```
+
+Open `http://localhost:8080` in your web browser to access the dashboard.
+
+### Concurrent Live Scans (WAL Mode)
+
+The server and cache database are configured with SQLite's **Write-Ahead Logging (WAL)** mode. This allows you to run live directory scans via the CLI while the server is active without locking the database:
+
+```bash
+# In a separate terminal while the server is running:
+./zig-out/bin/zprobe --db /path/to/cache.db /path/to/new/photos
+```
+
+The CLI scan will write to the database concurrently, and clicking "Reload View" on the dashboard will immediately refresh the view with the new files.
+
+### REST API Reference
+
+The server exposes the following JSON endpoints:
+
+- **`GET /api/stats`**: Returns database summary metrics including total file counts/sizes, format distributions, camera models, and video duration tiers.
+- **`GET /api/media`**: Returns paginated, sorted, and filtered lists of media files.
+  - **Query Parameters:**
+    - `limit`: Number of records to return (default: 50).
+    - `offset`: Record index offset (default: 0).
+    - `sort`: Column to sort by (`path`, `size`, `format`, `width`, `height`, `duration_sec`, `camera_model`, `create_time`).
+    - `order`: Sort order (`asc` or `desc`).
+    - `search`: Substring filter matching file paths or camera model.
+    - `format`: Match exact format (e.g. `jpeg`, `mp4`).
+    - `type`: Match file category (`image` or `video`).
