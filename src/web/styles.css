@@ -744,6 +744,11 @@ th.sort-desc .sort-indicator::after {
     min-width: 0;
   }
 
+  /* Collapse to single column at mobile width.
+     NOTE: This layout shift is what triggers Chart.js's internal ResizeObserver
+     to grow charts unboundedly. The matchMedia listener in index.html JS handles
+     this by destroying and recreating charts whenever this breakpoint is crossed
+     while the insights modal is open. Do not remove that listener. */
   .charts-grid {
     grid-template-columns: 1fr;
   }
@@ -752,7 +757,7 @@ th.sort-desc .sort-indicator::after {
     grid-column: span 1 !important;
   }
 
-  /* Modal: full-screen on mobile */
+  /* Modal: bottom sheet with horizontal scroll for charts */
   .modal {
     align-items: flex-end;
   }
@@ -774,10 +779,12 @@ th.sort-desc .sort-indicator::after {
 
   .modal-body {
     padding: 1.25rem;
+    overflow-x: auto;
   }
 
-  .canvas-wrapper {
-    height: 180px;
+  .modal-body > .modal-tabs,
+  .modal-body > .tab-pane {
+    min-width: 700px;
   }
 }
 
@@ -808,6 +815,7 @@ th.sort-desc .sort-indicator::after {
   position: relative;
   height: 280px;
   width: 100%;
+  max-width: 100%;
 }
 
 /* Modal DSM-Style Tab Bar */

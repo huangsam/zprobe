@@ -588,14 +588,55 @@
           .replace(/'/g, "&#039;");
       }
 
-      // Toggle Modal Overlay
+      // ─── Chart.js resize-loop mitigation ───────────────────────────────────
+      // Chart.js attaches an internal ResizeObserver to every canvas when
+      // responsive:true is set (the default). When the modal is hidden the
+      // observer still fires on viewport changes, causing charts to grow
+      // unboundedly each time the browser is resized (especially when crossing
+      // the 768px CSS breakpoint that collapses the 2-column grid to 1-column).
+      //
+      // Strategy:
+      //   1. destroyAllCharts() on modal CLOSE  → kills every observer immediately.
+      //   2. switchModalTab()   on modal OPEN   → recreates charts at current size.
+      //   3. matchMedia 768px listener (below)  → destroys+recreates charts if the
+      //      breakpoint is crossed while the modal is already open.
+      // ────────────────────────────────────────────────────────────────────────
+
+      function destroyAllCharts() {
+        if (imgFormatChart) {
+          imgFormatChart.destroy();
+          imgFormatChart = null;
+        }
+        if (imgSizeChart) {
+          imgSizeChart.destroy();
+          imgSizeChart = null;
+        }
+        if (imgCameraChart) {
+          imgCameraChart.destroy();
+          imgCameraChart = null;
+        }
+        if (vidFormatChart) {
+          vidFormatChart.destroy();
+          vidFormatChart = null;
+        }
+        if (vidSizeChart) {
+          vidSizeChart.destroy();
+          vidSizeChart = null;
+        }
+        if (vidDurationChart) {
+          vidDurationChart.destroy();
+          vidDurationChart = null;
+        }
+      }
+
       function toggleModal(show) {
         const modal = document.getElementById("insights-modal");
         if (show) {
           modal.classList.add("open");
-          switchModalTab(activeModalTab);
+          switchModalTab(activeModalTab); // recreates charts at current size
         } else {
           modal.classList.remove("open");
+          destroyAllCharts(); // stop observers before modal is hidden
         }
       }
 
@@ -965,6 +1006,19 @@
             toggleModal(false);
           }
         });
+
+        // When the 768px layout breakpoint is crossed while the modal is open,
+        // destroy and immediately recreate charts so they measure the new
+        // container width rather than growing via Chart.js's ResizeObserver.
+        window
+          .matchMedia("(max-width: 768px)")
+          .addEventListener("change", () => {
+            const modal = document.getElementById("insights-modal");
+            if (modal.classList.contains("open")) {
+              destroyAllCharts();
+              switchModalTab(activeModalTab);
+            }
+          });
 
         // Filter changes
         document

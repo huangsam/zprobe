@@ -168,7 +168,7 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
 
     const target_path = request.head.target;
     const method = request.head.method;
-    
+
     // Split query parameters out of the path
     const query_index = std.mem.indexOfScalar(u8, target_path, '?');
     const base_path = if (query_index) |idx| target_path[0..idx] else target_path;
@@ -330,7 +330,7 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
         // URL decode all inputs
         const decoded_search = if (search) |s| urlDecode(allocator, s) else null;
         defer if (decoded_search) |ds| allocator.free(ds);
-        
+
         const decoded_format = if (filter_format) |f| urlDecode(allocator, f) else null;
         defer if (decoded_format) |df| allocator.free(df);
 
