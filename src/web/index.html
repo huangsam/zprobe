@@ -175,6 +175,9 @@
         </section>
       </main>
 
+      <!-- Drawer Backdrop -->
+      <div id="drawer-backdrop" class="drawer-backdrop"></div>
+
       <!-- Details Sidebar / Drawer (Slide-out) -->
       <aside id="details-drawer" class="details-drawer">
         <div class="drawer-header">
@@ -311,6 +314,26 @@
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
       }
+
+      // Helper: Format seconds to human-readable duration (e.g. 2h 3m 7s)
+      function formatDuration(seconds) {
+        if (seconds == null) return "—";
+        const total = Math.round(seconds);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        if (h > 0) return `${h}h ${m}m ${s}s`;
+        if (m > 0) return `${m}m ${s}s`;
+        return `${s}s`;
+      }
+
+      // Human-readable labels for EXIF/tkhd orientation values
+      const ORIENTATION_LABELS = {
+        1: "Normal",
+        3: "Rotated 180\u00b0",
+        6: "Rotated 90\u00b0 CW",
+        8: "Rotated 270\u00b0 CW",
+      };
 
       // Fetch overall stats
       async function fetchStats() {
@@ -453,14 +476,15 @@
           const fileBase = row.path.split("/").pop();
           const dirPath = row.path.substring(0, row.path.lastIndexOf("/"));
 
-          const detailsLabel = row.duration_sec
-            ? `Duration: ${row.duration_sec.toFixed(1)}s`
-            : row.camera_model || "—";
+          const detailsLabel =
+            row.duration_sec != null
+              ? formatDuration(row.duration_sec)
+              : row.camera_model || "—";
 
           tr.innerHTML = `
                     <td class="file-path-cell">
                         <span class="file-name">${escapeHtml(fileBase)}</span>
-                        <span class="file-dir">${escapeHtml(dirPath)}</span>
+                        <span class="file-dir" title="${escapeHtml(dirPath)}">${escapeHtml(dirPath)}</span>
                     </td>
                     <td>${formatBytes(row.size)}</td>
                     <td><span class="badge badge-format">${escapeHtml((row.format || "").toUpperCase())}</span></td>
@@ -491,6 +515,12 @@
           currentPage >= totalPages;
       }
 
+      // Close the details drawer and its backdrop
+      function closeDrawer() {
+        document.getElementById("details-drawer").classList.remove("open");
+        document.getElementById("drawer-backdrop").classList.remove("visible");
+      }
+
       // Show metadata details side drawer
       function showDetails(row) {
         const drawer = document.getElementById("details-drawer");
@@ -519,7 +549,7 @@
                         <div class="detail-row"><span class="label">Width:</span><span class="value">${row.width} px</span></div>
                         <div class="detail-row"><span class="label">Height:</span><span class="value">${row.height} px</span></div>
                         <div class="detail-row"><span class="label">Aspect Ratio:</span><span class="value">${calculateAspectRatio(row.width, row.height)}</span></div>
-                        ${row.orientation ? `<div class="detail-row"><span class="label">EXIF Orientation:</span><span class="value">${row.orientation}</span></div>` : ""}
+                        ${row.orientation ? `<div class="detail-row"><span class="label">Orientation:</span><span class="value">${ORIENTATION_LABELS[row.orientation] ?? `EXIF ${row.orientation}`}</span></div>` : ""}
                     </div>
                 `;
         }
@@ -528,7 +558,7 @@
           html += `
                     <div class="detail-section">
                         <h4>Video Properties</h4>
-                        <div class="detail-row"><span class="label">Duration:</span><span class="value">${row.duration_sec.toFixed(2)} seconds</span></div>
+                        <div class="detail-row"><span class="label">Duration:</span><span class="value">${formatDuration(row.duration_sec)}</span></div>
                     </div>
                 `;
         }
@@ -565,6 +595,7 @@
 
         content.innerHTML = html;
         drawer.classList.add("open");
+        document.getElementById("drawer-backdrop").classList.add("visible");
         lucide.createIcons();
       }
 
@@ -990,9 +1021,23 @@
         // Close details drawer
         document
           .getElementById("close-drawer-btn")
-          .addEventListener("click", () => {
-            document.getElementById("details-drawer").classList.remove("open");
-          });
+          .addEventListener("click", closeDrawer);
+
+        // Close drawer on backdrop click
+        document
+          .getElementById("drawer-backdrop")
+          .addEventListener("click", closeDrawer);
+
+        // Escape key: close modal first, then drawer
+        document.addEventListener("keydown", (e) => {
+          if (e.key !== "Escape") return;
+          const modal = document.getElementById("insights-modal");
+          if (modal.classList.contains("open")) {
+            toggleModal(false);
+          } else {
+            closeDrawer();
+          }
+        });
 
         // Close modal button
         document
@@ -1098,6 +1143,15 @@
             fetchMedia();
           });
         });
+
+        // Mark initial sort column indicator
+        const initialSortTh = document.querySelector(
+          `#media-table th[data-sort="${sortConfig.key}"]`,
+        );
+        if (initialSortTh)
+          initialSortTh.classList.add(
+            sortConfig.direction === "asc" ? "sort-asc" : "sort-desc",
+          );
 
         // Initialize Lucide Icons for static elements
         lucide.createIcons();

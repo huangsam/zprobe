@@ -170,6 +170,15 @@ body {
   pointer-events: none;
 }
 
+.btn-sm {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.82rem;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 /* Dashboard Metrics Grid - Generous gap */
 .metrics-grid {
   display: grid;
@@ -195,6 +204,7 @@ body {
 .metric-card:hover {
   border-color: var(--border-color-hover);
   box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
 }
 
 .metric-icon {
@@ -236,8 +246,9 @@ body {
 .metric-info p {
   font-family: var(--font-sans);
   font-weight: 600;
-  font-size: 1.35rem; /* Smaller, cleaner metrics numbers */
+  font-size: 1.35rem;
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Controls Panel */
@@ -390,6 +401,13 @@ tr:last-child td {
   font-size: 0.75rem;
   color: var(--text-secondary);
   font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 420px;
+  direction: rtl;
+  unicode-bidi: bidi-override;
+  text-align: left;
 }
 
 .badge {
@@ -464,6 +482,24 @@ th.sort-desc .sort-indicator::after {
 
 .details-drawer.open {
   transform: translateX(0);
+}
+
+/* Drawer Backdrop Overlay */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.18);
+  z-index: 999;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--transition-normal),
+    visibility var(--transition-normal);
+}
+
+.drawer-backdrop.visible {
+  opacity: 1;
+  visibility: visible;
 }
 
 .drawer-header {
