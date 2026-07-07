@@ -312,11 +312,18 @@ select {
   border-radius: 6px;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  padding: 0.75rem 1.5rem;
+  padding: 0.75rem 2.15rem 0.75rem 1.1rem;
   font-size: 0.9rem;
   outline: none;
   cursor: pointer;
   min-width: 160px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%23666' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: 0.95rem 0.95rem;
+  background-position: right 0.85rem center;
   transition:
     border-color var(--transition-fast),
     background-color var(--transition-fast);
@@ -324,7 +331,6 @@ select {
 
 select:focus {
   border-color: var(--primary);
-  background: #ffffff;
 }
 
 /* Media Table / File Station look */
@@ -333,7 +339,7 @@ select:focus {
   border: 1px solid var(--border-color);
   border-radius: 12px;
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .table-container {
@@ -342,6 +348,7 @@ select:focus {
 
 table {
   width: 100%;
+  min-width: 1000px;
   border-collapse: collapse;
   text-align: left;
   font-size: 0.85rem;
@@ -385,6 +392,19 @@ tr:last-child td {
   border-bottom: none;
 }
 
+/* Size column: ensure it doesn't get crunched */
+td:nth-child(2) {
+  min-width: 100px;
+  white-space: nowrap;
+}
+
+/* Dimensions column: ensure it doesn't get crunched */
+td:nth-child(4) {
+  min-width: 140px;
+  white-space: normal;
+  word-spacing: 0.15em;
+}
+
 /* Specific cell formats */
 .file-path-cell {
   display: flex;
@@ -426,11 +446,6 @@ tr:last-child td {
   border: 1px solid rgba(43, 118, 219, 0.15);
 }
 
-.details-cell {
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-}
-
 /* Table states */
 .loading-state,
 .error-state,
@@ -443,24 +458,6 @@ tr:last-child td {
 
 .error-state {
   color: var(--danger);
-}
-
-/* Sorting Indicators */
-.sort-indicator::after {
-  content: "";
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  opacity: 0.5;
-}
-th.sort-asc .sort-indicator::after {
-  content: " ▲";
-  color: var(--primary);
-  opacity: 1;
-}
-th.sort-desc .sort-indicator::after {
-  content: " ▼";
-  color: var(--primary);
-  opacity: 1;
 }
 
 /* Side Drawer (Details Panel - Clean White DSM Widget look) */
@@ -999,11 +996,5 @@ th.sort-desc .sort-indicator::after {
   .file-path-cell {
     word-break: break-all;
   }
-  /* Hide dimensions and details columns on narrow screens */
-  #media-table th[data-sort="dimensions"],
-  #media-table td:nth-child(4),
-  #media-table th[data-sort="details"],
-  #media-table td:nth-child(5) {
-    display: none;
-  }
+  /* Table remains horizontally scrollable, no columns hidden */
 }

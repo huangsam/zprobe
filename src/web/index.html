@@ -97,26 +97,15 @@
             <table id="media-table">
               <thead>
                 <tr>
-                  <th data-sort="path">
-                    File Path <span class="sort-indicator"></span>
-                  </th>
-                  <th data-sort="size">
-                    Size <span class="sort-indicator"></span>
-                  </th>
-                  <th data-sort="format">
-                    Format <span class="sort-indicator"></span>
-                  </th>
-                  <th data-sort="dimensions">
-                    Dimensions <span class="sort-indicator"></span>
-                  </th>
-                  <th data-sort="details">
-                    Details <span class="sort-indicator"></span>
-                  </th>
+                  <th data-sort="path">File Path</th>
+                  <th data-sort="size">Size</th>
+                  <th data-sort="format">Format</th>
+                  <th data-sort="dimensions">Dimensions</th>
                 </tr>
               </thead>
               <tbody id="media-tbody">
                 <tr>
-                  <td colspan="5" class="loading-state">
+                  <td colspan="4" class="loading-state">
                     Loading catalog database...
                   </td>
                 </tr>
@@ -357,7 +346,7 @@
         currentFetchController = controller;
 
         const tbody = document.getElementById("media-tbody");
-        tbody.innerHTML = `<tr><td colspan="5" class="loading-state">Fetching media metadata...</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="loading-state">Fetching media metadata...</td></tr>`;
 
         const refreshBtn = document.getElementById("refresh-btn");
         const refreshIcon = document.querySelector("#refresh-btn .lucide");
@@ -405,7 +394,7 @@
         } catch (err) {
           if (err.name === "AbortError") return;
           console.error(err);
-          tbody.innerHTML = `<tr><td colspan="5" class="error-state">Failed to load media catalog: ${err.message}</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="4" class="error-state">Failed to load media catalog: ${err.message}</td></tr>`;
         } finally {
           if (controller === currentFetchController) {
             const elapsedTime = Date.now() - startTime;
@@ -471,7 +460,7 @@
         const tbody = document.getElementById("media-tbody");
 
         if (mediaData.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No matching media files found.</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="4" class="empty-state">No matching media files found.</td></tr>`;
           return;
         }
 
@@ -487,11 +476,6 @@
           const fileBase = row.path.split("/").pop();
           const dirPath = row.path.substring(0, row.path.lastIndexOf("/"));
 
-          const detailsLabel =
-            row.duration_sec != null
-              ? formatDuration(row.duration_sec)
-              : row.camera_model || "—";
-
           tr.innerHTML = `
                     <td class="file-path-cell">
                         <span class="file-name">${escapeHtml(fileBase)}</span>
@@ -500,7 +484,6 @@
                     <td>${formatBytes(row.size)}</td>
                     <td><span class="badge badge-format">${escapeHtml((row.format || "").toUpperCase())}</span></td>
                     <td>${dims}</td>
-                    <td class="details-cell">${escapeHtml(detailsLabel)}</td>
                 `;
           tbody.appendChild(tr);
         });
