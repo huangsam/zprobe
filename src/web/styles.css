@@ -751,6 +751,34 @@ th.sort-desc .sort-indicator::after {
   .chart-container.full-width {
     grid-column: span 1 !important;
   }
+
+  /* Modal: full-screen on mobile */
+  .modal {
+    align-items: flex-end;
+  }
+
+  .modal-content {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92vh;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .modal-header {
+    padding: 1.1rem 1.25rem;
+  }
+
+  .modal-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .modal-body {
+    padding: 1.25rem;
+  }
+
+  .canvas-wrapper {
+    height: 180px;
+  }
 }
 
 .chart-container {
@@ -904,4 +932,34 @@ th.sort-desc .sort-indicator::after {
   background-color: #ffffff;
   color: var(--text-primary);
   cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  th,
+  td {
+    padding: 0.9rem 1rem;
+    font-size: 0.85rem;
+  }
+  .pagination-container {
+    padding: 1rem;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 640px) {
+  th,
+  td {
+    padding: 0.75rem 0.75rem;
+    font-size: 0.8rem;
+  }
+  .file-path-cell {
+    word-break: break-all;
+  }
+  /* Hide dimensions and details columns on narrow screens */
+  #media-table th[data-sort="dimensions"],
+  #media-table td:nth-child(4),
+  #media-table th[data-sort="details"],
+  #media-table td:nth-child(5) {
+    display: none;
+  }
 }
