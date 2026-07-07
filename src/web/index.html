@@ -124,15 +124,43 @@
             </table>
             <div class="pagination-container">
               <div class="pagination-info">
-                Showing <span id="page-start">0</span> to <span id="page-end">0</span> of <span id="page-total">0</span> entries
+                Showing <span id="page-start">0</span> to
+                <span id="page-end">0</span> of
+                <span id="page-total">0</span> entries
               </div>
               <div class="pagination-buttons">
-                <button id="prev-page-btn" class="btn btn-secondary btn-sm" disabled>
-                  <i data-lucide="chevron-left" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;"></i> Previous
+                <button
+                  id="prev-page-btn"
+                  class="btn btn-secondary btn-sm"
+                  disabled
+                >
+                  <i
+                    data-lucide="chevron-left"
+                    style="
+                      width: 14px;
+                      height: 14px;
+                      margin-right: 4px;
+                      vertical-align: middle;
+                    "
+                  ></i>
+                  Previous
                 </button>
                 <span id="page-current">Page 1 of 1</span>
-                <button id="next-page-btn" class="btn btn-secondary btn-sm" disabled>
-                  Next <i data-lucide="chevron-right" style="width: 14px; height: 14px; margin-left: 4px; vertical-align: middle;"></i>
+                <button
+                  id="next-page-btn"
+                  class="btn btn-secondary btn-sm"
+                  disabled
+                >
+                  Next
+                  <i
+                    data-lucide="chevron-right"
+                    style="
+                      width: 14px;
+                      height: 14px;
+                      margin-left: 4px;
+                      vertical-align: middle;
+                    "
+                  ></i>
                 </button>
               </div>
               <div class="pagination-size">
@@ -321,7 +349,9 @@
             await fetchStats();
           }
 
-          const searchVal = encodeURIComponent(document.getElementById("search-input").value);
+          const searchVal = encodeURIComponent(
+            document.getElementById("search-input").value,
+          );
           const formatFilter = document.getElementById("filter-format").value;
           const typeFilter = document.getElementById("filter-type").value;
           const sortKey = sortConfig.key;
@@ -337,10 +367,10 @@
           const res = await fetch(url);
           if (!res.ok) throw new Error("API request failed");
           const payload = await res.json();
-          
+
           mediaData = payload.records;
           totalRecords = payload.total;
-          
+
           renderTable();
           updatePaginationControls();
         } catch (err) {
@@ -362,10 +392,15 @@
       // Calculate and display metrics
       function populateStats() {
         if (!statsData) return;
-        document.getElementById("stat-total-files").textContent = statsData.total_files;
-        document.getElementById("stat-total-size").textContent = formatBytes(statsData.total_size);
-        document.getElementById("stat-images").textContent = statsData.num_images;
-        document.getElementById("stat-videos").textContent = statsData.num_videos;
+        document.getElementById("stat-total-files").textContent =
+          statsData.total_files;
+        document.getElementById("stat-total-size").textContent = formatBytes(
+          statsData.total_size,
+        );
+        document.getElementById("stat-images").textContent =
+          statsData.num_images;
+        document.getElementById("stat-videos").textContent =
+          statsData.num_videos;
       }
 
       // Populate format filter options dynamically
@@ -373,20 +408,20 @@
         if (!statsData) return;
         const formats = new Set();
         if (statsData.image_formats) {
-          statsData.image_formats.forEach(f => {
+          statsData.image_formats.forEach((f) => {
             if (f.format) formats.add(f.format.toUpperCase());
           });
         }
         if (statsData.video_formats) {
-          statsData.video_formats.forEach(f => {
+          statsData.video_formats.forEach((f) => {
             if (f.format) formats.add(f.format.toUpperCase());
           });
         }
-        
+
         const sortedFormats = Array.from(formats).sort();
         const select = document.getElementById("filter-format");
         const currentVal = select.value;
-        
+
         select.innerHTML = '<option value="">All Formats</option>';
         sortedFormats.forEach((fmt) => {
           const opt = document.createElement("option");
@@ -441,16 +476,19 @@
         const totalPages = Math.ceil(totalRecords / pageSize) || 1;
         if (currentPage > totalPages) currentPage = totalPages;
 
-        document.getElementById("page-current").textContent = `Page ${currentPage} of ${totalPages}`;
+        document.getElementById("page-current").textContent =
+          `Page ${currentPage} of ${totalPages}`;
 
-        const pageStart = totalRecords === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+        const pageStart =
+          totalRecords === 0 ? 0 : (currentPage - 1) * pageSize + 1;
         const pageEnd = Math.min(currentPage * pageSize, totalRecords);
         document.getElementById("page-start").textContent = pageStart;
         document.getElementById("page-end").textContent = pageEnd;
         document.getElementById("page-total").textContent = totalRecords;
 
         document.getElementById("prev-page-btn").disabled = currentPage <= 1;
-        document.getElementById("next-page-btn").disabled = currentPage >= totalPages;
+        document.getElementById("next-page-btn").disabled =
+          currentPage >= totalPages;
       }
 
       // Show metadata details side drawer
@@ -626,8 +664,10 @@
 
         // 1. IMAGE FORMATS
         if (hasImages && statsData.image_formats) {
-          const labels = statsData.image_formats.map(f => f.format.toUpperCase());
-          const data = statsData.image_formats.map(f => f.count);
+          const labels = statsData.image_formats.map((f) =>
+            f.format.toUpperCase(),
+          );
+          const data = statsData.image_formats.map((f) => f.count);
 
           if (imgFormatChart) imgFormatChart.destroy();
           const ctx = document
@@ -712,13 +752,13 @@
         );
 
         if (hasCameras) {
-          const labels = statsData.cameras.map(c => {
+          const labels = statsData.cameras.map((c) => {
             const make = c.make || "";
             const model = c.model || "";
             if (!make && !model) return "Unknown";
             return make && model.startsWith(make) ? model : `${make} ${model}`;
           });
-          const data = statsData.cameras.map(c => c.count);
+          const data = statsData.cameras.map((c) => c.count);
 
           if (imgCameraChart) imgCameraChart.destroy();
           const camCtx = document
@@ -772,8 +812,10 @@
 
         // 1. VIDEO FORMATS
         if (hasVideos && statsData.video_formats) {
-          const labels = statsData.video_formats.map(f => f.format.toUpperCase());
-          const data = statsData.video_formats.map(f => f.count);
+          const labels = statsData.video_formats.map((f) =>
+            f.format.toUpperCase(),
+          );
+          const data = statsData.video_formats.map((f) => f.count);
 
           if (vidFormatChart) vidFormatChart.destroy();
           const ctx = document
@@ -894,12 +936,10 @@
         fetchStats().then(() => fetchMedia(true));
 
         // Reload View button
-        document
-          .getElementById("refresh-btn")
-          .addEventListener("click", () => {
-            currentPage = 1;
-            fetchMedia(false);
-          });
+        document.getElementById("refresh-btn").addEventListener("click", () => {
+          currentPage = 1;
+          fetchMedia(false);
+        });
 
         // Insights button
         document
@@ -953,24 +993,30 @@
           });
 
         // Pagination buttons
-        document.getElementById("prev-page-btn").addEventListener("click", () => {
-          if (currentPage > 1) {
-            currentPage--;
+        document
+          .getElementById("prev-page-btn")
+          .addEventListener("click", () => {
+            if (currentPage > 1) {
+              currentPage--;
+              fetchMedia();
+            }
+          });
+        document
+          .getElementById("next-page-btn")
+          .addEventListener("click", () => {
+            const totalPages = Math.ceil(totalRecords / pageSize) || 1;
+            if (currentPage < totalPages) {
+              currentPage++;
+              fetchMedia();
+            }
+          });
+        document
+          .getElementById("page-size-select")
+          .addEventListener("change", (e) => {
+            pageSize = parseInt(e.target.value, 10);
+            currentPage = 1;
             fetchMedia();
-          }
-        });
-        document.getElementById("next-page-btn").addEventListener("click", () => {
-          const totalPages = Math.ceil(totalRecords / pageSize) || 1;
-          if (currentPage < totalPages) {
-            currentPage++;
-            fetchMedia();
-          }
-        });
-        document.getElementById("page-size-select").addEventListener("change", (e) => {
-          pageSize = parseInt(e.target.value, 10);
-          currentPage = 1;
-          fetchMedia();
-        });
+          });
 
         // Sort headers
         document.querySelectorAll("#media-table th").forEach((th) => {
