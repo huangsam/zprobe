@@ -331,7 +331,7 @@
           if (!res.ok) throw new Error("Stats request failed");
           statsData = await res.json();
           populateStats();
-          populateFiltersOnce();
+          updateFormatFilterOptions();
         } catch (err) {
           console.error("Failed to load catalog stats:", err);
         }
@@ -426,16 +426,26 @@
           statsData.num_videos;
       }
 
-      // Populate format filter options dynamically
-      function populateFiltersOnce() {
+      // Populate format filter options dynamically based on selected type
+      function updateFormatFilterOptions() {
         if (!statsData) return;
         const formats = new Set();
-        if (statsData.image_formats) {
+        const typeFilter = document.getElementById("filter-type").value;
+        const includeImages = typeFilter === "" || typeFilter === "image";
+        const includeVideos = typeFilter === "" || typeFilter === "video";
+        const allLabel =
+          typeFilter === "image"
+            ? "All Image Formats"
+            : typeFilter === "video"
+              ? "All Video Formats"
+              : "All Formats";
+
+        if (includeImages && statsData.image_formats) {
           statsData.image_formats.forEach((f) => {
             if (f.format) formats.add(f.format.toUpperCase());
           });
         }
-        if (statsData.video_formats) {
+        if (includeVideos && statsData.video_formats) {
           statsData.video_formats.forEach((f) => {
             if (f.format) formats.add(f.format.toUpperCase());
           });
@@ -445,14 +455,17 @@
         const select = document.getElementById("filter-format");
         const currentVal = select.value;
 
-        select.innerHTML = '<option value="">All Formats</option>';
+        select.innerHTML = `<option value="">${allLabel}</option>`;
         sortedFormats.forEach((fmt) => {
           const opt = document.createElement("option");
           opt.value = fmt.toLowerCase();
           opt.textContent = fmt;
           select.appendChild(opt);
         });
-        select.value = currentVal;
+        // Keep selection only when still valid for the chosen media type.
+        select.value = sortedFormats.includes(currentVal.toUpperCase())
+          ? currentVal
+          : "";
       }
 
       // Render the table rows
@@ -1069,6 +1082,7 @@
         document
           .getElementById("filter-type")
           .addEventListener("change", () => {
+            updateFormatFilterOptions();
             currentPage = 1;
             fetchMedia();
           });
