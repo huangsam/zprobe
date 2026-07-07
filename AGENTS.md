@@ -10,11 +10,12 @@ This document details the internal design, directory layout, parsing flow, and c
 
 ```text
 src/
-├── core/       # Byte reader and helper utilities
+├── core/       # Byte reader, SQLite cache interface
 ├── crawler/    # Filesystem scanner and crawler logic
-└── formats/    # Image and video binary header parsers
-    ├── images/ # Parsers for BMP, GIF, JPEG, PNG, TIFF, and WebP
-    └── videos/ # Parsers for MP4 (ISOBMFF) and WebM/MKV (EBML)
+├── formats/    # Image and video binary header parsers
+│   ├── images/ # Parsers for BMP, GIF, JPEG, PNG, TIFF, and WebP
+│   └── videos/ # Parsers for MP4 (ISOBMFF) and WebM/MKV (EBML)
+└── web/        # Embedded dashboard assets
 ```
 
 ### Parse Flow
@@ -48,3 +49,5 @@ flowchart TD
 2. **Bounds Protection**: All parsing leverages `ByteReader` which performs bounds checking on every read/skip operation, avoiding vulnerabilities like buffer overflows on malformed inputs.
 3. **Zero-Copy / Small Buffer Parsing**: Fixed-header formats (PNG/GIF/BMP) are parsed using a single small read. Streaming formats (JPEG, MP4, EBML) are traversed dynamically using positional reads (`readPositionalAll`) to avoid loading large media streams into memory.
 4. **Concurrent I/O Parallelization**: Scanning and metadata parsing are separated into a fast, sequential path scanner followed by a concurrent worker thread pool. The pool size dynamically clamps between 8 and 16 based on core count to parallelize disk seeks. Output is synchronized using mutexes, and allocations are isolated in per-task arena allocators to eliminate global heap lock contention.
+5. **SQLite Concurrency & Aggregations**: The cache database runs in Write-Ahead Log (`WAL`) mode with a busy timeout of 5 seconds to ensure the crawler CLI and dashboard server can safely interface concurrently. The stats dashboard is populated using single-pass grouping queries computed inside SQLite to avoid transferring and processing large collections on the client.
+6. **Concurrent Web Handlers**: Every incoming TCP connection to the dashboard server is processed inside its own spawned, detached OS thread. File system and static page serving operate asynchronously, while SQLite queries are serialized using a mutex on the database handle to prevent data race conditions.
