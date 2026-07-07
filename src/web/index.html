@@ -1,0 +1,1007 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>zprobe Dashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+
+    <!-- Embedded JS Libraries -->
+    <script src="/js/lucide.min.js"></script>
+    <script src="/js/chart.umd.js"></script>
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Sidebar / Navigation -->
+      <header class="app-header">
+        <div class="logo-container">
+          <span class="logo-icon"><i data-lucide="search"></i></span>
+          <div class="logo-text">
+            <h1>zprobe</h1>
+            <span class="subtitle">Media Metadata Catalog</span>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button
+            id="insights-btn"
+            class="btn btn-secondary"
+            style="margin-right: 0.75rem"
+          >
+            <i data-lucide="bar-chart-2" class="btn-icon"></i> Visual Insights
+          </button>
+          <button id="refresh-btn" class="btn btn-primary">
+            <i data-lucide="refresh-cw" class="btn-icon"></i> Reload View
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Dashboard View -->
+      <main class="dashboard-main">
+        <!-- Metrics Cards -->
+        <section class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-icon blue"><i data-lucide="files"></i></div>
+            <div class="metric-info">
+              <h3>Scanned Files</h3>
+              <p id="stat-total-files">0</p>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon purple"><i data-lucide="database"></i></div>
+            <div class="metric-info">
+              <h3>Catalog Size</h3>
+              <p id="stat-total-size">0 Bytes</p>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon green"><i data-lucide="image"></i></div>
+            <div class="metric-info">
+              <h3>Images</h3>
+              <p id="stat-images">0</p>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon orange"><i data-lucide="video"></i></div>
+            <div class="metric-info">
+              <h3>Videos</h3>
+              <p id="stat-videos">0</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Search, Filter & Controls Panel -->
+        <section class="control-panel">
+          <div class="search-wrapper">
+            <span class="search-icon"><i data-lucide="search"></i></span>
+            <input
+              type="text"
+              id="search-input"
+              placeholder="Search by file path, camera, or format..."
+            />
+          </div>
+          <div class="filters-wrapper">
+            <select id="filter-format">
+              <option value="">All Formats</option>
+            </select>
+            <select id="filter-type">
+              <option value="">All Types</option>
+              <option value="image">Images Only</option>
+              <option value="video">Videos Only</option>
+            </select>
+          </div>
+        </section>
+
+        <!-- Media Table / Grid -->
+        <section class="catalog-section">
+          <div class="table-container">
+            <table id="media-table">
+              <thead>
+                <tr>
+                  <th data-sort="path">
+                    File Path <span class="sort-indicator"></span>
+                  </th>
+                  <th data-sort="size">
+                    Size <span class="sort-indicator"></span>
+                  </th>
+                  <th data-sort="format">
+                    Format <span class="sort-indicator"></span>
+                  </th>
+                  <th data-sort="dimensions">
+                    Dimensions <span class="sort-indicator"></span>
+                  </th>
+                  <th data-sort="details">
+                    Details <span class="sort-indicator"></span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="media-tbody">
+                <tr>
+                  <td colspan="5" class="loading-state">
+                    Loading catalog database...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="pagination-container">
+              <div class="pagination-info">
+                Showing <span id="page-start">0</span> to <span id="page-end">0</span> of <span id="page-total">0</span> entries
+              </div>
+              <div class="pagination-buttons">
+                <button id="prev-page-btn" class="btn btn-secondary btn-sm" disabled>
+                  <i data-lucide="chevron-left" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;"></i> Previous
+                </button>
+                <span id="page-current">Page 1 of 1</span>
+                <button id="next-page-btn" class="btn btn-secondary btn-sm" disabled>
+                  Next <i data-lucide="chevron-right" style="width: 14px; height: 14px; margin-left: 4px; vertical-align: middle;"></i>
+                </button>
+              </div>
+              <div class="pagination-size">
+                <select id="page-size-select" class="select-sm">
+                  <option value="25">25 per page</option>
+                  <option value="50" selected>50 per page</option>
+                  <option value="100">100 per page</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Details Sidebar / Drawer (Slide-out) -->
+      <aside id="details-drawer" class="details-drawer">
+        <div class="drawer-header">
+          <h2>File Metadata Details</h2>
+          <button id="close-drawer-btn" class="close-btn">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="drawer-content" id="drawer-content">
+          <!-- Dynamically populated -->
+        </div>
+      </aside>
+
+      <!-- Insights Modal Overlay -->
+      <div id="insights-modal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>
+              <i
+                data-lucide="bar-chart-2"
+                class="inline-icon"
+                style="color: var(--primary); margin-right: 8px"
+              ></i>
+              Catalog Visual Insights
+            </h2>
+            <button id="close-modal-btn" class="close-btn">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <!-- DSM Style tab bar -->
+            <div class="modal-tabs">
+              <button
+                id="tab-btn-images"
+                class="tab-btn active"
+                onclick="switchModalTab('images')"
+              >
+                <i
+                  data-lucide="image"
+                  class="inline-icon"
+                  style="width: 16px; height: 16px; margin-right: 4px"
+                ></i>
+                Images
+              </button>
+              <button
+                id="tab-btn-videos"
+                class="tab-btn"
+                onclick="switchModalTab('videos')"
+              >
+                <i
+                  data-lucide="video"
+                  class="inline-icon"
+                  style="width: 16px; height: 16px; margin-right: 4px"
+                ></i>
+                Videos
+              </button>
+            </div>
+
+            <!-- Images Tab Pane -->
+            <div id="tab-pane-images" class="tab-pane active">
+              <div class="charts-grid">
+                <div class="chart-container">
+                  <h3>Image Formats</h3>
+                  <div class="canvas-wrapper" id="wrapper-img-formats">
+                    <canvas id="chart-img-formats"></canvas>
+                  </div>
+                </div>
+                <div class="chart-container">
+                  <h3>Image Sizing</h3>
+                  <div class="canvas-wrapper" id="wrapper-img-sizes">
+                    <canvas id="chart-img-sizes"></canvas>
+                  </div>
+                </div>
+                <div class="chart-container full-width">
+                  <h3>Top Camera Models</h3>
+                  <div class="canvas-wrapper" id="wrapper-img-cameras">
+                    <canvas id="chart-img-cameras"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Videos Tab Pane -->
+            <div id="tab-pane-videos" class="tab-pane">
+              <div class="charts-grid">
+                <div class="chart-container">
+                  <h3>Video Formats</h3>
+                  <div class="canvas-wrapper" id="wrapper-vid-formats">
+                    <canvas id="chart-vid-formats"></canvas>
+                  </div>
+                </div>
+                <div class="chart-container">
+                  <h3>Video Sizing</h3>
+                  <div class="canvas-wrapper" id="wrapper-vid-sizes">
+                    <canvas id="chart-vid-sizes"></canvas>
+                  </div>
+                </div>
+                <div class="chart-container full-width">
+                  <h3>Video Duration Breakdown</h3>
+                  <div class="canvas-wrapper" id="wrapper-vid-durations">
+                    <canvas id="chart-vid-durations"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let mediaData = [];
+      let totalRecords = 0;
+      let currentPage = 1;
+      let pageSize = 50;
+      let sortConfig = { key: "path", direction: "asc" };
+      let activeModalTab = "images";
+      let isFetching = false;
+      let statsData = null;
+
+      let imgFormatChart = null;
+      let imgSizeChart = null;
+      let imgCameraChart = null;
+
+      let vidFormatChart = null;
+      let vidSizeChart = null;
+      let vidDurationChart = null;
+
+      // Helper: Format bytes to human readable format
+      function formatBytes(bytes) {
+        if (bytes === 0) return "0 Bytes";
+        const k = 1024;
+        const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+      }
+
+      // Fetch overall stats
+      async function fetchStats() {
+        try {
+          const res = await fetch("/api/stats");
+          if (!res.ok) throw new Error("Stats request failed");
+          statsData = await res.json();
+          populateStats();
+          populateFiltersOnce();
+        } catch (err) {
+          console.error("Failed to load catalog stats:", err);
+        }
+      }
+
+      // Fetch database paged records
+      async function fetchMedia(isInitial = false) {
+        if (isFetching) return;
+        isFetching = true;
+
+        const tbody = document.getElementById("media-tbody");
+        tbody.innerHTML = `<tr><td colspan="5" class="loading-state">Fetching media metadata...</td></tr>`;
+
+        const refreshBtn = document.getElementById("refresh-btn");
+        const refreshIcon = document.querySelector("#refresh-btn .lucide");
+
+        if (!isInitial) {
+          if (refreshBtn) refreshBtn.disabled = true;
+          if (refreshIcon) refreshIcon.classList.add("spin");
+        }
+
+        const startTime = Date.now();
+
+        try {
+          // If refreshing or initial, re-fetch stats as well
+          if (!isInitial) {
+            await fetchStats();
+          }
+
+          const searchVal = encodeURIComponent(document.getElementById("search-input").value);
+          const formatFilter = document.getElementById("filter-format").value;
+          const typeFilter = document.getElementById("filter-type").value;
+          const sortKey = sortConfig.key;
+          const sortDir = sortConfig.direction;
+          const offset = (currentPage - 1) * pageSize;
+
+          // Build query URL
+          let url = `/api/media?limit=${pageSize}&offset=${offset}&sort=${sortKey}&order=${sortDir}`;
+          if (searchVal) url += `&search=${searchVal}`;
+          if (formatFilter) url += `&format=${formatFilter}`;
+          if (typeFilter) url += `&type=${typeFilter}`;
+
+          const res = await fetch(url);
+          if (!res.ok) throw new Error("API request failed");
+          const payload = await res.json();
+          
+          mediaData = payload.records;
+          totalRecords = payload.total;
+          
+          renderTable();
+          updatePaginationControls();
+        } catch (err) {
+          console.error(err);
+          tbody.innerHTML = `<tr><td colspan="5" class="error-state">Failed to load media catalog: ${err.message}</td></tr>`;
+        } finally {
+          const elapsedTime = Date.now() - startTime;
+          const minDuration = isInitial ? 0 : 500;
+          const remainingTime = Math.max(0, minDuration - elapsedTime);
+
+          setTimeout(() => {
+            if (!isInitial && refreshIcon) refreshIcon.classList.remove("spin");
+            if (refreshBtn) refreshBtn.disabled = false;
+            isFetching = false;
+          }, remainingTime);
+        }
+      }
+
+      // Calculate and display metrics
+      function populateStats() {
+        if (!statsData) return;
+        document.getElementById("stat-total-files").textContent = statsData.total_files;
+        document.getElementById("stat-total-size").textContent = formatBytes(statsData.total_size);
+        document.getElementById("stat-images").textContent = statsData.num_images;
+        document.getElementById("stat-videos").textContent = statsData.num_videos;
+      }
+
+      // Populate format filter options dynamically
+      function populateFiltersOnce() {
+        if (!statsData) return;
+        const formats = new Set();
+        if (statsData.image_formats) {
+          statsData.image_formats.forEach(f => {
+            if (f.format) formats.add(f.format.toUpperCase());
+          });
+        }
+        if (statsData.video_formats) {
+          statsData.video_formats.forEach(f => {
+            if (f.format) formats.add(f.format.toUpperCase());
+          });
+        }
+        
+        const sortedFormats = Array.from(formats).sort();
+        const select = document.getElementById("filter-format");
+        const currentVal = select.value;
+        
+        select.innerHTML = '<option value="">All Formats</option>';
+        sortedFormats.forEach((fmt) => {
+          const opt = document.createElement("option");
+          opt.value = fmt.toLowerCase();
+          opt.textContent = fmt;
+          select.appendChild(opt);
+        });
+        select.value = currentVal;
+      }
+
+      // Render the table rows
+      function renderTable() {
+        const tbody = document.getElementById("media-tbody");
+
+        if (mediaData.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No matching media files found.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = "";
+        mediaData.forEach((row) => {
+          const tr = document.createElement("tr");
+          tr.addEventListener("click", () => showDetails(row));
+
+          const dims =
+            row.width && row.height
+              ? `${row.width} &times; ${row.height}`
+              : "—";
+          const fileBase = row.path.split("/").pop();
+          const dirPath = row.path.substring(0, row.path.lastIndexOf("/"));
+
+          const detailsLabel = row.duration_sec
+            ? `Duration: ${row.duration_sec.toFixed(1)}s`
+            : row.camera_model || "—";
+
+          tr.innerHTML = `
+                    <td class="file-path-cell">
+                        <span class="file-name">${escapeHtml(fileBase)}</span>
+                        <span class="file-dir">${escapeHtml(dirPath)}</span>
+                    </td>
+                    <td>${formatBytes(row.size)}</td>
+                    <td><span class="badge badge-format">${escapeHtml((row.format || "").toUpperCase())}</span></td>
+                    <td>${dims}</td>
+                    <td class="details-cell">${escapeHtml(detailsLabel)}</td>
+                `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      // Update UI pagination buttons and info labels
+      function updatePaginationControls() {
+        const totalPages = Math.ceil(totalRecords / pageSize) || 1;
+        if (currentPage > totalPages) currentPage = totalPages;
+
+        document.getElementById("page-current").textContent = `Page ${currentPage} of ${totalPages}`;
+
+        const pageStart = totalRecords === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+        const pageEnd = Math.min(currentPage * pageSize, totalRecords);
+        document.getElementById("page-start").textContent = pageStart;
+        document.getElementById("page-end").textContent = pageEnd;
+        document.getElementById("page-total").textContent = totalRecords;
+
+        document.getElementById("prev-page-btn").disabled = currentPage <= 1;
+        document.getElementById("next-page-btn").disabled = currentPage >= totalPages;
+      }
+
+      // Show metadata details side drawer
+      function showDetails(row) {
+        const drawer = document.getElementById("details-drawer");
+        const content = document.getElementById("drawer-content");
+
+        const fileBase = row.path.split("/").pop();
+        const videoFormats = ["mp4", "webm", "mkv", "mov", "avi"];
+        const isVideo =
+          videoFormats.includes((row.format || "").toLowerCase()) ||
+          row.duration_sec !== null;
+
+        let html = `
+                <div class="detail-section">
+                    <h4>File Info</h4>
+                    <div class="detail-row"><span class="label">Filename:</span><span class="value select-all">${escapeHtml(fileBase)}</span></div>
+                    <div class="detail-row"><span class="label">Full Path:</span><span class="value select-all">${escapeHtml(row.path)}</span></div>
+                    <div class="detail-row"><span class="label">Size:</span><span class="value">${formatBytes(row.size)} (${row.size} bytes)</span></div>
+                    <div class="detail-row"><span class="label">Format:</span><span class="value">${escapeHtml((row.format || "").toUpperCase())}</span></div>
+                </div>
+            `;
+
+        if (row.width && row.height) {
+          html += `
+                    <div class="detail-section">
+                        <h4>Dimensions</h4>
+                        <div class="detail-row"><span class="label">Width:</span><span class="value">${row.width} px</span></div>
+                        <div class="detail-row"><span class="label">Height:</span><span class="value">${row.height} px</span></div>
+                        <div class="detail-row"><span class="label">Aspect Ratio:</span><span class="value">${calculateAspectRatio(row.width, row.height)}</span></div>
+                        ${row.orientation ? `<div class="detail-row"><span class="label">EXIF Orientation:</span><span class="value">${row.orientation}</span></div>` : ""}
+                    </div>
+                `;
+        }
+
+        if (isVideo && row.duration_sec) {
+          html += `
+                    <div class="detail-section">
+                        <h4>Video Properties</h4>
+                        <div class="detail-row"><span class="label">Duration:</span><span class="value">${row.duration_sec.toFixed(2)} seconds</span></div>
+                    </div>
+                `;
+        }
+
+        if (row.create_time || row.camera_make || row.camera_model) {
+          html += `
+                    <div class="detail-section">
+                        <h4>Camera & Capture</h4>
+                        ${row.create_time ? `<div class="detail-row"><span class="label">Captured At:</span><span class="value">${escapeHtml(row.create_time)}</span></div>` : ""}
+                        ${row.camera_make ? `<div class="detail-row"><span class="label">Camera Make:</span><span class="value">${escapeHtml(row.camera_make)}</span></div>` : ""}
+                        ${row.camera_model ? `<div class="detail-row"><span class="label">Model:</span><span class="value">${escapeHtml(row.camera_model)}</span></div>` : ""}
+                    </div>
+                `;
+        }
+
+        if (row.gps_latitude !== null && row.gps_longitude !== null) {
+          const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${row.gps_latitude},${row.gps_longitude}`;
+          html += `
+                    <div class="detail-section">
+                        <h4>GPS Location</h4>
+                        <div class="detail-row"><span class="label">Latitude:</span><span class="value">${row.gps_latitude.toFixed(6)}</span></div>
+                        <div class="detail-row"><span class="label">Longitude:</span><span class="value">${row.gps_longitude.toFixed(6)}</span></div>
+                        <div class="detail-row">
+                            <span class="label">Map Link:</span>
+                            <span class="value">
+                                <a href="${mapsUrl}" target="_blank" class="map-link">
+                                    View on Google Maps <i data-lucide="external-link" class="inline-icon"></i>
+                                </a>
+                            </span>
+                        </div>
+                    </div>
+                `;
+        }
+
+        content.innerHTML = html;
+        drawer.classList.add("open");
+        lucide.createIcons();
+      }
+
+      // Helper: Calculate aspect ratio
+      function calculateAspectRatio(w, h) {
+        function gcd(a, b) {
+          return b == 0 ? a : gcd(b, a % b);
+        }
+        const r = gcd(w, h);
+        return `${w / r}:${h / r}`;
+      }
+
+      // Helper: escape HTML tags
+      function escapeHtml(str) {
+        if (!str) return "";
+        return str
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      // Toggle Modal Overlay
+      function toggleModal(show) {
+        const modal = document.getElementById("insights-modal");
+        if (show) {
+          modal.classList.add("open");
+          switchModalTab(activeModalTab);
+        } else {
+          modal.classList.remove("open");
+        }
+      }
+
+      // Switch between tabs inside insights modal
+      function switchModalTab(tabName) {
+        activeModalTab = tabName;
+
+        document
+          .getElementById("tab-btn-images")
+          .classList.toggle("active", tabName === "images");
+        document
+          .getElementById("tab-btn-videos")
+          .classList.toggle("active", tabName === "videos");
+
+        document
+          .getElementById("tab-pane-images")
+          .classList.toggle("active", tabName === "images");
+        document
+          .getElementById("tab-pane-videos")
+          .classList.toggle("active", tabName === "videos");
+
+        if (tabName === "images") {
+          renderImageCharts();
+        } else {
+          renderVideoCharts();
+        }
+      }
+
+      // Helper to toggle visual placeholders when data is absent
+      function toggleChartPlaceholder(wrapperId, hasData, message) {
+        const wrapper = document.getElementById(wrapperId);
+        if (!wrapper) return;
+
+        const canvas = wrapper.querySelector("canvas");
+        let placeholder = wrapper.querySelector(".chart-placeholder");
+
+        if (!hasData) {
+          if (canvas) canvas.style.display = "none";
+          if (!placeholder) {
+            placeholder = document.createElement("div");
+            placeholder.className = "chart-placeholder";
+            wrapper.appendChild(placeholder);
+          }
+          placeholder.textContent = message;
+          placeholder.style.display = "flex";
+        } else {
+          if (canvas) canvas.style.display = "block";
+          if (placeholder) placeholder.style.display = "none";
+        }
+      }
+
+      // Render Image-Specific Statistics
+      function renderImageCharts() {
+        if (!statsData) return;
+        const hasImages = statsData.num_images > 0;
+        toggleChartPlaceholder(
+          "wrapper-img-formats",
+          hasImages,
+          "No image data available in catalog",
+        );
+        toggleChartPlaceholder(
+          "wrapper-img-sizes",
+          hasImages,
+          "No image data available in catalog",
+        );
+
+        // 1. IMAGE FORMATS
+        if (hasImages && statsData.image_formats) {
+          const labels = statsData.image_formats.map(f => f.format.toUpperCase());
+          const data = statsData.image_formats.map(f => f.count);
+
+          if (imgFormatChart) imgFormatChart.destroy();
+          const ctx = document
+            .getElementById("chart-img-formats")
+            .getContext("2d");
+          imgFormatChart = new Chart(ctx, {
+            type: "doughnut",
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  data: data,
+                  backgroundColor: [
+                    "#2b76db",
+                    "#34d399",
+                    "#fbbf24",
+                    "#f87171",
+                    "#a78bfa",
+                    "#38bdf8",
+                  ],
+                  borderWidth: 1,
+                  borderColor: "#ffffff",
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: "right" } },
+            },
+          });
+        } else if (imgFormatChart) {
+          imgFormatChart.destroy();
+          imgFormatChart = null;
+        }
+
+        // 2. IMAGE SIZING DISTRIBUTION
+        if (hasImages && statsData.image_sizes) {
+          const tiers = statsData.image_sizes;
+          const sizeTiers = {
+            "< 1 MB": tiers.tier1,
+            "1-5 MB": tiers.tier2,
+            "5-10 MB": tiers.tier3,
+            "10-25 MB": tiers.tier4,
+            "> 25 MB": tiers.tier5,
+          };
+
+          if (imgSizeChart) imgSizeChart.destroy();
+          const sizeCtx = document
+            .getElementById("chart-img-sizes")
+            .getContext("2d");
+          imgSizeChart = new Chart(sizeCtx, {
+            type: "bar",
+            data: {
+              labels: Object.keys(sizeTiers),
+              datasets: [
+                {
+                  data: Object.values(sizeTiers),
+                  backgroundColor: "#2b76db",
+                  borderRadius: 4,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+            },
+          });
+        } else if (imgSizeChart) {
+          imgSizeChart.destroy();
+          imgSizeChart = null;
+        }
+
+        // 3. IMAGE CAMERA MODELS (TOP 5)
+        const hasCameras = statsData.cameras && statsData.cameras.length > 0;
+        toggleChartPlaceholder(
+          "wrapper-img-cameras",
+          hasCameras,
+          "No camera model metadata found for images",
+        );
+
+        if (hasCameras) {
+          const labels = statsData.cameras.map(c => {
+            const make = c.make || "";
+            const model = c.model || "";
+            if (!make && !model) return "Unknown";
+            return make && model.startsWith(make) ? model : `${make} ${model}`;
+          });
+          const data = statsData.cameras.map(c => c.count);
+
+          if (imgCameraChart) imgCameraChart.destroy();
+          const camCtx = document
+            .getElementById("chart-img-cameras")
+            .getContext("2d");
+          imgCameraChart = new Chart(camCtx, {
+            type: "bar",
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  data: data,
+                  backgroundColor: "#a78bfa",
+                  borderRadius: 4,
+                },
+              ],
+            },
+            options: {
+              indexAxis: "y",
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+            },
+          });
+        } else if (imgCameraChart) {
+          imgCameraChart.destroy();
+          imgCameraChart = null;
+        }
+      }
+
+      // Render Video-Specific Statistics
+      function renderVideoCharts() {
+        if (!statsData) return;
+        const hasVideos = statsData.num_videos > 0;
+        toggleChartPlaceholder(
+          "wrapper-vid-formats",
+          hasVideos,
+          "No video data available in catalog",
+        );
+        toggleChartPlaceholder(
+          "wrapper-vid-sizes",
+          hasVideos,
+          "No video data available in catalog",
+        );
+        toggleChartPlaceholder(
+          "wrapper-vid-durations",
+          hasVideos,
+          "No video data available in catalog",
+        );
+
+        // 1. VIDEO FORMATS
+        if (hasVideos && statsData.video_formats) {
+          const labels = statsData.video_formats.map(f => f.format.toUpperCase());
+          const data = statsData.video_formats.map(f => f.count);
+
+          if (vidFormatChart) vidFormatChart.destroy();
+          const ctx = document
+            .getElementById("chart-vid-formats")
+            .getContext("2d");
+          vidFormatChart = new Chart(ctx, {
+            type: "doughnut",
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  data: data,
+                  backgroundColor: [
+                    "#2b76db",
+                    "#fbbf24",
+                    "#7c3aed",
+                    "#ec4899",
+                    "#64748b",
+                  ],
+                  borderWidth: 1,
+                  borderColor: "#ffffff",
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: "right" } },
+            },
+          });
+        } else if (vidFormatChart) {
+          vidFormatChart.destroy();
+          vidFormatChart = null;
+        }
+
+        // 2. VIDEO SIZING
+        if (hasVideos && statsData.video_sizes) {
+          const tiers = statsData.video_sizes;
+          const sizeTiers = {
+            "< 10 MB": tiers.tier1,
+            "10-100 MB": tiers.tier2,
+            "100-500 MB": tiers.tier3,
+            "500 MB-2 GB": tiers.tier4,
+            "> 2 GB": tiers.tier5,
+          };
+
+          if (vidSizeChart) vidSizeChart.destroy();
+          const sizeCtx = document
+            .getElementById("chart-vid-sizes")
+            .getContext("2d");
+          vidSizeChart = new Chart(sizeCtx, {
+            type: "bar",
+            data: {
+              labels: Object.keys(sizeTiers),
+              datasets: [
+                {
+                  data: Object.values(sizeTiers),
+                  backgroundColor: "#2b76db",
+                  borderRadius: 4,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+            },
+          });
+        } else if (vidSizeChart) {
+          vidSizeChart.destroy();
+          vidSizeChart = null;
+        }
+
+        // 3. VIDEO DURATIONS
+        if (hasVideos && statsData.video_durations) {
+          const tiers = statsData.video_durations;
+          const durationTiers = {
+            "< 10s": tiers.tier1,
+            "10s-1m": tiers.tier2,
+            "1-5m": tiers.tier3,
+            "5-15m": tiers.tier4,
+            "> 15m": tiers.tier5,
+          };
+
+          if (vidDurationChart) vidDurationChart.destroy();
+          const durCtx = document
+            .getElementById("chart-vid-durations")
+            .getContext("2d");
+          vidDurationChart = new Chart(durCtx, {
+            type: "bar",
+            data: {
+              labels: Object.keys(durationTiers),
+              datasets: [
+                {
+                  data: Object.values(durationTiers),
+                  backgroundColor: "#d97706",
+                  borderRadius: 4,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+            },
+          });
+        } else if (vidDurationChart) {
+          vidDurationChart.destroy();
+          vidDurationChart = null;
+        }
+      }
+
+      // Setup UI Event Listeners
+      document.addEventListener("DOMContentLoaded", () => {
+        // Initial load: fetch stats, then fetch media
+        fetchStats().then(() => fetchMedia(true));
+
+        // Reload View button
+        document
+          .getElementById("refresh-btn")
+          .addEventListener("click", () => {
+            currentPage = 1;
+            fetchMedia(false);
+          });
+
+        // Insights button
+        document
+          .getElementById("insights-btn")
+          .addEventListener("click", () => toggleModal(true));
+
+        // Close details drawer
+        document
+          .getElementById("close-drawer-btn")
+          .addEventListener("click", () => {
+            document.getElementById("details-drawer").classList.remove("open");
+          });
+
+        // Close modal button
+        document
+          .getElementById("close-modal-btn")
+          .addEventListener("click", () => toggleModal(false));
+
+        // Close modal on background click
+        window.addEventListener("click", (event) => {
+          const modal = document.getElementById("insights-modal");
+          if (event.target === modal) {
+            toggleModal(false);
+          }
+        });
+
+        // Filter changes
+        document
+          .getElementById("filter-format")
+          .addEventListener("change", () => {
+            currentPage = 1;
+            fetchMedia();
+          });
+        document
+          .getElementById("filter-type")
+          .addEventListener("change", () => {
+            currentPage = 1;
+            fetchMedia();
+          });
+
+        // Search input with 300ms debounce
+        let searchTimeout;
+        document
+          .getElementById("search-input")
+          .addEventListener("input", () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+              currentPage = 1;
+              fetchMedia();
+            }, 300);
+          });
+
+        // Pagination buttons
+        document.getElementById("prev-page-btn").addEventListener("click", () => {
+          if (currentPage > 1) {
+            currentPage--;
+            fetchMedia();
+          }
+        });
+        document.getElementById("next-page-btn").addEventListener("click", () => {
+          const totalPages = Math.ceil(totalRecords / pageSize) || 1;
+          if (currentPage < totalPages) {
+            currentPage++;
+            fetchMedia();
+          }
+        });
+        document.getElementById("page-size-select").addEventListener("change", (e) => {
+          pageSize = parseInt(e.target.value, 10);
+          currentPage = 1;
+          fetchMedia();
+        });
+
+        // Sort headers
+        document.querySelectorAll("#media-table th").forEach((th) => {
+          th.addEventListener("click", () => {
+            const key = th.getAttribute("data-sort");
+            if (!key) return;
+
+            if (sortConfig.key === key) {
+              sortConfig.direction =
+                sortConfig.direction === "asc" ? "desc" : "asc";
+            } else {
+              sortConfig.key = key;
+              sortConfig.direction = "asc";
+            }
+
+            // Update UI sorting indicator
+            document
+              .querySelectorAll("#media-table th")
+              .forEach((el) => el.classList.remove("sort-asc", "sort-desc"));
+            th.classList.add(
+              sortConfig.direction === "asc" ? "sort-asc" : "sort-desc",
+            );
+
+            currentPage = 1;
+            fetchMedia();
+          });
+        });
+
+        // Initialize Lucide Icons for static elements
+        lucide.createIcons();
+      });
+    </script>
+  </body>
+</html>

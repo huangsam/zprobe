@@ -16,3 +16,7 @@ brainstorm/
 playground/
 test_media/
 media/
+
+# Databases & SQLite sidecar files
+*.db
+*.db-*

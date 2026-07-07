@@ -40,6 +40,7 @@ pub fn build(b: *std.Build) void {
         // which requires us to specify a target.
         .target = target,
     });
+    mod.addIncludePath(b.path("deps/sqlite"));
 
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
@@ -91,6 +92,23 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    const server_exe = b.addExecutable(.{
+        .name = "zprobe-server",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/server.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zprobe", .module = mod },
+            },
+        }),
+    });
+    server_exe.root_module.linkLibrary(sqlite_lib);
+    server_exe.root_module.addIncludePath(b.path("deps/sqlite"));
+    server_exe.root_module.linkSystemLibrary("c", .{});
+
+    b.installArtifact(server_exe);
+
     // release-all step for building Apple Silicon and Synology NAS variants
     const release_all_step = b.step("release-all", "Build all production variants of zprobe");
 
@@ -111,6 +129,7 @@ pub fn build(b: *std.Build) void {
             .target = resolved_target,
             .optimize = .ReleaseSmall,
         });
+        variant_mod.addIncludePath(b.path("deps/sqlite"));
 
         const variant_exe = b.addExecutable(.{
             .name = b.fmt("zprobe-{s}", .{t.name}),
@@ -146,6 +165,26 @@ pub fn build(b: *std.Build) void {
 
         const install_variant = b.addInstallArtifact(variant_exe, .{});
         release_all_step.dependOn(&install_variant.step);
+
+        const variant_server_exe = b.addExecutable(.{
+            .name = b.fmt("zprobe-server-{s}", .{t.name}),
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/server.zig"),
+                .target = resolved_target,
+                .optimize = .ReleaseSmall,
+                .imports = &.{
+                    .{ .name = "zprobe", .module = variant_mod },
+                },
+            }),
+        });
+        variant_server_exe.root_module.strip = true;
+
+        variant_server_exe.root_module.linkLibrary(variant_sqlite);
+        variant_server_exe.root_module.addIncludePath(b.path("deps/sqlite"));
+        variant_server_exe.root_module.linkSystemLibrary("c", .{});
+
+        const install_server_variant = b.addInstallArtifact(variant_server_exe, .{});
+        release_all_step.dependOn(&install_server_variant.step);
     }
 
     const run_step = b.step("run", "Run the app");
