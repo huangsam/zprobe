@@ -4,6 +4,7 @@ const Db = zprobe.db.Db;
 
 const index_html = @embedFile("web/index.html");
 const styles_css = @embedFile("web/styles.css");
+const logo_svg = @embedFile("web/logo.svg");
 const lucide_js = @embedFile("web/js/lucide.min.js");
 const chart_js = @embedFile("web/js/chart.umd.js");
 const font_outfit_600 = @embedFile("web/fonts/outfit-600.woff2");
@@ -44,7 +45,7 @@ pub fn main(init: std.process.Init) !void {
                 std.process.exit(1);
             }
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            std.debug.print("zprobe-server: Web Dashboard for the zprobe SQLite cache.\n\n", .{});
+            std.debug.print("zprobe-server: Insights for the zprobe SQLite cache.\n\n", .{});
             std.debug.print("Usage: zprobe-server [options]\n\n", .{});
             std.debug.print("Options:\n", .{});
             std.debug.print("  -p, --port <number>    Port to listen on (default: 8080)\n", .{});
@@ -70,7 +71,7 @@ pub fn main(init: std.process.Init) !void {
     defer server.deinit(io);
 
     std.debug.print("---------------------------------------------------\n", .{});
-    std.debug.print(" zprobe Dashboard Server running!\n", .{});
+    std.debug.print(" zprobe Insights Server running!\n", .{});
     std.debug.print(" Address:  http://0.0.0.0:{d}\n", .{port});
     std.debug.print(" Database: {s}\n", .{db_path});
     std.debug.print("---------------------------------------------------\n", .{});
@@ -245,6 +246,15 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .status = .ok,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "text/css" },
+                .{ .name = "Cache-Control", .value = "public, max-age=86400" },
+                .{ .name = "Connection", .value = "close" },
+            },
+        });
+    } else if (std.mem.eql(u8, base_path, "/logo.svg")) {
+        try request.respond(logo_svg, .{
+            .status = .ok,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "image/svg+xml" },
                 .{ .name = "Cache-Control", .value = "public, max-age=86400" },
                 .{ .name = "Connection", .value = "close" },
             },
