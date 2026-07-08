@@ -1033,10 +1033,9 @@ td:nth-child(4) {
   transform: scale(0.9);
 }
 
-.copy-btn svg,
-.copy-btn i {
-  width: 13px !important;
-  height: 13px !important;
+.copy-btn svg {
+  width: 13px;
+  height: 13px;
 }
 
 .copy-btn.copied {
@@ -1184,4 +1183,11 @@ td:nth-child(4) {
 .copy-btn.copied::before {
   opacity: 1;
   transform: translateX(-50%) translateY(2px) scale(1);
+}
+
+/* Ensure the text value inside value-with-action wraps correctly on small widths */
+.value-with-action .value {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
 }

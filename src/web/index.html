@@ -340,19 +340,23 @@
       // Helper: Copy text to clipboard and show visual checkmark feedback
       async function copyToClipboard(text, btnElement) {
         try {
-          await navigator.clipboard.writeText(text);
-          btnElement.classList.add("copied");
-          const icon = btnElement.querySelector("i");
-          if (icon) {
-            icon.setAttribute("data-lucide", "check");
-            lucide.createIcons();
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            // Fallback for non-secure HTTP contexts (e.g. accessing Synology local IP)
+            const textarea = document.createElement("textarea");
+            textarea.value = text;
+            textarea.style.position = "fixed"; // Keep offscreen/avoid layout shifts
+            textarea.style.opacity = "0";
+            document.body.appendChild(textarea);
+            textarea.select();
+            const successful = document.execCommand("copy");
+            document.body.removeChild(textarea);
+            if (!successful) throw new Error("Fallback copy command failed");
           }
+          btnElement.classList.add("copied");
           setTimeout(() => {
             btnElement.classList.remove("copied");
-            if (icon) {
-              icon.setAttribute("data-lucide", "copy");
-              lucide.createIcons();
-            }
           }, 1500);
         } catch (err) {
           console.error("Failed to copy text:", err);
@@ -374,17 +378,27 @@
       // Helper: Highlight query matches with safe HTML escaping
       function highlightMatch(text, query) {
         if (!text) return "";
-        const escapedText = escapeHtml(text);
-        if (!query) return escapedText;
-        const escapedQuery = query
-          .trim()
-          .replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
-        if (!escapedQuery) return escapedText;
-        const regex = new RegExp(`(${escapedQuery})`, "gi");
-        return escapedText.replace(
-          regex,
-          '<mark class="search-highlight">$1</mark>',
+        if (!query) return escapeHtml(text);
+        const trimmedQuery = query.trim();
+        if (!trimmedQuery) return escapeHtml(text);
+
+        // Escape regex characters in the query
+        const escapedQuery = trimmedQuery.replace(
+          /[-\/\\^$*+?.()|[\]{}]/g,
+          "\\$&",
         );
+        const regex = new RegExp(`(${escapedQuery})`, "gi");
+
+        // Split the raw unescaped text by the query to prevent matching inside HTML entities like &amp;
+        const parts = text.split(regex);
+        return parts
+          .map((part) => {
+            if (part.toLowerCase() === trimmedQuery.toLowerCase()) {
+              return `<mark class="search-highlight">${escapeHtml(part)}</mark>`;
+            }
+            return escapeHtml(part);
+          })
+          .join("");
       }
 
       // Helper: Render pulsing skeleton loading rows
