@@ -105,10 +105,51 @@
                 </tr>
               </thead>
               <tbody id="media-tbody">
-                <tr>
-                  <td colspan="4" class="loading-state">
-                    Loading catalog database...
+                <!-- Pulsing skeleton rows displayed during loading -->
+                <tr class="skeleton-row">
+                  <td class="file-path-cell">
+                    <span class="skeleton-bar name"></span
+                    ><span class="skeleton-bar dir"></span>
                   </td>
+                  <td><span class="skeleton-bar size"></span></td>
+                  <td><span class="skeleton-bar format"></span></td>
+                  <td><span class="skeleton-bar dimensions"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="file-path-cell">
+                    <span class="skeleton-bar name"></span
+                    ><span class="skeleton-bar dir"></span>
+                  </td>
+                  <td><span class="skeleton-bar size"></span></td>
+                  <td><span class="skeleton-bar format"></span></td>
+                  <td><span class="skeleton-bar dimensions"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="file-path-cell">
+                    <span class="skeleton-bar name"></span
+                    ><span class="skeleton-bar dir"></span>
+                  </td>
+                  <td><span class="skeleton-bar size"></span></td>
+                  <td><span class="skeleton-bar format"></span></td>
+                  <td><span class="skeleton-bar dimensions"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="file-path-cell">
+                    <span class="skeleton-bar name"></span
+                    ><span class="skeleton-bar dir"></span>
+                  </td>
+                  <td><span class="skeleton-bar size"></span></td>
+                  <td><span class="skeleton-bar format"></span></td>
+                  <td><span class="skeleton-bar dimensions"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="file-path-cell">
+                    <span class="skeleton-bar name"></span
+                    ><span class="skeleton-bar dir"></span>
+                  </td>
+                  <td><span class="skeleton-bar size"></span></td>
+                  <td><span class="skeleton-bar format"></span></td>
+                  <td><span class="skeleton-bar dimensions"></span></td>
                 </tr>
               </tbody>
             </table>
@@ -296,6 +337,77 @@
       let vidSizeChart = null;
       let vidDurationChart = null;
 
+      // Helper: Copy text to clipboard and show visual checkmark feedback
+      async function copyToClipboard(text, btnElement) {
+        try {
+          await navigator.clipboard.writeText(text);
+          btnElement.classList.add("copied");
+          const icon = btnElement.querySelector("i");
+          if (icon) {
+            icon.setAttribute("data-lucide", "check");
+            lucide.createIcons();
+          }
+          setTimeout(() => {
+            btnElement.classList.remove("copied");
+            if (icon) {
+              icon.setAttribute("data-lucide", "copy");
+              lucide.createIcons();
+            }
+          }, 1500);
+        } catch (err) {
+          console.error("Failed to copy text:", err);
+        }
+      }
+
+      // Helper: Handler for copy buttons in drawer
+      function copyValue(btnElement) {
+        const valSpan = btnElement.previousElementSibling;
+        if (valSpan) {
+          copyToClipboard(valSpan.textContent.trim(), btnElement);
+          // Clear any selection range that might be triggered by browser behavior
+          if (window.getSelection) {
+            window.getSelection().removeAllRanges();
+          }
+        }
+      }
+
+      // Helper: Highlight query matches with safe HTML escaping
+      function highlightMatch(text, query) {
+        if (!text) return "";
+        const escapedText = escapeHtml(text);
+        if (!query) return escapedText;
+        const escapedQuery = query
+          .trim()
+          .replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+        if (!escapedQuery) return escapedText;
+        const regex = new RegExp(`(${escapedQuery})`, "gi");
+        return escapedText.replace(
+          regex,
+          '<mark class="search-highlight">$1</mark>',
+        );
+      }
+
+      // Helper: Render pulsing skeleton loading rows
+      function renderSkeletons() {
+        const tbody = document.getElementById("media-tbody");
+        if (!tbody) return;
+        let html = "";
+        for (let i = 0; i < 5; i++) {
+          html += `
+            <tr class="skeleton-row">
+              <td class="file-path-cell">
+                <span class="skeleton-bar name"></span>
+                <span class="skeleton-bar dir"></span>
+              </td>
+              <td><span class="skeleton-bar size"></span></td>
+              <td><span class="skeleton-bar format"></span></td>
+              <td><span class="skeleton-bar dimensions"></span></td>
+            </tr>
+          `;
+        }
+        tbody.innerHTML = html;
+      }
+
       // Helper: Format bytes to human readable format
       function formatBytes(bytes) {
         if (bytes === 0) return "0 Bytes";
@@ -347,7 +459,7 @@
         currentFetchController = controller;
 
         const tbody = document.getElementById("media-tbody");
-        tbody.innerHTML = `<tr><td colspan="4" class="loading-state">Fetching media metadata...</td></tr>`;
+        renderSkeletons();
 
         const refreshBtn = document.getElementById("refresh-btn");
         const refreshIcon = document.querySelector("#refresh-btn .lucide");
@@ -478,6 +590,9 @@
           return;
         }
 
+        const searchInput = document.getElementById("search-input");
+        const query = searchInput ? searchInput.value : "";
+
         tbody.innerHTML = "";
         mediaData.forEach((row) => {
           const tr = document.createElement("tr");
@@ -492,11 +607,11 @@
 
           tr.innerHTML = `
                     <td class="file-path-cell">
-                        <span class="file-name">${escapeHtml(fileBase)}</span>
-                        <span class="file-dir" title="${escapeHtml(dirPath)}">${escapeHtml(dirPath)}</span>
+                        <span class="file-name">${highlightMatch(fileBase, query)}</span>
+                        <span class="file-dir" title="${escapeHtml(dirPath)}">${highlightMatch(dirPath, query)}</span>
                     </td>
                     <td>${formatBytes(row.size)}</td>
-                    <td><span class="badge badge-format">${escapeHtml((row.format || "").toUpperCase())}</span></td>
+                    <td><span class="badge badge-format">${highlightMatch((row.format || "").toUpperCase(), query)}</span></td>
                     <td>${dims}</td>
                 `;
           tbody.appendChild(tr);
@@ -543,8 +658,24 @@
         let html = `
                 <div class="detail-section">
                     <h4>File Info</h4>
-                    <div class="detail-row"><span class="label">Filename:</span><span class="value select-all">${escapeHtml(fileBase)}</span></div>
-                    <div class="detail-row"><span class="label">Full Path:</span><span class="value select-all">${escapeHtml(row.path)}</span></div>
+                    <div class="detail-row">
+                        <span class="label">Filename:</span>
+                        <span class="value-with-action">
+                            <span class="value">${escapeHtml(fileBase)}</span>
+                            <button class="copy-btn" onclick="copyValue(this)" title="Copy filename">
+                                <i data-lucide="copy"></i>
+                            </button>
+                        </span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="label">Full Path:</span>
+                        <span class="value-with-action">
+                            <span class="value">${escapeHtml(row.path)}</span>
+                            <button class="copy-btn" onclick="copyValue(this)" title="Copy full path">
+                                <i data-lucide="copy"></i>
+                            </button>
+                        </span>
+                    </div>
                     <div class="detail-row"><span class="label">Size:</span><span class="value">${formatBytes(row.size)} (${row.size} bytes)</span></div>
                     <div class="detail-row"><span class="label">Format:</span><span class="value">${escapeHtml((row.format || "").toUpperCase())}</span></div>
                 </div>
@@ -584,11 +715,19 @@
 
         if (row.gps_latitude !== null && row.gps_longitude !== null) {
           const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${row.gps_latitude},${row.gps_longitude}`;
+          const gpsCoords = `${row.gps_latitude.toFixed(6)}, ${row.gps_longitude.toFixed(6)}`;
           html += `
                     <div class="detail-section">
                         <h4>GPS Location</h4>
-                        <div class="detail-row"><span class="label">Latitude:</span><span class="value">${row.gps_latitude.toFixed(6)}</span></div>
-                        <div class="detail-row"><span class="label">Longitude:</span><span class="value">${row.gps_longitude.toFixed(6)}</span></div>
+                        <div class="detail-row">
+                            <span class="label">Coordinates:</span>
+                            <span class="value-with-action">
+                                <span class="value">${gpsCoords}</span>
+                                <button class="copy-btn" onclick="copyValue(this)" title="Copy coordinates">
+                                    <i data-lucide="copy"></i>
+                                </button>
+                            </span>
+                        </div>
                         <div class="detail-row">
                             <span class="label">Map Link:</span>
                             <span class="value">

@@ -995,3 +995,193 @@ td:nth-child(4) {
   }
   /* Table remains horizontally scrollable, no columns hidden */
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   UI Polish Styles: Clipboard Buttons, Search Highlight, & Skeleton Loaders
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Copy Action Button in Drawer values */
+.value-with-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+}
+
+.copy-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.copy-btn:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--primary);
+}
+
+.copy-btn:active {
+  transform: scale(0.9);
+}
+
+.copy-btn svg,
+.copy-btn i {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+.copy-btn.copied {
+  color: var(--success);
+}
+
+/* Search Term Highlight */
+.search-highlight {
+  background-color: rgba(43, 118, 219, 0.18);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* Skeleton Loading Screens */
+@keyframes skeleton-pulse {
+  0% {
+    background-color: #f1f5f9;
+  }
+  50% {
+    background-color: #e2e8f0;
+  }
+  100% {
+    background-color: #f1f5f9;
+  }
+}
+
+.skeleton-row td {
+  pointer-events: none;
+}
+
+.skeleton-bar {
+  display: inline-block;
+  height: 0.9rem;
+  border-radius: 4px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+.skeleton-bar.name {
+  width: 55%;
+}
+
+.skeleton-bar.dir {
+  width: 35%;
+  height: 0.7rem;
+  margin-top: 4px;
+  display: block;
+}
+
+.skeleton-bar.size {
+  width: 60px;
+}
+
+.skeleton-bar.format {
+  width: 40px;
+}
+
+.skeleton-bar.dimensions {
+  width: 80px;
+}
+
+/* Drawer Detail Sections Entrance Animation */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.details-drawer.open .detail-section {
+  animation: fade-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+
+.details-drawer.open .detail-section:nth-child(1) {
+  animation-delay: 0.04s;
+}
+.details-drawer.open .detail-section:nth-child(2) {
+  animation-delay: 0.1s;
+}
+.details-drawer.open .detail-section:nth-child(3) {
+  animation-delay: 0.16s;
+}
+.details-drawer.open .detail-section:nth-child(4) {
+  animation-delay: 0.22s;
+}
+.details-drawer.open .detail-section:nth-child(5) {
+  animation-delay: 0.28s;
+}
+
+/* Copy Confirmation Tooltip */
+.copy-btn {
+  position: relative;
+}
+
+.copy-btn::after {
+  content: "Copied!";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-6px) scale(0.85);
+  background-color: #1e293b;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  font-family: var(--font-sans);
+}
+
+.copy-btn::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(2px) scale(0.85);
+  border: 4px solid transparent;
+  border-top-color: #1e293b;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
+}
+
+.copy-btn.copied::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-6px) scale(1);
+}
+
+.copy-btn.copied::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(2px) scale(1);
+}
