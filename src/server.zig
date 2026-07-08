@@ -305,7 +305,7 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             },
         });
     } else if (std.mem.eql(u8, base_path, "/api/media")) {
-        var limit: u32 = 50;
+        var limit: u32 = 25;
         var offset: u32 = 0;
         var search: ?[]const u8 = null;
         var filter_format: ?[]const u8 = null;
@@ -321,7 +321,7 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             const val = param[eq_idx + 1 ..];
 
             if (std.mem.eql(u8, key, "limit")) {
-                limit = std.fmt.parseInt(u32, val, 10) catch 50;
+                limit = std.fmt.parseInt(u32, val, 10) catch 25;
             } else if (std.mem.eql(u8, key, "offset")) {
                 offset = std.fmt.parseInt(u32, val, 10) catch 0;
             } else if (std.mem.eql(u8, key, "search")) {

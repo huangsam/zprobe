@@ -155,8 +155,8 @@
               </div>
               <div class="pagination-size">
                 <select id="page-size-select" class="select-sm">
-                  <option value="25">25 per page</option>
-                  <option value="50" selected>50 per page</option>
+                  <option value="25" selected>25 per page</option>
+                  <option value="50">50 per page</option>
                   <option value="100">100 per page</option>
                 </select>
               </div>
@@ -282,7 +282,7 @@
       let mediaData = [];
       let totalRecords = 0;
       let currentPage = 1;
-      let pageSize = 50;
+      let pageSize = 25;
       let sortConfig = { key: "path", direction: "asc" };
       let activeModalTab = "images";
       let currentFetchController = null;
