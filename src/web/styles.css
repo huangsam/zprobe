@@ -246,7 +246,7 @@ body {
 .metric-info p {
   font-family: var(--font-sans);
   font-weight: 600;
-  font-size: 1.35rem;
+  font-size: 1.2rem;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
@@ -720,6 +720,26 @@ td:nth-child(4) {
   .app-container {
     padding: 1.25rem;
     gap: 1.5rem;
+  }
+
+  .metrics-grid {
+    gap: 1rem;
+  }
+
+  .metric-card {
+    padding: 1.15rem;
+    gap: 1rem;
+    border-radius: 10px;
+  }
+
+  .metric-icon {
+    width: 2.75rem;
+    height: 2.75rem;
+    font-size: 1.35rem;
+  }
+
+  .metric-info p {
+    font-size: 1.1rem;
   }
 
   .app-header {
