@@ -12,11 +12,14 @@
     <script src="/js/chart.umd.js"></script>
   </head>
   <body>
+    <a href="#catalog-table" class="skip-link">Skip to catalog table</a>
     <div class="app-container">
       <!-- Sidebar / Navigation -->
       <header class="app-header">
         <div class="logo-container">
-          <span class="logo-icon"><i data-lucide="search"></i></span>
+          <span class="logo-icon" aria-hidden="true"
+            ><i data-lucide="search"></i
+          ></span>
           <div class="logo-text">
             <h1>zprobe</h1>
             <span class="subtitle">Media Insights</span>
@@ -28,10 +31,16 @@
             class="btn btn-secondary"
             style="margin-right: 0.75rem"
           >
-            <i data-lucide="bar-chart-2" class="btn-icon"></i> Visual Insights
+            <i
+              data-lucide="bar-chart-2"
+              class="btn-icon"
+              aria-hidden="true"
+            ></i>
+            Visual Insights
           </button>
           <button id="refresh-btn" class="btn btn-primary">
-            <i data-lucide="refresh-cw" class="btn-icon"></i> Reload View
+            <i data-lucide="refresh-cw" class="btn-icon" aria-hidden="true"></i>
+            Reload View
           </button>
         </div>
       </header>
@@ -40,29 +49,42 @@
       <main class="dashboard-main">
         <!-- Metrics Cards -->
         <section class="metrics-grid">
+          <p
+            id="stats-live-summary"
+            class="visually-hidden"
+            aria-live="polite"
+          ></p>
           <div class="metric-card">
-            <div class="metric-icon blue"><i data-lucide="files"></i></div>
+            <div class="metric-icon blue" aria-hidden="true">
+              <i data-lucide="files"></i>
+            </div>
             <div class="metric-info">
               <h3>Scanned Files</h3>
               <p id="stat-total-files">0</p>
             </div>
           </div>
           <div class="metric-card">
-            <div class="metric-icon purple"><i data-lucide="database"></i></div>
+            <div class="metric-icon purple" aria-hidden="true">
+              <i data-lucide="database"></i>
+            </div>
             <div class="metric-info">
               <h3>Catalog Size</h3>
               <p id="stat-total-size">0 Bytes</p>
             </div>
           </div>
           <div class="metric-card">
-            <div class="metric-icon green"><i data-lucide="image"></i></div>
+            <div class="metric-icon green" aria-hidden="true">
+              <i data-lucide="image"></i>
+            </div>
             <div class="metric-info">
               <h3>Images</h3>
               <p id="stat-images">0</p>
             </div>
           </div>
           <div class="metric-card">
-            <div class="metric-icon orange"><i data-lucide="video"></i></div>
+            <div class="metric-icon orange" aria-hidden="true">
+              <i data-lucide="video"></i>
+            </div>
             <div class="metric-info">
               <h3>Videos</h3>
               <p id="stat-videos">0</p>
@@ -70,38 +92,221 @@
           </div>
         </section>
 
-        <!-- Search, Filter & Controls Panel -->
-        <section class="control-panel">
-          <div class="search-wrapper">
-            <span class="search-icon"><i data-lucide="search"></i></span>
-            <input
-              type="text"
-              id="search-input"
-              placeholder="Search by file path, camera, or format..."
-            />
+        <!-- Unified Filter Bar -->
+        <section
+          class="filter-bar"
+          id="filter-bar"
+          aria-label="Filter media catalog"
+        >
+          <div class="filter-bar-primary">
+            <div class="search-wrapper">
+              <label class="visually-hidden" for="search-input"
+                >Search media</label
+              >
+              <span class="search-icon" aria-hidden="true"
+                ><i data-lucide="search"></i
+              ></span>
+              <input
+                type="text"
+                id="search-input"
+                placeholder="Search by file path, camera, or format..."
+              />
+            </div>
+            <div class="filters-wrapper">
+              <label class="visually-hidden" for="filter-format">Format</label>
+              <select id="filter-format" aria-label="Format">
+                <option value="">All Formats</option>
+              </select>
+              <label class="visually-hidden" for="filter-type"
+                >Media type</label
+              >
+              <select id="filter-type" aria-label="Media type">
+                <option value="">All Types</option>
+                <option value="image">Images Only</option>
+                <option value="video">Videos Only</option>
+              </select>
+              <button
+                type="button"
+                id="more-filters-toggle"
+                class="btn btn-secondary more-filters-toggle"
+                aria-expanded="false"
+                aria-controls="filter-bar-advanced"
+              >
+                More filters
+                <i
+                  data-lucide="chevron-down"
+                  class="more-filters-chevron"
+                  aria-hidden="true"
+                ></i>
+              </button>
+            </div>
           </div>
-          <div class="filters-wrapper">
-            <select id="filter-format">
-              <option value="">All Formats</option>
-            </select>
-            <select id="filter-type">
-              <option value="">All Types</option>
-              <option value="image">Images Only</option>
-              <option value="video">Videos Only</option>
-            </select>
+          <div
+            id="filter-bar-advanced"
+            class="filter-bar-advanced"
+            aria-hidden="true"
+          >
+            <div class="filter-row">
+              <fieldset class="filter-group">
+                <legend class="filter-label">Date</legend>
+                <div class="filter-inputs">
+                  <label class="visually-hidden" for="filter-date-from"
+                    >Date from</label
+                  >
+                  <input type="date" id="filter-date-from" />
+                  <span class="filter-separator" aria-hidden="true">to</span>
+                  <label class="visually-hidden" for="filter-date-to"
+                    >Date to</label
+                  >
+                  <input type="date" id="filter-date-to" />
+                </div>
+                <div
+                  class="filter-presets"
+                  role="group"
+                  aria-label="Date presets"
+                >
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-date-preset="last7"
+                    aria-pressed="false"
+                  >
+                    Last 7 days
+                  </button>
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-date-preset="this-month"
+                    aria-pressed="false"
+                  >
+                    This month
+                  </button>
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-date-preset="this-year"
+                    aria-pressed="false"
+                  >
+                    This year
+                  </button>
+                </div>
+              </fieldset>
+              <fieldset class="filter-group">
+                <legend class="filter-label">Size range</legend>
+                <div class="filter-inputs">
+                  <label class="visually-hidden" for="filter-size-min"
+                    >Minimum size in megabytes</label
+                  >
+                  <input
+                    type="number"
+                    id="filter-size-min"
+                    min="0"
+                    step="1"
+                    placeholder="Min MB"
+                  />
+                  <span class="filter-separator" aria-hidden="true">to</span>
+                  <label class="visually-hidden" for="filter-size-max"
+                    >Maximum size in megabytes</label
+                  >
+                  <input
+                    type="number"
+                    id="filter-size-max"
+                    min="0"
+                    step="1"
+                    placeholder="Max MB"
+                  />
+                </div>
+                <div
+                  class="filter-presets"
+                  role="group"
+                  aria-label="Size presets"
+                >
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-size-min-mb="1"
+                    aria-pressed="false"
+                  >
+                    ≥ 1 MB
+                  </button>
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-size-min-mb="10"
+                    aria-pressed="false"
+                  >
+                    ≥ 10 MB
+                  </button>
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-size-min-mb="100"
+                    aria-pressed="false"
+                  >
+                    ≥ 100 MB
+                  </button>
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-size-min-mb="1024"
+                    aria-pressed="false"
+                  >
+                    ≥ 1 GB
+                  </button>
+                </div>
+              </fieldset>
+            </div>
+            <div class="filter-actions">
+              <div
+                class="filter-actions-left"
+                id="filter-status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <div
+                  class="active-filters"
+                  id="active-filters"
+                  aria-label="Active filters"
+                ></div>
+                <span
+                  class="filter-result-count"
+                  id="filter-result-count"
+                  hidden
+                ></span>
+              </div>
+              <button
+                type="button"
+                id="clear-filters-btn"
+                class="btn btn-secondary btn-sm"
+              >
+                Clear filters
+              </button>
+            </div>
           </div>
         </section>
 
         <!-- Media Table / Grid -->
-        <section class="catalog-section">
-          <div class="table-container">
+        <section class="catalog-section" id="catalog-table">
+          <div class="table-container" aria-busy="false">
             <table id="media-table">
+              <caption class="visually-hidden">
+                Media catalog — sortable list of scanned files
+              </caption>
               <thead>
                 <tr>
-                  <th data-sort="path">File Path</th>
-                  <th data-sort="size">Size</th>
-                  <th data-sort="format">Format</th>
-                  <th data-sort="dimensions">Dimensions</th>
+                  <th scope="col" data-sort="path" aria-sort="ascending">
+                    File Path
+                  </th>
+                  <th scope="col" data-sort="create_time" aria-sort="none">
+                    Date
+                  </th>
+                  <th scope="col" data-sort="size" aria-sort="none">Size</th>
+                  <th scope="col" data-sort="format" aria-sort="none">
+                    Format
+                  </th>
+                  <th scope="col" data-sort="dimensions" aria-sort="none">
+                    Dimensions
+                  </th>
                 </tr>
               </thead>
               <tbody id="media-tbody">
@@ -111,6 +316,7 @@
                     <span class="skeleton-bar name"></span
                     ><span class="skeleton-bar dir"></span>
                   </td>
+                  <td><span class="skeleton-bar date"></span></td>
                   <td><span class="skeleton-bar size"></span></td>
                   <td><span class="skeleton-bar format"></span></td>
                   <td><span class="skeleton-bar dimensions"></span></td>
@@ -120,6 +326,7 @@
                     <span class="skeleton-bar name"></span
                     ><span class="skeleton-bar dir"></span>
                   </td>
+                  <td><span class="skeleton-bar date"></span></td>
                   <td><span class="skeleton-bar size"></span></td>
                   <td><span class="skeleton-bar format"></span></td>
                   <td><span class="skeleton-bar dimensions"></span></td>
@@ -129,6 +336,7 @@
                     <span class="skeleton-bar name"></span
                     ><span class="skeleton-bar dir"></span>
                   </td>
+                  <td><span class="skeleton-bar date"></span></td>
                   <td><span class="skeleton-bar size"></span></td>
                   <td><span class="skeleton-bar format"></span></td>
                   <td><span class="skeleton-bar dimensions"></span></td>
@@ -138,6 +346,7 @@
                     <span class="skeleton-bar name"></span
                     ><span class="skeleton-bar dir"></span>
                   </td>
+                  <td><span class="skeleton-bar date"></span></td>
                   <td><span class="skeleton-bar size"></span></td>
                   <td><span class="skeleton-bar format"></span></td>
                   <td><span class="skeleton-bar dimensions"></span></td>
@@ -147,6 +356,7 @@
                     <span class="skeleton-bar name"></span
                     ><span class="skeleton-bar dir"></span>
                   </td>
+                  <td><span class="skeleton-bar date"></span></td>
                   <td><span class="skeleton-bar size"></span></td>
                   <td><span class="skeleton-bar format"></span></td>
                   <td><span class="skeleton-bar dimensions"></span></td>
@@ -154,7 +364,11 @@
               </tbody>
             </table>
           </div>
-          <div class="pagination-container">
+          <div
+            class="pagination-container"
+            aria-live="polite"
+            aria-atomic="true"
+          >
             <div class="pagination-info">
               Showing <span id="page-start">0</span> to
               <span id="page-end">0</span> of
@@ -168,6 +382,7 @@
               >
                 <i
                   data-lucide="chevron-left"
+                  aria-hidden="true"
                   style="
                     width: 14px;
                     height: 14px;
@@ -186,6 +401,7 @@
                 Next
                 <i
                   data-lucide="chevron-right"
+                  aria-hidden="true"
                   style="
                     width: 14px;
                     height: 14px;
@@ -196,6 +412,9 @@
               </button>
             </div>
             <div class="pagination-size">
+              <label class="visually-hidden" for="page-size-select"
+                >Rows per page</label
+              >
               <select id="page-size-select" class="select-sm">
                 <option value="25" selected>25 per page</option>
                 <option value="50">50 per page</option>
@@ -207,14 +426,29 @@
       </main>
 
       <!-- Drawer Backdrop -->
-      <div id="drawer-backdrop" class="drawer-backdrop"></div>
+      <div
+        id="drawer-backdrop"
+        class="drawer-backdrop"
+        aria-hidden="true"
+      ></div>
 
       <!-- Details Sidebar / Drawer (Slide-out) -->
-      <aside id="details-drawer" class="details-drawer">
+      <aside
+        id="details-drawer"
+        class="details-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-title"
+        aria-hidden="true"
+      >
         <div class="drawer-header">
-          <h2>File Metadata Details</h2>
-          <button id="close-drawer-btn" class="close-btn">
-            <i data-lucide="x"></i>
+          <h2 id="drawer-title">File Metadata Details</h2>
+          <button
+            id="close-drawer-btn"
+            class="close-btn"
+            aria-label="Close details"
+          >
+            <i data-lucide="x" aria-hidden="true"></i>
           </button>
         </div>
         <div class="drawer-content" id="drawer-content">
@@ -223,52 +457,81 @@
       </aside>
 
       <!-- Insights Modal Overlay -->
-      <div id="insights-modal" class="modal">
-        <div class="modal-content">
+      <div id="insights-modal" class="modal" aria-hidden="true">
+        <div
+          class="modal-content"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-title"
+        >
           <div class="modal-header">
-            <h2>
+            <h2 id="modal-title">
               <i
                 data-lucide="bar-chart-2"
                 class="inline-icon"
                 style="color: var(--primary); margin-right: 8px"
+                aria-hidden="true"
               ></i>
               Visual Insights
             </h2>
-            <button id="close-modal-btn" class="close-btn">
-              <i data-lucide="x"></i>
+            <button
+              id="close-modal-btn"
+              class="close-btn"
+              aria-label="Close insights"
+            >
+              <i data-lucide="x" aria-hidden="true"></i>
             </button>
           </div>
           <div class="modal-body">
             <!-- DSM Style tab bar -->
-            <div class="modal-tabs">
+            <div
+              class="modal-tabs"
+              role="tablist"
+              aria-label="Chart categories"
+            >
               <button
                 id="tab-btn-images"
                 class="tab-btn active"
-                onclick="switchModalTab('images')"
+                role="tab"
+                type="button"
+                aria-selected="true"
+                aria-controls="tab-pane-images"
+                tabindex="0"
               >
                 <i
                   data-lucide="image"
                   class="inline-icon"
                   style="width: 16px; height: 16px; margin-right: 4px"
+                  aria-hidden="true"
                 ></i>
                 Images
               </button>
               <button
                 id="tab-btn-videos"
                 class="tab-btn"
-                onclick="switchModalTab('videos')"
+                role="tab"
+                type="button"
+                aria-selected="false"
+                aria-controls="tab-pane-videos"
+                tabindex="-1"
               >
                 <i
                   data-lucide="video"
                   class="inline-icon"
                   style="width: 16px; height: 16px; margin-right: 4px"
+                  aria-hidden="true"
                 ></i>
                 Videos
               </button>
             </div>
 
             <!-- Images Tab Pane -->
-            <div id="tab-pane-images" class="tab-pane active">
+            <div
+              id="tab-pane-images"
+              class="tab-pane active"
+              role="tabpanel"
+              aria-labelledby="tab-btn-images"
+            >
               <div class="charts-grid">
                 <div class="chart-container">
                   <h3>Image Formats</h3>
@@ -292,7 +555,13 @@
             </div>
 
             <!-- Videos Tab Pane -->
-            <div id="tab-pane-videos" class="tab-pane">
+            <div
+              id="tab-pane-videos"
+              class="tab-pane"
+              role="tabpanel"
+              aria-labelledby="tab-btn-videos"
+              hidden
+            >
               <div class="charts-grid">
                 <div class="chart-container">
                   <h3>Video Formats</h3>
@@ -328,6 +597,10 @@
       let activeModalTab = "images";
       let currentFetchController = null;
       let statsData = null;
+      let activeDatePreset = null;
+      let activeSizePresetMb = null;
+      let drawerReturnFocus = null;
+      let modalReturnFocus = null;
 
       let imgFormatChart = null;
       let imgSizeChart = null;
@@ -336,6 +609,79 @@
       let vidFormatChart = null;
       let vidSizeChart = null;
       let vidDurationChart = null;
+
+      // Helper: Collect focusable elements inside a dialog container
+      function getFocusableElements(container) {
+        return Array.from(
+          container.querySelectorAll(
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter(
+          (el) => !el.hasAttribute("disabled") && el.offsetParent !== null,
+        );
+      }
+
+      // Helper: Keep Tab focus cycling within an open dialog
+      function trapFocus(e, container) {
+        if (e.key !== "Tab") return;
+        const focusable = getFocusableElements(container);
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+
+      function handleDrawerKeydown(e) {
+        const drawer = document.getElementById("details-drawer");
+        if (!drawer.classList.contains("open")) return;
+        trapFocus(e, drawer);
+      }
+
+      function handleModalKeydown(e) {
+        const modal = document.getElementById("insights-modal");
+        if (!modal.classList.contains("open")) return;
+        const dialog = modal.querySelector(".modal-content");
+        if (dialog) trapFocus(e, dialog);
+      }
+
+      function handleModalTablistKeydown(e) {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        const modal = document.getElementById("insights-modal");
+        if (!modal.classList.contains("open")) return;
+        const tabs = ["images", "videos"];
+        const idx = tabs.indexOf(activeModalTab);
+        if (idx === -1) return;
+        e.preventDefault();
+        const nextIdx =
+          e.key === "ArrowRight"
+            ? (idx + 1) % tabs.length
+            : (idx - 1 + tabs.length) % tabs.length;
+        const nextTab = tabs[nextIdx];
+        switchModalTab(nextTab);
+        document.getElementById(`tab-btn-${nextTab}`)?.focus();
+      }
+
+      function updateSortAriaIndicators() {
+        document
+          .querySelectorAll("#media-table th[data-sort]")
+          .forEach((th) => {
+            const key = th.getAttribute("data-sort");
+            if (key === sortConfig.key) {
+              th.setAttribute(
+                "aria-sort",
+                sortConfig.direction === "asc" ? "ascending" : "descending",
+              );
+            } else {
+              th.setAttribute("aria-sort", "none");
+            }
+          });
+      }
 
       // Helper: Copy text to clipboard and show visual checkmark feedback
       async function copyToClipboard(text, btnElement) {
@@ -401,6 +747,612 @@
           .join("");
       }
 
+      // Helper: Format create_time for table display
+      function formatCaptureDate(createTime) {
+        if (!createTime) return "—";
+        const normalized = createTime.replace(
+          /^(\d{4}):(\d{2}):(\d{2})/,
+          "$1-$2-$3",
+        );
+        const datePart = normalized.slice(0, 10);
+        const [year, month, day] = datePart.split("-");
+        if (!year || !month || !day) return escapeHtml(normalized);
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const monthIdx = parseInt(month, 10) - 1;
+        if (monthIdx < 0 || monthIdx > 11) return escapeHtml(datePart);
+        return `${months[monthIdx]} ${parseInt(day, 10)}, ${year}`;
+      }
+
+      function toIsoDate(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, "0");
+        const d = String(date.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+      }
+
+      function getAdvancedFilterParams() {
+        const dateFrom = document.getElementById("filter-date-from").value;
+        const dateTo = document.getElementById("filter-date-to").value;
+        const sizeMinMb = document.getElementById("filter-size-min").value;
+        const sizeMaxMb = document.getElementById("filter-size-max").value;
+
+        const params = {};
+        if (dateFrom) params.date_from = dateFrom;
+        if (dateTo) params.date_to = dateTo;
+        if (sizeMinMb) {
+          const parsed = parseInt(sizeMinMb, 10);
+          if (!Number.isNaN(parsed) && parsed >= 0) {
+            params.size_min = parsed * 1024 * 1024;
+          }
+        }
+        if (sizeMaxMb) {
+          const parsed = parseInt(sizeMaxMb, 10);
+          if (!Number.isNaN(parsed) && parsed >= 0) {
+            params.size_max = parsed * 1024 * 1024;
+          }
+        }
+        return params;
+      }
+
+      function getDatePresetValues(preset) {
+        const today = new Date();
+        if (preset === "last7") {
+          const from = new Date(today);
+          from.setDate(from.getDate() - 7);
+          return { from: toIsoDate(from), to: toIsoDate(today) };
+        }
+        if (preset === "this-month") {
+          const from = new Date(today.getFullYear(), today.getMonth(), 1);
+          return { from: toIsoDate(from), to: toIsoDate(today) };
+        }
+        if (preset === "this-year") {
+          return {
+            from: `${today.getFullYear()}-01-01`,
+            to: toIsoDate(today),
+          };
+        }
+        return null;
+      }
+
+      function updateDatePresetActiveState() {
+        document.querySelectorAll("[data-date-preset]").forEach((btn) => {
+          const preset = btn.getAttribute("data-date-preset");
+          const isActive = preset === activeDatePreset;
+          btn.classList.toggle("active", isActive);
+          btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
+      }
+
+      function setActiveDatePreset(preset) {
+        activeDatePreset = preset;
+        updateDatePresetActiveState();
+      }
+
+      function clearDatePresetActive() {
+        activeDatePreset = null;
+        updateDatePresetActiveState();
+      }
+
+      function applyDatePreset(preset) {
+        const values = getDatePresetValues(preset);
+        if (!values) return;
+        document.getElementById("filter-date-from").value = values.from;
+        document.getElementById("filter-date-to").value = values.to;
+        setActiveDatePreset(preset);
+      }
+
+      function updateSizePresetActiveState() {
+        document.querySelectorAll("[data-size-min-mb]").forEach((btn) => {
+          const minMb = parseInt(btn.getAttribute("data-size-min-mb"), 10);
+          const isActive = activeSizePresetMb === minMb;
+          btn.classList.toggle("active", isActive);
+          btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
+      }
+
+      function setActiveSizePreset(minMb) {
+        activeSizePresetMb = minMb;
+        updateSizePresetActiveState();
+      }
+
+      function clearSizePresetActive() {
+        activeSizePresetMb = null;
+        updateSizePresetActiveState();
+      }
+
+      function applySizePreset(minMb) {
+        document.getElementById("filter-size-min").value = String(minMb);
+        document.getElementById("filter-size-max").value = "";
+        setActiveSizePreset(minMb);
+      }
+
+      function formatSizeMbLabel(mb) {
+        const parsed = parseInt(mb, 10);
+        if (Number.isNaN(parsed)) return `${mb} MB`;
+        if (parsed >= 1024 && parsed % 1024 === 0) {
+          return `${parsed / 1024} GB`;
+        }
+        return `${parsed} MB`;
+      }
+
+      function formatCount(n) {
+        return Number(n).toLocaleString();
+      }
+
+      function formatFilterDate(isoDate) {
+        if (!isoDate) return "…";
+        const [year, month, day] = isoDate.split("-");
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        const monthIdx = parseInt(month, 10) - 1;
+        if (monthIdx < 0 || monthIdx > 11) return isoDate;
+        return `${months[monthIdx]} ${parseInt(day, 10)}, ${year}`;
+      }
+
+      function getActiveFilterKeys() {
+        const keys = [];
+        const dateFrom = document.getElementById("filter-date-from").value;
+        const dateTo = document.getElementById("filter-date-to").value;
+        const sizeMinMb = document.getElementById("filter-size-min").value;
+        const sizeMaxMb = document.getElementById("filter-size-max").value;
+        const formatFilter = document.getElementById("filter-format").value;
+        const typeFilter = document.getElementById("filter-type").value;
+        const searchVal = document.getElementById("search-input").value.trim();
+
+        if (dateFrom || dateTo) keys.push("date");
+        if (sizeMinMb || sizeMaxMb) keys.push("size");
+        if (searchVal) keys.push("search");
+        if (formatFilter) keys.push("format");
+        if (typeFilter) keys.push("type");
+        return keys;
+      }
+
+      function buildSingleFilterEmptyTitle(filterKey) {
+        const dateFrom = document.getElementById("filter-date-from").value;
+        const dateTo = document.getElementById("filter-date-to").value;
+        const sizeMinMb = document.getElementById("filter-size-min").value;
+        const sizeMaxMb = document.getElementById("filter-size-max").value;
+        const formatFilter = document.getElementById("filter-format").value;
+        const typeFilter = document.getElementById("filter-type").value;
+        const searchVal = document.getElementById("search-input").value.trim();
+
+        switch (filterKey) {
+          case "date":
+            if (dateFrom && dateTo) {
+              return `No files between ${formatFilterDate(dateFrom)} and ${formatFilterDate(dateTo)}.`;
+            }
+            if (dateFrom) {
+              return `No files from ${formatFilterDate(dateFrom)} onward.`;
+            }
+            return `No files through ${formatFilterDate(dateTo)}.`;
+          case "size":
+            if (sizeMinMb && sizeMaxMb) {
+              return `No files between ${formatSizeMbLabel(sizeMinMb)} and ${formatSizeMbLabel(sizeMaxMb)}.`;
+            }
+            if (sizeMinMb) {
+              return `No files ≥ ${formatSizeMbLabel(sizeMinMb)}.`;
+            }
+            return `No files ≤ ${formatSizeMbLabel(sizeMaxMb)}.`;
+          case "search":
+            return `No files matching "${searchVal}".`;
+          case "format":
+            return `No ${formatFilter.toUpperCase()} files in catalog.`;
+          case "type":
+            return typeFilter === "image"
+              ? "No images match your filters."
+              : "No videos match your filters.";
+          default:
+            return "No matching media files found.";
+        }
+      }
+
+      function describeDateFilter() {
+        const dateFrom = document.getElementById("filter-date-from").value;
+        const dateTo = document.getElementById("filter-date-to").value;
+        if (dateFrom && dateTo) {
+          return `between ${formatFilterDate(dateFrom)} and ${formatFilterDate(dateTo)}`;
+        }
+        if (dateFrom) {
+          return `from ${formatFilterDate(dateFrom)} onward`;
+        }
+        return `through ${formatFilterDate(dateTo)}`;
+      }
+
+      function describeSizeFilter() {
+        const sizeMinMb = document.getElementById("filter-size-min").value;
+        const sizeMaxMb = document.getElementById("filter-size-max").value;
+        if (sizeMinMb && sizeMaxMb) {
+          return `between ${formatSizeMbLabel(sizeMinMb)} and ${formatSizeMbLabel(sizeMaxMb)}`;
+        }
+        if (sizeMinMb) {
+          return `≥ ${formatSizeMbLabel(sizeMinMb)}`;
+        }
+        return `≤ ${formatSizeMbLabel(sizeMaxMb)}`;
+      }
+
+      function buildEmptyStateTitle(filterKeys) {
+        if (filterKeys.length === 1) {
+          return buildSingleFilterEmptyTitle(filterKeys[0]);
+        }
+
+        const hasDate = filterKeys.includes("date");
+        const hasSize = filterKeys.includes("size");
+
+        if (hasDate && hasSize && filterKeys.length === 2) {
+          return `No files ${describeDateFilter()} that are ${describeSizeFilter()}.`;
+        }
+
+        if (hasDate && hasSize) {
+          return `No files ${describeDateFilter()} that are ${describeSizeFilter()}, with your other filters applied.`;
+        }
+
+        return "No files match your current filters.";
+      }
+
+      function buildSuggestionsForFilter(filterKey) {
+        const actions = [];
+
+        if (filterKey === "date") {
+          if (activeDatePreset !== "this-month") {
+            actions.push({
+              type: "date-preset",
+              preset: "this-month",
+              label: "This month",
+            });
+          } else if (activeDatePreset !== "last7") {
+            actions.push({
+              type: "date-preset",
+              preset: "last7",
+              label: "Last 7 days",
+            });
+          }
+          actions.push({
+            type: "clear-filter",
+            key: "date",
+            label: "clear the date filter",
+          });
+        } else if (filterKey === "size") {
+          const sizeMinMb = parseInt(
+            document.getElementById("filter-size-min").value,
+            10,
+          );
+          if (!Number.isNaN(sizeMinMb) && sizeMinMb > 10) {
+            actions.push({
+              type: "size-preset",
+              minMb: 10,
+              label: "≥ 10 MB",
+            });
+          }
+          if (!Number.isNaN(sizeMinMb) && sizeMinMb > 1) {
+            actions.push({
+              type: "size-preset",
+              minMb: 1,
+              label: "≥ 1 MB",
+            });
+          }
+          actions.push({
+            type: "clear-filter",
+            key: "size",
+            label: "clear the size filter",
+          });
+        } else if (filterKey === "search") {
+          actions.push({
+            type: "clear-filter",
+            key: "search",
+            label: "clear search",
+          });
+        } else if (filterKey === "format") {
+          actions.push({
+            type: "clear-filter",
+            key: "format",
+            label: "clear the format filter",
+          });
+        } else if (filterKey === "type") {
+          actions.push({
+            type: "clear-filter",
+            key: "type",
+            label: "clear the type filter",
+          });
+        }
+
+        return actions;
+      }
+
+      function buildEmptyStateSuggestions(filterKeys) {
+        const actions = [];
+
+        for (const key of filterKeys) {
+          const keyActions = buildSuggestionsForFilter(key);
+          const widen = keyActions.find(
+            (action) =>
+              action.type === "date-preset" || action.type === "size-preset",
+          );
+          const clear = keyActions.find(
+            (action) => action.type === "clear-filter",
+          );
+          if (widen) actions.push(widen);
+          else if (clear) actions.push(clear);
+        }
+
+        if (filterKeys.length > 1) {
+          actions.push({ type: "clear-all", label: "clear all filters" });
+        }
+
+        return actions.slice(0, 3);
+      }
+
+      function formatEmptyStateHint(buttons) {
+        if (buttons.length === 0) return "";
+        if (buttons.length === 1) return `Try ${buttons[0]}.`;
+        if (buttons.length === 2) return `Try ${buttons[0]} or ${buttons[1]}.`;
+        return `Try ${buttons.slice(0, -1).join(", ")}, or ${buttons[buttons.length - 1]}.`;
+      }
+
+      function buildEmptyStateHtml() {
+        const filterKeys = getActiveFilterKeys();
+        if (filterKeys.length === 0) {
+          return `<div class="empty-state-content"><p class="empty-state-title">No matching media files found.</p></div>`;
+        }
+
+        const title = buildEmptyStateTitle(filterKeys);
+        const actions = buildEmptyStateSuggestions(filterKeys);
+        let html = `<div class="empty-state-content"><p class="empty-state-title">${escapeHtml(title)}</p>`;
+
+        if (actions.length > 0) {
+          const buttons = actions.map((action) => {
+            let attrs = `data-empty-action="${action.type}"`;
+            if (action.key) attrs += ` data-filter-key="${action.key}"`;
+            if (action.preset) attrs += ` data-preset="${action.preset}"`;
+            if (action.minMb != null) attrs += ` data-min-mb="${action.minMb}"`;
+            return `<button type="button" class="empty-state-action" ${attrs}>${escapeHtml(action.label)}</button>`;
+          });
+          html += `<p class="empty-state-hint">${formatEmptyStateHint(buttons)}</p>`;
+        }
+
+        html += `</div>`;
+        return html;
+      }
+
+      function handleEmptyStateAction(btn) {
+        const action = btn.getAttribute("data-empty-action");
+        if (action === "clear-filter") {
+          removeFilterChip(btn.getAttribute("data-filter-key"));
+          return;
+        }
+        if (action === "clear-all") {
+          clearAdvancedFilters();
+          updateFormatFilterOptions();
+          currentPage = 1;
+          fetchMedia();
+          return;
+        }
+        if (action === "date-preset") {
+          applyDatePreset(btn.getAttribute("data-preset"));
+          setMoreFiltersExpanded(true);
+          triggerFilterRefresh();
+          return;
+        }
+        if (action === "size-preset") {
+          applySizePreset(parseInt(btn.getAttribute("data-min-mb"), 10));
+          setMoreFiltersExpanded(true);
+          triggerFilterRefresh();
+        }
+      }
+
+      const MORE_FILTERS_STORAGE_KEY = "zprobe-more-filters-expanded";
+
+      function setMoreFiltersExpanded(expanded) {
+        const advanced = document.getElementById("filter-bar-advanced");
+        const toggle = document.getElementById("more-filters-toggle");
+        const filterBar = document.getElementById("filter-bar");
+        if (!advanced || !toggle || !filterBar) return;
+
+        filterBar.classList.toggle("is-expanded", expanded);
+        advanced.classList.toggle("expanded", expanded);
+        advanced.setAttribute("aria-hidden", expanded ? "false" : "true");
+        toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+        toggle.classList.toggle("active", expanded);
+
+        try {
+          localStorage.setItem(MORE_FILTERS_STORAGE_KEY, expanded ? "1" : "0");
+        } catch (_) {
+          /* ignore storage errors */
+        }
+      }
+
+      function initMoreFiltersToggle() {
+        const toggle = document.getElementById("more-filters-toggle");
+        if (!toggle) return;
+
+        let expanded = false;
+        try {
+          expanded = localStorage.getItem(MORE_FILTERS_STORAGE_KEY) === "1";
+        } catch (_) {
+          /* default collapsed */
+        }
+
+        setMoreFiltersExpanded(expanded);
+
+        toggle.addEventListener("click", () => {
+          const isExpanded = document
+            .getElementById("filter-bar")
+            ?.classList.contains("is-expanded");
+          setMoreFiltersExpanded(!isExpanded);
+        });
+      }
+
+      function hasAdvancedFilters() {
+        const dateFrom = document.getElementById("filter-date-from").value;
+        const dateTo = document.getElementById("filter-date-to").value;
+        const sizeMinMb = document.getElementById("filter-size-min").value;
+        const sizeMaxMb = document.getElementById("filter-size-max").value;
+        return !!(dateFrom || dateTo || sizeMinMb || sizeMaxMb);
+      }
+
+      function hasActiveFilters() {
+        return (
+          hasAdvancedFilters() ||
+          !!document.getElementById("search-input").value.trim() ||
+          !!document.getElementById("filter-format").value ||
+          !!document.getElementById("filter-type").value
+        );
+      }
+
+      const FILTER_CHIP_ARIA = {
+        search: "search",
+        format: "format",
+        type: "type",
+        date: "date",
+        size: "size",
+      };
+
+      function removeFilterChip(key) {
+        switch (key) {
+          case "search":
+            document.getElementById("search-input").value = "";
+            break;
+          case "format":
+            document.getElementById("filter-format").value = "";
+            break;
+          case "type":
+            document.getElementById("filter-type").value = "";
+            updateFormatFilterOptions();
+            break;
+          case "date":
+            document.getElementById("filter-date-from").value = "";
+            document.getElementById("filter-date-to").value = "";
+            clearDatePresetActive();
+            break;
+          case "size":
+            document.getElementById("filter-size-min").value = "";
+            document.getElementById("filter-size-max").value = "";
+            clearSizePresetActive();
+            break;
+          default:
+            return;
+        }
+        triggerFilterRefresh();
+      }
+
+      function updateActiveFilterChips() {
+        const container = document.getElementById("active-filters");
+        if (!container) return;
+
+        const chips = [];
+        const dateFrom = document.getElementById("filter-date-from").value;
+        const dateTo = document.getElementById("filter-date-to").value;
+        const sizeMinMb = document.getElementById("filter-size-min").value;
+        const sizeMaxMb = document.getElementById("filter-size-max").value;
+        const formatFilter = document.getElementById("filter-format").value;
+        const typeFilter = document.getElementById("filter-type").value;
+        const searchVal = document.getElementById("search-input").value.trim();
+
+        if (searchVal)
+          chips.push({ key: "search", label: `Search: ${searchVal}` });
+        if (formatFilter) {
+          chips.push({
+            key: "format",
+            label: `Format: ${formatFilter.toUpperCase()}`,
+          });
+        }
+        if (typeFilter) {
+          chips.push({
+            key: "type",
+            label: typeFilter === "image" ? "Images only" : "Videos only",
+          });
+        }
+        if (dateFrom || dateTo) {
+          chips.push({
+            key: "date",
+            label: `Date: ${dateFrom || "…"} → ${dateTo || "…"}`,
+          });
+        }
+        if (sizeMinMb || sizeMaxMb) {
+          if (sizeMinMb && sizeMaxMb) {
+            chips.push({
+              key: "size",
+              label: `Size: ${formatSizeMbLabel(sizeMinMb)} – ${formatSizeMbLabel(sizeMaxMb)}`,
+            });
+          } else if (sizeMinMb) {
+            chips.push({
+              key: "size",
+              label: `Size: ≥ ${formatSizeMbLabel(sizeMinMb)}`,
+            });
+          } else {
+            chips.push({
+              key: "size",
+              label: `Size: ≤ ${formatSizeMbLabel(sizeMaxMb)}`,
+            });
+          }
+        }
+
+        container.innerHTML = chips
+          .map(({ key, label }) => {
+            const ariaTarget = FILTER_CHIP_ARIA[key] || key;
+            return `<span class="filter-chip" data-filter-key="${key}">
+              <span class="filter-chip-label">${escapeHtml(label)}</span>
+              <button type="button" class="filter-chip-dismiss" aria-label="Remove ${ariaTarget} filter">&times;</button>
+            </span>`;
+          })
+          .join("");
+
+        const countEl = document.getElementById("filter-result-count");
+        if (!countEl) return;
+
+        if (hasActiveFilters() && statsData) {
+          const catalogTotal = statsData.total_files;
+          countEl.textContent = `Showing ${formatCount(totalRecords)} of ${formatCount(catalogTotal)}`;
+          countEl.hidden = false;
+        } else {
+          countEl.textContent = "";
+          countEl.hidden = true;
+        }
+      }
+
+      function clearAdvancedFilters() {
+        document.getElementById("filter-date-from").value = "";
+        document.getElementById("filter-date-to").value = "";
+        document.getElementById("filter-size-min").value = "";
+        document.getElementById("filter-size-max").value = "";
+        document.getElementById("filter-format").value = "";
+        document.getElementById("filter-type").value = "";
+        document.getElementById("search-input").value = "";
+        clearDatePresetActive();
+        clearSizePresetActive();
+        updateActiveFilterChips();
+      }
+
+      function triggerFilterRefresh() {
+        currentPage = 1;
+        updateActiveFilterChips();
+        fetchMedia();
+      }
+
       // Helper: Render pulsing skeleton loading rows
       function renderSkeletons() {
         const tbody = document.getElementById("media-tbody");
@@ -413,6 +1365,7 @@
                 <span class="skeleton-bar name"></span>
                 <span class="skeleton-bar dir"></span>
               </td>
+              <td><span class="skeleton-bar date"></span></td>
               <td><span class="skeleton-bar size"></span></td>
               <td><span class="skeleton-bar format"></span></td>
               <td><span class="skeleton-bar dimensions"></span></td>
@@ -473,6 +1426,8 @@
         currentFetchController = controller;
 
         const tbody = document.getElementById("media-tbody");
+        const tableContainer = document.querySelector(".table-container");
+        if (tableContainer) tableContainer.setAttribute("aria-busy", "true");
         renderSkeletons();
 
         const refreshBtn = document.getElementById("refresh-btn");
@@ -499,15 +1454,30 @@
           );
           const formatFilter = document.getElementById("filter-format").value;
           const typeFilter = document.getElementById("filter-type").value;
-          const sortKey = sortConfig.key;
+          const sortKey =
+            sortConfig.key === "dimensions" ? "width" : sortConfig.key;
           const sortDir = sortConfig.direction;
           const offset = (currentPage - 1) * pageSize;
+          const advancedFilters = getAdvancedFilterParams();
 
           // Build query URL
-          let url = `/api/media?limit=${pageSize}&offset=${offset}&sort=${sortKey}&order=${sortDir}`;
+          let url = `/api/media?limit=${pageSize}&offset=${offset}&sort=${encodeURIComponent(sortKey)}&order=${sortDir}`;
           if (searchVal) url += `&search=${searchVal}`;
-          if (formatFilter) url += `&format=${formatFilter}`;
-          if (typeFilter) url += `&type=${typeFilter}`;
+          if (formatFilter)
+            url += `&format=${encodeURIComponent(formatFilter)}`;
+          if (typeFilter) url += `&type=${encodeURIComponent(typeFilter)}`;
+          if (advancedFilters.date_from) {
+            url += `&date_from=${encodeURIComponent(advancedFilters.date_from)}`;
+          }
+          if (advancedFilters.date_to) {
+            url += `&date_to=${encodeURIComponent(advancedFilters.date_to)}`;
+          }
+          if (advancedFilters.size_min != null) {
+            url += `&size_min=${advancedFilters.size_min}`;
+          }
+          if (advancedFilters.size_max != null) {
+            url += `&size_max=${advancedFilters.size_max}`;
+          }
 
           const res = await fetch(url, { signal: controller.signal });
           if (!res.ok) throw new Error("API request failed");
@@ -518,10 +1488,11 @@
 
           renderTable();
           updatePaginationControls();
+          updateActiveFilterChips();
         } catch (err) {
           if (err.name === "AbortError") return;
           console.error(err);
-          tbody.innerHTML = `<tr><td colspan="4" class="error-state">Failed to load media catalog: ${err.message}</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="5" class="error-state">Failed to load media catalog: ${err.message}</td></tr>`;
         } finally {
           if (controller === currentFetchController) {
             const elapsedTime = Date.now() - startTime;
@@ -533,6 +1504,9 @@
               if (!isInitial && refreshIcon)
                 refreshIcon.classList.remove("spin");
               if (refreshBtn) refreshBtn.disabled = false;
+              const tableContainer = document.querySelector(".table-container");
+              if (tableContainer)
+                tableContainer.setAttribute("aria-busy", "false");
               currentFetchController = null;
             }, remainingTime);
           }
@@ -551,6 +1525,11 @@
           statsData.num_images;
         document.getElementById("stat-videos").textContent =
           statsData.num_videos;
+
+        const summary = document.getElementById("stats-live-summary");
+        if (summary) {
+          summary.textContent = `Catalog: ${formatCount(statsData.total_files)} files, ${formatBytes(statsData.total_size)} total, ${formatCount(statsData.num_images)} images, ${formatCount(statsData.num_videos)} videos`;
+        }
       }
 
       // Populate format filter options dynamically based on selected type
@@ -600,7 +1579,7 @@
         const tbody = document.getElementById("media-tbody");
 
         if (mediaData.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="4" class="empty-state">No matching media files found.</td></tr>`;
+          tbody.innerHTML = `<tr class="empty-state-row"><td colspan="5" class="empty-state">${buildEmptyStateHtml()}</td></tr>`;
           return;
         }
 
@@ -610,7 +1589,8 @@
         tbody.innerHTML = "";
         mediaData.forEach((row) => {
           const tr = document.createElement("tr");
-          tr.addEventListener("click", () => showDetails(row));
+          tr.tabIndex = 0;
+          tr.setAttribute("role", "button");
 
           const dims =
             row.width && row.height
@@ -619,11 +1599,21 @@
           const fileBase = row.path.split("/").pop();
           const dirPath = row.path.substring(0, row.path.lastIndexOf("/"));
 
+          tr.setAttribute("aria-label", `View details for ${fileBase}`);
+          tr.addEventListener("click", () => showDetails(row, tr));
+          tr.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              showDetails(row, tr);
+            }
+          });
+
           tr.innerHTML = `
                     <td class="file-path-cell">
                         <span class="file-name">${highlightMatch(fileBase, query)}</span>
                         <span class="file-dir" title="${escapeHtml(dirPath)}">${highlightMatch(dirPath, query)}</span>
                     </td>
+                    <td class="date-cell">${formatCaptureDate(row.create_time)}</td>
                     <td>${formatBytes(row.size)}</td>
                     <td><span class="badge badge-format">${highlightMatch((row.format || "").toUpperCase(), query)}</span></td>
                     <td>${dims}</td>
@@ -654,14 +1644,23 @@
 
       // Close the details drawer and its backdrop
       function closeDrawer() {
-        document.getElementById("details-drawer").classList.remove("open");
+        const drawer = document.getElementById("details-drawer");
+        drawer.classList.remove("open");
+        drawer.setAttribute("aria-hidden", "true");
         document.getElementById("drawer-backdrop").classList.remove("visible");
+        document.removeEventListener("keydown", handleDrawerKeydown);
+        const returnFocus = drawerReturnFocus;
+        drawerReturnFocus = null;
+        if (returnFocus && typeof returnFocus.focus === "function") {
+          returnFocus.focus();
+        }
       }
 
       // Show metadata details side drawer
-      function showDetails(row) {
+      function showDetails(row, triggerEl) {
         const drawer = document.getElementById("details-drawer");
         const content = document.getElementById("drawer-content");
+        drawerReturnFocus = triggerEl || document.activeElement;
 
         const fileBase = row.path.split("/").pop();
         const videoFormats = ["mp4", "webm", "mkv", "mov", "avi"];
@@ -676,8 +1675,8 @@
                         <span class="label">Filename:</span>
                         <span class="value-with-action">
                             <span class="value">${escapeHtml(fileBase)}</span>
-                            <button class="copy-btn" onclick="copyValue(this)" title="Copy filename">
-                                <i data-lucide="copy"></i>
+                            <button class="copy-btn" onclick="copyValue(this)" aria-label="Copy filename">
+                                <i data-lucide="copy" aria-hidden="true"></i>
                             </button>
                         </span>
                     </div>
@@ -685,8 +1684,8 @@
                         <span class="label">Full Path:</span>
                         <span class="value-with-action">
                             <span class="value">${escapeHtml(row.path)}</span>
-                            <button class="copy-btn" onclick="copyValue(this)" title="Copy full path">
-                                <i data-lucide="copy"></i>
+                            <button class="copy-btn" onclick="copyValue(this)" aria-label="Copy full path">
+                                <i data-lucide="copy" aria-hidden="true"></i>
                             </button>
                         </span>
                     </div>
@@ -737,8 +1736,8 @@
                             <span class="label">Coordinates:</span>
                             <span class="value-with-action">
                                 <span class="value">${gpsCoords}</span>
-                                <button class="copy-btn" onclick="copyValue(this)" title="Copy coordinates">
-                                    <i data-lucide="copy"></i>
+                                <button class="copy-btn" onclick="copyValue(this)" aria-label="Copy coordinates">
+                                    <i data-lucide="copy" aria-hidden="true"></i>
                                 </button>
                             </span>
                         </div>
@@ -746,7 +1745,7 @@
                             <span class="label">Map Link:</span>
                             <span class="value">
                                 <a href="${mapsUrl}" target="_blank" class="map-link">
-                                    View on Google Maps <i data-lucide="external-link" class="inline-icon"></i>
+                                    View on Google Maps <i data-lucide="external-link" class="inline-icon" aria-hidden="true"></i>
                                 </a>
                             </span>
                         </div>
@@ -756,8 +1755,13 @@
 
         content.innerHTML = html;
         drawer.classList.add("open");
+        drawer.setAttribute("aria-hidden", "false");
         document.getElementById("drawer-backdrop").classList.add("visible");
         lucide.createIcons();
+        document.addEventListener("keydown", handleDrawerKeydown);
+        requestAnimationFrame(() => {
+          document.getElementById("close-drawer-btn")?.focus();
+        });
       }
 
       // Helper: Calculate aspect ratio
@@ -825,10 +1829,22 @@
         const modal = document.getElementById("insights-modal");
         if (show) {
           modal.classList.add("open");
+          modal.setAttribute("aria-hidden", "false");
           switchModalTab(activeModalTab); // recreates charts at current size
+          document.addEventListener("keydown", handleModalKeydown);
+          requestAnimationFrame(() => {
+            document.getElementById("close-modal-btn")?.focus();
+          });
         } else {
           modal.classList.remove("open");
+          modal.setAttribute("aria-hidden", "true");
           destroyAllCharts(); // stop observers before modal is hidden
+          document.removeEventListener("keydown", handleModalKeydown);
+          const returnFocus = modalReturnFocus;
+          modalReturnFocus = null;
+          if (returnFocus && typeof returnFocus.focus === "function") {
+            returnFocus.focus();
+          }
         }
       }
 
@@ -836,19 +1852,23 @@
       function switchModalTab(tabName) {
         activeModalTab = tabName;
 
-        document
-          .getElementById("tab-btn-images")
-          .classList.toggle("active", tabName === "images");
-        document
-          .getElementById("tab-btn-videos")
-          .classList.toggle("active", tabName === "videos");
+        const imagesBtn = document.getElementById("tab-btn-images");
+        const videosBtn = document.getElementById("tab-btn-videos");
+        const imagesPane = document.getElementById("tab-pane-images");
+        const videosPane = document.getElementById("tab-pane-videos");
+        const isImages = tabName === "images";
 
-        document
-          .getElementById("tab-pane-images")
-          .classList.toggle("active", tabName === "images");
-        document
-          .getElementById("tab-pane-videos")
-          .classList.toggle("active", tabName === "videos");
+        imagesBtn.classList.toggle("active", isImages);
+        videosBtn.classList.toggle("active", !isImages);
+        imagesBtn.setAttribute("aria-selected", isImages ? "true" : "false");
+        videosBtn.setAttribute("aria-selected", isImages ? "false" : "true");
+        imagesBtn.tabIndex = isImages ? 0 : -1;
+        videosBtn.tabIndex = isImages ? -1 : 0;
+
+        imagesPane.classList.toggle("active", isImages);
+        videosPane.classList.toggle("active", !isImages);
+        imagesPane.hidden = !isImages;
+        videosPane.hidden = isImages;
 
         if (tabName === "images") {
           renderImageCharts();
@@ -1177,7 +2197,10 @@
         // Insights button
         document
           .getElementById("insights-btn")
-          .addEventListener("click", () => toggleModal(true));
+          .addEventListener("click", () => {
+            modalReturnFocus = document.activeElement;
+            toggleModal(true);
+          });
 
         // Close details drawer
         document
@@ -1213,6 +2236,17 @@
           }
         });
 
+        document
+          .querySelector(".modal-tabs")
+          ?.addEventListener("keydown", handleModalTablistKeydown);
+
+        document
+          .getElementById("tab-btn-images")
+          ?.addEventListener("click", () => switchModalTab("images"));
+        document
+          .getElementById("tab-btn-videos")
+          ?.addEventListener("click", () => switchModalTab("videos"));
+
         // When the 768px layout breakpoint is crossed while the modal is open,
         // destroy and immediately recreate charts so they measure the new
         // container width rather than growing via Chart.js's ResizeObserver.
@@ -1229,16 +2263,71 @@
         // Filter changes
         document
           .getElementById("filter-format")
-          .addEventListener("change", () => {
-            currentPage = 1;
-            fetchMedia();
-          });
+          .addEventListener("change", triggerFilterRefresh);
         document
           .getElementById("filter-type")
           .addEventListener("change", () => {
             updateFormatFilterOptions();
+            triggerFilterRefresh();
+          });
+
+        document.querySelectorAll("[data-date-preset]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            applyDatePreset(btn.getAttribute("data-date-preset"));
+            triggerFilterRefresh();
+          });
+        });
+
+        document.querySelectorAll("[data-size-min-mb]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            applySizePreset(parseInt(btn.getAttribute("data-size-min-mb"), 10));
+            triggerFilterRefresh();
+          });
+        });
+
+        ["filter-date-from", "filter-date-to"].forEach((id) => {
+          document.getElementById(id).addEventListener("change", () => {
+            clearDatePresetActive();
+            triggerFilterRefresh();
+          });
+        });
+
+        let sizeFilterTimeout;
+        ["filter-size-min", "filter-size-max"].forEach((id) => {
+          document.getElementById(id).addEventListener("input", () => {
+            clearSizePresetActive();
+            clearTimeout(sizeFilterTimeout);
+            sizeFilterTimeout = setTimeout(triggerFilterRefresh, 400);
+          });
+        });
+
+        document
+          .getElementById("clear-filters-btn")
+          .addEventListener("click", () => {
+            clearAdvancedFilters();
+            updateFormatFilterOptions();
             currentPage = 1;
             fetchMedia();
+          });
+
+        document
+          .getElementById("active-filters")
+          ?.addEventListener("click", (e) => {
+            const btn = e.target.closest(".filter-chip-dismiss");
+            if (!btn) return;
+            const key = btn
+              .closest(".filter-chip")
+              ?.getAttribute("data-filter-key");
+            if (key) removeFilterChip(key);
+          });
+
+        document
+          .getElementById("media-tbody")
+          ?.addEventListener("click", (e) => {
+            const btn = e.target.closest(".empty-state-action");
+            if (!btn) return;
+            e.stopPropagation();
+            handleEmptyStateAction(btn);
           });
 
         // Search input with 300ms debounce
@@ -1247,10 +2336,7 @@
           .getElementById("search-input")
           .addEventListener("input", () => {
             clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-              currentPage = 1;
-              fetchMedia();
-            }, 300);
+            searchTimeout = setTimeout(triggerFilterRefresh, 300);
           });
 
         // Pagination buttons
@@ -1300,23 +2386,30 @@
             th.classList.add(
               sortConfig.direction === "asc" ? "sort-asc" : "sort-desc",
             );
+            updateSortAriaIndicators();
 
             currentPage = 1;
             fetchMedia();
           });
         });
 
-        // Mark initial sort column indicator
+        updateSortAriaIndicators();
+
         const initialSortTh = document.querySelector(
           `#media-table th[data-sort="${sortConfig.key}"]`,
         );
-        if (initialSortTh)
+        if (initialSortTh) {
           initialSortTh.classList.add(
             sortConfig.direction === "asc" ? "sort-asc" : "sort-desc",
           );
+        }
 
         // Initialize Lucide Icons for static elements
         lucide.createIcons();
+
+        updateDatePresetActiveState();
+        updateSizePresetActiveState();
+        initMoreFiltersToggle();
       });
     </script>
   </body>

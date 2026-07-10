@@ -310,6 +310,10 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
         var search: ?[]const u8 = null;
         var filter_format: ?[]const u8 = null;
         var filter_type: ?[]const u8 = null;
+        var date_from: ?[]const u8 = null;
+        var date_to: ?[]const u8 = null;
+        var size_min: ?u64 = null;
+        var size_max: ?u64 = null;
         var sort_by: ?[]const u8 = null;
         var sort_order: ?[]const u8 = null;
 
@@ -330,6 +334,14 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
                 filter_format = val;
             } else if (std.mem.eql(u8, key, "type")) {
                 filter_type = val;
+            } else if (std.mem.eql(u8, key, "date_from")) {
+                date_from = val;
+            } else if (std.mem.eql(u8, key, "date_to")) {
+                date_to = val;
+            } else if (std.mem.eql(u8, key, "size_min")) {
+                size_min = std.fmt.parseInt(u64, val, 10) catch null;
+            } else if (std.mem.eql(u8, key, "size_max")) {
+                size_max = std.fmt.parseInt(u64, val, 10) catch null;
             } else if (std.mem.eql(u8, key, "sort")) {
                 sort_by = val;
             } else if (std.mem.eql(u8, key, "order")) {
@@ -346,6 +358,12 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
 
         const decoded_type = if (filter_type) |t| urlDecode(allocator, t) else null;
         defer if (decoded_type) |dt| allocator.free(dt);
+
+        const decoded_date_from = if (date_from) |df| urlDecode(allocator, df) else null;
+        defer if (decoded_date_from) |ddf| allocator.free(ddf);
+
+        const decoded_date_to = if (date_to) |dt| urlDecode(allocator, dt) else null;
+        defer if (decoded_date_to) |ddt| allocator.free(ddt);
 
         const decoded_sort = if (sort_by) |sb| urlDecode(allocator, sb) else null;
         defer if (decoded_sort) |dsb| allocator.free(dsb);
@@ -364,6 +382,10 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
                 decoded_search,
                 decoded_format,
                 decoded_type,
+                decoded_date_from,
+                decoded_date_to,
+                size_min,
+                size_max,
                 decoded_sort,
                 decoded_order,
             ) catch |err| {

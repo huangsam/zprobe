@@ -1,5 +1,6 @@
 const std = @import("std");
 const ByteReader = @import("../../core/byte_reader.zig").ByteReader;
+const utils = @import("../../core/utils.zig");
 const common = @import("common.zig");
 const ImageMetadata = common.ImageMetadata;
 
@@ -94,7 +95,9 @@ pub fn parseIfd(
             0x9003 => { // DateTimeOriginal (EXIF tag 36867): capture timestamp in "YYYY:MM:DD HH:MM:SS" format
                 if (type_id == 2) {
                     if (meta.create_time) |s| allocator.free(s);
-                    meta.create_time = try val_reader.readAscii(allocator, count);
+                    const raw = try val_reader.readAscii(allocator, count);
+                    defer allocator.free(raw);
+                    meta.create_time = try utils.normalizeDateTime(allocator, raw);
                 }
             },
             else => {},

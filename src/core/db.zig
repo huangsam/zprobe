@@ -145,6 +145,21 @@ pub const Db = struct {
             return error.DatabaseSchemaError;
         }
 
+        const create_indices_sql =
+            \\CREATE INDEX IF NOT EXISTS idx_media_size ON media(size);
+            \\CREATE INDEX IF NOT EXISTS idx_media_create_time ON media(create_time);
+            \\CREATE INDEX IF NOT EXISTS idx_media_format ON media(format);
+        ;
+        err_msg = null;
+        const indices_rc = c.sqlite3_exec(handle, create_indices_sql, null, null, &err_msg);
+        if (indices_rc != c.SQLITE_OK) {
+            if (err_msg) |msg| {
+                std.debug.print("SQL error creating indices: {s}\n", .{msg});
+                c.sqlite3_free(msg);
+            }
+            return error.DatabaseSchemaError;
+        }
+
         var query_stmt: ?*c.sqlite3_stmt = null;
         const query_sql = "SELECT size, mtime, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec FROM media WHERE path = ?;";
         if (c.sqlite3_prepare_v2(handle, query_sql, -1, &query_stmt, null) != c.SQLITE_OK) {
@@ -646,6 +661,10 @@ pub const Db = struct {
         records: []DbRecord,
     };
 
+    /// SQL expression that normalizes EXIF "YYYY:MM:DD ..." to "YYYY-MM-DD ...".
+    const normalized_create_time_expr =
+        "REPLACE(SUBSTR(create_time, 1, 10), ':', '-') || SUBSTR(create_time, 11)";
+
     /// Retrieve a page of filtered, searched, and sorted media catalog entries.
     pub fn getRecordsPaged(
         self: *Db,
@@ -655,12 +674,16 @@ pub const Db = struct {
         search: ?[]const u8,
         format_filter: ?[]const u8,
         type_filter: ?[]const u8,
+        date_from: ?[]const u8,
+        date_to: ?[]const u8,
+        size_min: ?u64,
+        size_max: ?u64,
         sort_by: ?[]const u8,
         sort_order: ?[]const u8,
     ) !PagedResult {
         if (self.handle == null) return error.DatabaseNotOpen;
 
-        // Build WHERE clauses dynamically
+        // Build WHERE clauses dynamically with sequential bind indices
         var query_buf: std.ArrayList(u8) = .empty;
         defer query_buf.deinit(allocator);
 
@@ -669,11 +692,18 @@ pub const Db = struct {
 
         try writer.writeAll("FROM media WHERE 1=1");
 
+        var next_param: c_int = 1;
+
         if (search) |_| {
-            try writer.writeAll(" AND (path LIKE ?1 OR camera_make LIKE ?1 OR camera_model LIKE ?1 OR format LIKE ?1)");
+            try writer.print(
+                " AND (path LIKE ?{d} OR camera_make LIKE ?{d} OR camera_model LIKE ?{d} OR format LIKE ?{d})",
+                .{ next_param, next_param, next_param, next_param },
+            );
+            next_param += 1;
         }
         if (format_filter) |_| {
-            try writer.writeAll(" AND format = ?2");
+            try writer.print(" AND format = ?{d}", .{next_param});
+            next_param += 1;
         }
         if (type_filter) |t| {
             if (std.mem.eql(u8, t, "image")) {
@@ -682,10 +712,85 @@ pub const Db = struct {
                 try writer.writeAll(" AND (duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))");
             }
         }
+        if (date_from) |_| {
+            try writer.print(" AND create_time IS NOT NULL AND " ++ normalized_create_time_expr ++ " >= ?{d}", .{next_param});
+            next_param += 1;
+        }
+        if (date_to) |_| {
+            try writer.print(" AND create_time IS NOT NULL AND " ++ normalized_create_time_expr ++ " <= ?{d}", .{next_param});
+            next_param += 1;
+        }
+        if (size_min) |_| {
+            try writer.print(" AND size >= ?{d}", .{next_param});
+            next_param += 1;
+        }
+        if (size_max) |_| {
+            try writer.print(" AND size <= ?{d}", .{next_param});
+            next_param += 1;
+        }
+
+        const limit_param = next_param;
+        next_param += 1;
+        const offset_param = next_param;
 
         query_buf = aw.toArrayList();
         const base_where = try query_buf.toOwnedSlice(allocator);
         defer allocator.free(base_where);
+
+        // Prepare bind values (kept alive until queries complete)
+        var search_like: ?[]const u8 = null;
+        defer if (search_like) |sl| allocator.free(sl);
+        var date_from_bound: ?[]const u8 = null;
+        defer if (date_from_bound) |dfb| allocator.free(dfb);
+        var date_to_bound: ?[]const u8 = null;
+        defer if (date_to_bound) |dtb| allocator.free(dtb);
+
+        if (search) |s| {
+            search_like = try std.fmt.allocPrint(allocator, "%{s}%", .{s});
+        }
+        if (date_from) |df| {
+            date_from_bound = try std.fmt.allocPrint(allocator, "{s} 00:00:00", .{df});
+        }
+        if (date_to) |dt| {
+            date_to_bound = try std.fmt.allocPrint(allocator, "{s} 23:59:59", .{dt});
+        }
+
+        const bindFilters = struct {
+            fn apply(
+                stmt: *c.sqlite3_stmt,
+                s_like: ?[]const u8,
+                fmt: ?[]const u8,
+                d_from: ?[]const u8,
+                d_to: ?[]const u8,
+                s_min: ?u64,
+                s_max: ?u64,
+            ) void {
+                var idx: c_int = 1;
+                if (s_like) |sl| {
+                    _ = c.sqlite3_bind_text(stmt, idx, sl.ptr, @intCast(sl.len), null);
+                    idx += 1;
+                }
+                if (fmt) |f| {
+                    _ = c.sqlite3_bind_text(stmt, idx, f.ptr, @intCast(f.len), null);
+                    idx += 1;
+                }
+                if (d_from) |df| {
+                    _ = c.sqlite3_bind_text(stmt, idx, df.ptr, @intCast(df.len), null);
+                    idx += 1;
+                }
+                if (d_to) |dt| {
+                    _ = c.sqlite3_bind_text(stmt, idx, dt.ptr, @intCast(dt.len), null);
+                    idx += 1;
+                }
+                if (s_min) |sm| {
+                    _ = c.sqlite3_bind_int64(stmt, idx, @intCast(sm));
+                    idx += 1;
+                }
+                if (s_max) |sx| {
+                    _ = c.sqlite3_bind_int64(stmt, idx, @intCast(sx));
+                }
+            }
+        }.apply;
 
         // 1. Fetch count
         var count_buf: std.ArrayList(u8) = .empty;
@@ -706,17 +811,15 @@ pub const Db = struct {
         }
         defer _ = c.sqlite3_finalize(count_stmt);
 
-        // Keep search_like alive until execution completes to avoid pointer lifetime issues with sqlite3_bind_text
-        var search_like: ?[]const u8 = null;
-        defer if (search_like) |sl| allocator.free(sl);
-
-        if (search) |s| {
-            search_like = try std.fmt.allocPrint(allocator, "%{s}%", .{s});
-            _ = c.sqlite3_bind_text(count_stmt, 1, search_like.?.ptr, @intCast(search_like.?.len), null);
-        }
-        if (format_filter) |f| {
-            _ = c.sqlite3_bind_text(count_stmt, 2, f.ptr, @intCast(f.len), null);
-        }
+        bindFilters(
+            count_stmt.?,
+            search_like,
+            format_filter,
+            date_from_bound,
+            date_to_bound,
+            size_min,
+            size_max,
+        );
 
         var total: u32 = 0;
         if (c.sqlite3_step(count_stmt) == c.SQLITE_ROW) {
@@ -732,6 +835,7 @@ pub const Db = struct {
 
         // Sorting
         var valid_sort: []const u8 = "path";
+        var sort_expr: []const u8 = "path";
         const allowed_sort = [_][]const u8{ "path", "size", "format", "width", "height", "duration_sec", "camera_model", "create_time" };
         if (sort_by) |sb| {
             for (allowed_sort) |allowed| {
@@ -741,13 +845,18 @@ pub const Db = struct {
                 }
             }
         }
+        if (std.mem.eql(u8, valid_sort, "create_time")) {
+            sort_expr = normalized_create_time_expr;
+        } else {
+            sort_expr = valid_sort;
+        }
         var valid_order: []const u8 = "ASC";
         if (sort_order) |so| {
             if (std.ascii.eqlIgnoreCase(so, "desc")) {
                 valid_order = "DESC";
             }
         }
-        try select_aw.writer.print(" ORDER BY {s} {s} LIMIT ?3 OFFSET ?4;", .{ valid_sort, valid_order });
+        try select_aw.writer.print(" ORDER BY {s} {s} LIMIT ?{d} OFFSET ?{d};", .{ sort_expr, valid_order, limit_param, offset_param });
 
         select_buf = select_aw.toArrayList();
         const select_sql = try select_buf.toOwnedSlice(allocator);
@@ -760,15 +869,17 @@ pub const Db = struct {
         }
         defer _ = c.sqlite3_finalize(select_stmt);
 
-        // Bind parameters for select
-        if (search_like) |sl| {
-            _ = c.sqlite3_bind_text(select_stmt, 1, sl.ptr, @intCast(sl.len), null);
-        }
-        if (format_filter) |f| {
-            _ = c.sqlite3_bind_text(select_stmt, 2, f.ptr, @intCast(f.len), null);
-        }
-        _ = c.sqlite3_bind_int(select_stmt, 3, @intCast(limit));
-        _ = c.sqlite3_bind_int(select_stmt, 4, @intCast(offset));
+        bindFilters(
+            select_stmt.?,
+            search_like,
+            format_filter,
+            date_from_bound,
+            date_to_bound,
+            size_min,
+            size_max,
+        );
+        _ = c.sqlite3_bind_int(select_stmt, limit_param, @intCast(limit));
+        _ = c.sqlite3_bind_int(select_stmt, offset_param, @intCast(offset));
 
         var list: std.ArrayList(DbRecord) = .empty;
         errdefer {

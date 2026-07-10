@@ -27,3 +27,26 @@ pub fn formatEpoch(allocator: std.mem.Allocator, epoch_secs: u64) ![]const u8 {
         year, m, d, hour, minute, second,
     });
 }
+
+/// Normalize EXIF-style timestamps ("YYYY:MM:DD HH:MM:SS") to sortable
+/// "YYYY-MM-DD HH:MM:SS". Returns a dupe of input when already normalized.
+pub fn normalizeDateTime(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
+    if (input.len >= 10 and input[4] == ':' and input[7] == ':') {
+        var out = try allocator.dupe(u8, input);
+        out[4] = '-';
+        out[7] = '-';
+        return out;
+    }
+    return try allocator.dupe(u8, input);
+}
+
+test "normalizeDateTime converts EXIF colons to dashes" {
+    const allocator = std.testing.allocator;
+    const normalized = try normalizeDateTime(allocator, "2026:06:27 10:15:30");
+    defer allocator.free(normalized);
+    try std.testing.expectEqualStrings("2026-06-27 10:15:30", normalized);
+
+    const already = try normalizeDateTime(allocator, "2024-08-04 21:00:57");
+    defer allocator.free(already);
+    try std.testing.expectEqualStrings("2024-08-04 21:00:57", already);
+}
