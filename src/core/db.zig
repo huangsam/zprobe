@@ -953,3 +953,717 @@ pub const Db = struct {
         };
     }
 };
+
+// --- test helpers ---
+
+const test_utils = @import("test_utils.zig");
+
+const TestDb = struct {
+    db: Db,
+    tmp_ctx: test_utils.TempDirContext,
+    path: []const u8,
+
+    fn deinit(self: *TestDb, allocator: std.mem.Allocator) void {
+        self.db.deinit();
+        allocator.free(self.path);
+        self.tmp_ctx.cleanup();
+    }
+};
+
+fn testDb(allocator: std.mem.Allocator) !TestDb {
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    errdefer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/zprobe_test.db", .{tmp_ctx.abs_path});
+    errdefer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    errdefer database.deinit();
+
+    try seedFixture(&database);
+
+    return .{
+        .db = database,
+        .tmp_ctx = tmp_ctx,
+        .path = path,
+    };
+}
+
+fn seedRecord(db: *Db, record: DbRecord, mtime: i64) !void {
+    try db.insertMedia(&record, mtime);
+}
+
+fn seedFixture(db: *Db) !void {
+    try seedRecord(db, .{
+        .path = "/photos/a.jpg",
+        .size = 500_000,
+        .format = "jpeg",
+        .create_time = "2026:06:27 10:15:30",
+    }, 1);
+    try seedRecord(db, .{
+        .path = "/photos/b.jpg",
+        .size = 2_000_000,
+        .format = "jpeg",
+        .create_time = "2026-06-14 12:00:00",
+    }, 2);
+    try seedRecord(db, .{
+        .path = "/photos/c.png",
+        .size = 50_000,
+        .format = "png",
+    }, 3);
+    try seedRecord(db, .{
+        .path = "/videos/d.mp4",
+        .size = 1_500_000_000,
+        .format = "mp4",
+        .create_time = "2024-08-04 21:00:57",
+        .duration_sec = 22.6,
+    }, 4);
+    try seedRecord(db, .{
+        .path = "/videos/e.mov",
+        .size = 24_000_000,
+        .format = "mov",
+        .create_time = "2022-07-31 23:52:28",
+        .duration_sec = 6.6,
+    }, 5);
+    try seedRecord(db, .{
+        .path = "/photos/f.tiff",
+        .size = 800_000,
+        .format = "tiff",
+        .create_time = "2015-04-10 00:07:02",
+    }, 6);
+}
+
+fn freeRecords(allocator: std.mem.Allocator, records: []DbRecord) void {
+    for (records) |r| {
+        r.deinit(allocator);
+        allocator.free(r.path);
+        allocator.free(r.format);
+    }
+    allocator.free(records);
+}
+
+fn freePaged(allocator: std.mem.Allocator, result: Db.PagedResult) void {
+    freeRecords(allocator, result.records);
+}
+
+fn expectPaths(records: []const DbRecord, expected: []const []const u8) !void {
+    try std.testing.expectEqual(expected.len, records.len);
+    for (expected, records) |exp, rec| {
+        try std.testing.expectEqualStrings(exp, rec.path);
+    }
+}
+
+fn hasPath(records: []const DbRecord, path: []const u8) bool {
+    for (records) |r| {
+        if (std.mem.eql(u8, r.path, path)) return true;
+    }
+    return false;
+}
+
+fn queryIndexCount(db: *Db, index_name: []const u8) !u32 {
+    const handle = db.handle orelse return error.DatabaseNotOpen;
+    const sql = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?;";
+    var stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(handle, sql, -1, &stmt, null) != c.SQLITE_OK) return error.DatabasePrepareError;
+    defer _ = c.sqlite3_finalize(stmt);
+    _ = c.sqlite3_bind_text(stmt, 1, index_name.ptr, @intCast(index_name.len), null);
+    if (c.sqlite3_step(stmt) != c.SQLITE_ROW) return 0;
+    return @intCast(c.sqlite3_column_int(stmt, 0));
+}
+
+fn countRows(db: *Db) !u32 {
+    const handle = db.handle orelse return error.DatabaseNotOpen;
+    const sql = "SELECT COUNT(*) FROM media;";
+    var stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(handle, sql, -1, &stmt, null) != c.SQLITE_OK) return error.DatabasePrepareError;
+    defer _ = c.sqlite3_finalize(stmt);
+    if (c.sqlite3_step(stmt) != c.SQLITE_ROW) return 0;
+    return @intCast(c.sqlite3_column_int(stmt, 0));
+}
+
+// --- Phase 1: filter regression guards ---
+
+test "date filter includes EXIF colon timestamps (T1)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        "2026-06-01",
+        "2026-06-30",
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 2), result.total);
+    try std.testing.expect(hasPath(result.records, "/photos/a.jpg"));
+    try std.testing.expect(hasPath(result.records, "/photos/b.jpg"));
+}
+
+test "date filter excludes NULL create_time (T2)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        "2026-06-01",
+        "2026-06-30",
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expect(!hasPath(result.records, "/photos/c.png"));
+}
+
+test "date boundary inclusivity on single day (T3)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        "2026-06-27",
+        "2026-06-27",
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 1), result.total);
+    try expectPaths(result.records, &.{"/photos/a.jpg"});
+}
+
+test "size min filter (T4)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1_073_741_824,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 1), result.total);
+    try expectPaths(result.records, &.{"/videos/d.mp4"});
+}
+
+test "size max filter (T5)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1_000_000,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 3), result.total);
+    try std.testing.expect(hasPath(result.records, "/photos/a.jpg"));
+    try std.testing.expect(hasPath(result.records, "/photos/c.png"));
+    try std.testing.expect(hasPath(result.records, "/photos/f.tiff"));
+    try std.testing.expect(!hasPath(result.records, "/videos/d.mp4"));
+}
+
+test "combined date and size filters (T6)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        "2026-06-01",
+        "2026-06-30",
+        400_000,
+        1_000_000,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 1), result.total);
+    try expectPaths(result.records, &.{"/photos/a.jpg"});
+}
+
+// --- Phase 2: getRecordsPaged core behavior ---
+
+test "no filters returns full count (T7)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 6), result.total);
+    try std.testing.expectEqual(@as(usize, 6), result.records.len);
+    try expectPaths(result.records, &.{
+        "/photos/a.jpg",
+        "/photos/b.jpg",
+        "/photos/c.png",
+        "/photos/f.tiff",
+        "/videos/d.mp4",
+        "/videos/e.mov",
+    });
+}
+
+test "format filter (T8)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        "jpeg",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 2), result.total);
+    try std.testing.expect(hasPath(result.records, "/photos/a.jpg"));
+    try std.testing.expect(hasPath(result.records, "/photos/b.jpg"));
+}
+
+test "type filter image (T9)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        "image",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 4), result.total);
+    try std.testing.expect(!hasPath(result.records, "/videos/d.mp4"));
+    try std.testing.expect(!hasPath(result.records, "/videos/e.mov"));
+}
+
+test "type filter video (T10)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        "video",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 2), result.total);
+    try expectPaths(result.records, &.{ "/videos/d.mp4", "/videos/e.mov" });
+}
+
+test "search path substring (T11)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        "photos",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 4), result.total);
+    try std.testing.expect(!hasPath(result.records, "/videos/d.mp4"));
+}
+
+test "search format substring (T12)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        "mov",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 1), result.total);
+    try expectPaths(result.records, &.{"/videos/e.mov"});
+}
+
+test "sort by create_time DESC (T13)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "create_time",
+        "desc",
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 6), result.total);
+    try std.testing.expectEqualStrings("/photos/a.jpg", result.records[0].path);
+    try std.testing.expectEqualStrings("/photos/b.jpg", result.records[1].path);
+    try std.testing.expectEqualStrings("/videos/d.mp4", result.records[2].path);
+}
+
+test "sort by size ASC (T14)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "size",
+        "asc",
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqualStrings("/photos/c.png", result.records[0].path);
+}
+
+test "pagination without duplicate paths (T15)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const page0 = try fixture.db.getRecordsPaged(
+        allocator,
+        2,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "path",
+        "asc",
+    );
+    defer freePaged(allocator, page0);
+
+    const page1 = try fixture.db.getRecordsPaged(
+        allocator,
+        2,
+        2,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "path",
+        "asc",
+    );
+    defer freePaged(allocator, page1);
+
+    try std.testing.expectEqual(@as(u32, 6), page0.total);
+    try std.testing.expectEqual(@as(u32, 6), page1.total);
+    try std.testing.expectEqual(@as(usize, 2), page0.records.len);
+    try std.testing.expectEqual(@as(usize, 2), page1.records.len);
+
+    for (page0.records) |r0| {
+        for (page1.records) |r1| {
+            try std.testing.expect(!std.mem.eql(u8, r0.path, r1.path));
+        }
+    }
+}
+
+test "invalid sort key falls back to path (T16)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "dimensions",
+        "asc",
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 6), result.total);
+    try expectPaths(result.records, &.{
+        "/photos/a.jpg",
+        "/photos/b.jpg",
+        "/photos/c.png",
+        "/photos/f.tiff",
+        "/videos/d.mp4",
+        "/videos/e.mov",
+    });
+}
+
+// --- Phase 3: other Db APIs ---
+
+test "insertMedia and queryCache hit and miss (T17)" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/cache_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    const record = DbRecord{
+        .path = "/tmp/test.png",
+        .size = 1234,
+        .format = "png",
+        .width = 100,
+        .height = 200,
+    };
+    try seedRecord(&database, record, 999);
+
+    const hit = try database.queryCache(allocator, record.path, record.size, 999);
+    defer if (hit.hit) hit.json_out.deinit(allocator);
+    defer if (hit.hit) allocator.free(hit.json_out.format);
+    try std.testing.expect(hit.hit);
+    try std.testing.expectEqual(@as(u64, 1234), hit.json_out.size);
+
+    const size_miss = try database.queryCache(allocator, record.path, record.size + 1, 999);
+    try std.testing.expect(!size_miss.hit);
+
+    const mtime_miss = try database.queryCache(allocator, record.path, record.size, 998);
+    try std.testing.expect(!mtime_miss.hit);
+}
+
+test "insertMedia upsert replaces row (T18)" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/upsert_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    const file_path = "/photos/upsert.jpg";
+    try seedRecord(&database, .{
+        .path = file_path,
+        .size = 100,
+        .format = "jpeg",
+    }, 1);
+    try seedRecord(&database, .{
+        .path = file_path,
+        .size = 200,
+        .format = "jpeg",
+    }, 2);
+
+    try std.testing.expectEqual(@as(u32, 1), try countRows(&database));
+
+    const result = try database.getRecordsPaged(
+        allocator,
+        10,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 1), result.total);
+    try std.testing.expectEqual(@as(u64, 200), result.records[0].size);
+}
+
+test "getStats smoke after seeding (T19)" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const stats = try fixture.db.getStats(allocator);
+    defer stats.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u32, 6), stats.total_files);
+    try std.testing.expectEqual(@as(u32, 2), stats.num_videos);
+    try std.testing.expectEqual(@as(u32, 4), stats.num_images);
+}
+
+test "init creates expected indices (T20)" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/indices_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_media_size"));
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_media_create_time"));
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_media_format"));
+}
+
+test "last 7 days window with June-only fixture returns zero rows" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        100,
+        0,
+        null,
+        null,
+        null,
+        "2026-07-03",
+        "2026-07-10",
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 0), result.total);
+    try std.testing.expectEqual(@as(usize, 0), result.records.len);
+}
