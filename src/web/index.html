@@ -15,7 +15,7 @@
     <a href="#catalog-table" class="skip-link">Skip to catalog table</a>
     <div class="app-container">
       <!-- Sidebar / Navigation -->
-      <header class="app-header">
+      <header class="app-header surface">
         <div class="logo-container">
           <span class="logo-icon" aria-hidden="true"
             ><i data-lucide="search"></i
@@ -26,11 +26,7 @@
           </div>
         </div>
         <div class="header-actions">
-          <button
-            id="insights-btn"
-            class="btn btn-secondary"
-            style="margin-right: 0.75rem"
-          >
+          <button id="insights-btn" class="btn btn-secondary">
             <i
               data-lucide="bar-chart-2"
               class="btn-icon"
@@ -54,7 +50,7 @@
             class="visually-hidden"
             aria-live="polite"
           ></p>
-          <div class="metric-card">
+          <div class="metric-card surface">
             <div class="metric-icon blue" aria-hidden="true">
               <i data-lucide="files"></i>
             </div>
@@ -63,7 +59,7 @@
               <p id="stat-total-files">0</p>
             </div>
           </div>
-          <div class="metric-card">
+          <div class="metric-card surface">
             <div class="metric-icon purple" aria-hidden="true">
               <i data-lucide="database"></i>
             </div>
@@ -72,7 +68,7 @@
               <p id="stat-total-size">0 Bytes</p>
             </div>
           </div>
-          <div class="metric-card">
+          <div class="metric-card surface">
             <div class="metric-icon green" aria-hidden="true">
               <i data-lucide="image"></i>
             </div>
@@ -81,7 +77,7 @@
               <p id="stat-images">0</p>
             </div>
           </div>
-          <div class="metric-card">
+          <div class="metric-card surface">
             <div class="metric-icon orange" aria-hidden="true">
               <i data-lucide="video"></i>
             </div>
@@ -94,7 +90,7 @@
 
         <!-- Unified Filter Bar -->
         <section
-          class="filter-bar"
+          class="filter-bar surface"
           id="filter-bar"
           aria-label="Filter media catalog"
         >
@@ -286,7 +282,7 @@
         </section>
 
         <!-- Media Table / Grid -->
-        <section class="catalog-section" id="catalog-table">
+        <section class="catalog-section surface" id="catalog-table">
           <div class="table-container" aria-busy="false">
             <table id="media-table">
               <caption class="visually-hidden">
@@ -382,13 +378,8 @@
               >
                 <i
                   data-lucide="chevron-left"
+                  class="btn-icon"
                   aria-hidden="true"
-                  style="
-                    width: 14px;
-                    height: 14px;
-                    margin-right: 4px;
-                    vertical-align: middle;
-                  "
                 ></i>
                 Previous
               </button>
@@ -401,13 +392,8 @@
                 Next
                 <i
                   data-lucide="chevron-right"
+                  class="btn-icon"
                   aria-hidden="true"
-                  style="
-                    width: 14px;
-                    height: 14px;
-                    margin-left: 4px;
-                    vertical-align: middle;
-                  "
                 ></i>
               </button>
             </div>
@@ -459,7 +445,7 @@
       <!-- Insights Modal Overlay -->
       <div id="insights-modal" class="modal" aria-hidden="true">
         <div
-          class="modal-content"
+          class="modal-content surface"
           role="dialog"
           aria-modal="true"
           aria-labelledby="modal-title"
@@ -469,7 +455,6 @@
               <i
                 data-lucide="bar-chart-2"
                 class="inline-icon"
-                style="color: var(--primary); margin-right: 8px"
                 aria-hidden="true"
               ></i>
               Visual Insights
@@ -501,7 +486,6 @@
                 <i
                   data-lucide="image"
                   class="inline-icon"
-                  style="width: 16px; height: 16px; margin-right: 4px"
                   aria-hidden="true"
                 ></i>
                 Images
@@ -518,7 +502,6 @@
                 <i
                   data-lucide="video"
                   class="inline-icon"
-                  style="width: 16px; height: 16px; margin-right: 4px"
                   aria-hidden="true"
                 ></i>
                 Videos
