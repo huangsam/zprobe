@@ -37,6 +37,8 @@
   --primary: #2b76db; /* Synology Brand Blue */
   --primary-hover: #1e5cb8;
   --primary-light: rgba(43, 118, 219, 0.08);
+  --primary-border: rgba(43, 118, 219, 0.35);
+  --focus-ring: 0 0 0 3px rgba(43, 118, 219, 0.15);
 
   --success: #2e7d32;
   --warning: #ef6c00;
@@ -123,7 +125,6 @@ body {
   flex: 1 1 280px;
   justify-content: flex-end;
   gap: 0.75rem;
-  min-width: 0;
 }
 
 .logo-container {
@@ -211,14 +212,6 @@ body {
 
 .btn:active:not(:disabled) {
   transform: scale(0.97);
-}
-
-.btn:focus-visible,
-.tab-btn:focus-visible,
-.pagination-buttons .btn:focus-visible,
-#clear-filters-btn:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
 }
 
 /* Dashboard Metrics Grid - Generous gap */
@@ -315,7 +308,6 @@ body {
   flex-direction: column;
   gap: 0;
   box-shadow: var(--shadow-sm);
-  min-width: 0;
   max-width: 100%;
 }
 
@@ -324,7 +316,6 @@ body {
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   gap: 0.875rem;
-  min-width: 0;
 }
 
 .filter-bar-advanced {
@@ -343,7 +334,6 @@ body {
 .search-wrapper {
   position: relative;
   width: 100%;
-  min-width: 0;
 }
 
 .search-icon {
@@ -370,19 +360,12 @@ body {
     box-shadow var(--transition-fast);
 }
 
-#search-input:focus {
-  border-color: var(--primary);
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(43, 118, 219, 0.15);
-}
-
 .filters-wrapper {
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
   gap: 0.75rem;
   width: 100%;
-  min-width: 0;
 }
 
 .filters-wrapper select {
@@ -415,13 +398,6 @@ body {
   transform: rotate(180deg);
 }
 
-.more-filters-toggle.active {
-  background: var(--primary-light);
-  border-color: rgba(43, 118, 219, 0.35);
-  color: var(--primary);
-  font-weight: 600;
-}
-
 .filter-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -433,7 +409,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  min-width: 0;
   border: none;
   margin: 0;
   padding: 0;
@@ -449,7 +424,6 @@ body {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.65rem;
-  min-width: 0;
 }
 
 .filter-label {
@@ -469,7 +443,6 @@ body {
 .filter-inputs input[type="date"],
 .filter-inputs input[type="number"] {
   flex: 1;
-  min-width: 0;
   background: #ffffff;
   border: 1px solid var(--border-color);
   border-radius: 6px;
@@ -483,13 +456,6 @@ body {
     border-color var(--transition-fast),
     background-color var(--transition-fast),
     box-shadow var(--transition-fast);
-}
-
-.filter-inputs input[type="date"]:focus,
-.filter-inputs input[type="number"]:focus {
-  border-color: var(--primary);
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(43, 118, 219, 0.15);
 }
 
 .filter-presets {
@@ -523,25 +489,9 @@ body {
   color: var(--text-primary);
 }
 
-.filter-preset.active {
-  background: var(--primary-light);
-  border-color: rgba(43, 118, 219, 0.35);
-  color: var(--primary);
-  font-weight: 600;
-}
-
 .filter-preset.active:hover {
   background: rgba(43, 118, 219, 0.12);
   border-color: rgba(43, 118, 219, 0.45);
-}
-
-.filter-preset:focus-visible,
-.more-filters-toggle:focus-visible,
-.filter-chip-dismiss:focus-visible,
-.empty-state-action:focus-visible,
-#clear-filters-btn:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
 }
 
 .filter-actions {
@@ -560,6 +510,21 @@ body {
   align-items: center;
   gap: 0.75rem;
   flex: 1;
+}
+
+/* Flex/grid children must shrink below intrinsic content width */
+.header-actions,
+.filter-bar,
+.filter-bar-primary,
+.search-wrapper,
+.filters-wrapper,
+.filter-group,
+.filter-inputs,
+.filter-actions-left,
+.filter-inputs input[type="date"],
+.filter-inputs input[type="number"],
+.file-path-cell,
+.value-with-action .value {
   min-width: 0;
 }
 
@@ -652,14 +617,63 @@ select {
     background-color var(--transition-fast);
 }
 
-select:focus {
-  border-color: var(--primary);
+select.select-sm {
+  padding: 0.35rem 1.75rem 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  background-color: #ffffff;
 }
 
-#search-input:focus-visible,
-select:focus-visible {
+:is(
+  #search-input,
+  select,
+  .filter-inputs input[type="date"],
+  .filter-inputs input[type="number"]
+):is(:focus, :focus-visible) {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(43, 118, 219, 0.15);
+  box-shadow: var(--focus-ring);
+}
+
+:is(
+  #search-input,
+  .filter-inputs input[type="date"],
+  .filter-inputs input[type="number"]
+):is(:focus, :focus-visible) {
+  background: #ffffff;
+}
+
+:is(
+  .btn,
+  .tab-btn,
+  .pagination-buttons .btn,
+  #clear-filters-btn,
+  .filter-preset,
+  .more-filters-toggle,
+  .filter-chip-dismiss,
+  .empty-state-action,
+  .close-btn,
+  .copy-btn
+):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+:is(#media-table th, #media-table tbody tr[role="button"]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.close-btn:focus-visible {
+  border-radius: 4px;
+}
+
+:is(.more-filters-toggle, .filter-preset, .tab-btn).active {
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+:is(.more-filters-toggle, .filter-preset).active {
+  border-color: var(--primary-border);
 }
 
 /* Media Table / File Station look */
@@ -702,11 +716,6 @@ th:hover {
   color: var(--text-primary);
 }
 
-#media-table th:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
-}
-
 #media-table th.sort-asc::after,
 #media-table th.sort-desc::after {
   content: "";
@@ -740,11 +749,6 @@ tr {
 
 tr:hover td {
   background: var(--bg-surface-hover);
-}
-
-#media-table tbody tr[role="button"]:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
 }
 
 #media-table tbody tr[role="button"]:focus-visible td {
@@ -947,12 +951,6 @@ tr.empty-state-row:hover td {
   color: var(--text-primary);
 }
 
-.close-btn:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
 .drawer-content {
   flex: 1;
   overflow-y: auto;
@@ -1140,44 +1138,30 @@ tr.empty-state-row:hover td {
 /* Charts Grid Layout */
 .charts-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 2rem; /* Spacing between charts */
 }
 
 @media (max-width: 1000px) {
-  .filter-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1.25rem;
-  }
-
   .filter-inputs {
-    display: grid;
-    grid-template-columns: 1fr;
+    flex-direction: column;
     align-items: stretch;
   }
 
   .filter-inputs input[type="date"],
   .filter-inputs input[type="number"] {
     width: 100%;
+    flex: none;
   }
 
   .filter-separator {
-    justify-self: center;
+    text-align: center;
   }
 }
 
 @media (max-width: 768px) {
-  /* Modal + charts only — main dashboard layout is fluid above this point
+  /* Modal only — main dashboard layout is fluid above this point
      so crossing 768px does not repaint the whole page. */
-  .charts-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .chart-container.full-width {
-    grid-column: span 1 !important;
-  }
-
-  /* Modal: bottom sheet with horizontal scroll for charts */
   .modal {
     align-items: flex-end;
   }
@@ -1228,7 +1212,7 @@ tr.empty-state-row:hover td {
 }
 
 .chart-container.full-width {
-  grid-column: span 2;
+  grid-column: 1 / -1;
 }
 
 .canvas-wrapper {
@@ -1267,12 +1251,6 @@ tr.empty-state-row:hover td {
 .tab-btn:hover {
   background: var(--bg-surface-hover);
   color: var(--text-primary);
-}
-
-.tab-btn.active {
-  background: var(--primary-light);
-  color: var(--primary);
-  font-weight: 600;
 }
 
 .tab-pane {
@@ -1352,16 +1330,6 @@ tr.empty-state-row:hover td {
   text-align: center;
 }
 
-.pagination-size select {
-  padding: 0.35rem 1.75rem 0.35rem 0.75rem;
-  font-size: 0.85rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background-color: #ffffff;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
 @media (max-width: 640px) {
   .metric-card {
     border-radius: 10px;
@@ -1378,20 +1346,8 @@ tr.empty-state-row:hover td {
   }
 
   .filter-separator {
-    text-align: center;
     font-size: 0.78rem;
     padding: 0.1rem 0;
-  }
-
-  .filter-inputs {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .filter-inputs input[type="date"],
-  .filter-inputs input[type="number"] {
-    width: 100%;
-    flex: none;
   }
 
   .filter-preset {
@@ -1453,7 +1409,6 @@ tr.empty-state-row:hover td {
 
   .file-path-cell {
     word-break: break-all;
-    min-width: 0;
   }
 
   .file-name,
@@ -1665,15 +1620,9 @@ tr.empty-state-row:hover td {
   transform: translateX(-50%) translateY(2px) scale(1);
 }
 
-.copy-btn:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-
 /* Ensure the text value inside value-with-action wraps correctly on small widths */
 .value-with-action .value {
   flex: 1;
-  min-width: 0;
   text-align: right;
 }
 
