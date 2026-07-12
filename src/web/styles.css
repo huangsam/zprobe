@@ -301,6 +301,8 @@ body {
   flex-direction: column;
   gap: 0;
   box-shadow: var(--shadow-sm);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .filter-bar-primary {
@@ -438,6 +440,8 @@ body {
   display: flex;
   align-items: center;
   gap: 0.65rem;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .filter-separator {
@@ -1180,13 +1184,16 @@ tr.empty-state-row:hover td {
   }
 
   .filter-bar {
-    padding: 1.25rem 1.5rem;
+    padding: 1.25rem 1rem;
+    overflow-x: clip;
+    max-width: 100%;
   }
 
   .filter-bar-primary {
     flex-direction: column;
     align-items: stretch;
     gap: 1rem;
+    min-width: 0;
   }
 
   .search-wrapper {
@@ -1212,15 +1219,20 @@ tr.empty-state-row:hover td {
   .filter-bar-advanced {
     padding-top: 1rem;
     margin-top: 1rem;
+    min-width: 0;
+    width: 100%;
   }
 
   .filter-row {
     flex-direction: column;
     gap: 1.25rem;
+    min-width: 0;
+    width: 100%;
   }
 
   .filter-group {
-    min-width: 100%;
+    min-width: 0;
+    width: 100%;
   }
 
   .filter-group + .filter-group {
@@ -1228,6 +1240,36 @@ tr.empty-state-row:hover td {
     border-left: none;
     padding-top: 1.25rem;
     border-top: 1px solid var(--border-color);
+  }
+
+  .filter-inputs {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 0.5rem;
+  }
+
+  .filter-separator {
+    text-align: center;
+    font-size: 0.78rem;
+    padding: 0.1rem 0;
+  }
+
+  .filter-inputs input[type="date"],
+  .filter-inputs input[type="number"] {
+    width: 100%;
+    flex: none;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .filter-presets {
+    gap: 0.35rem;
+  }
+
+  .filter-preset {
+    font-size: 0.72rem;
+    padding: 0.26rem 0.6rem;
   }
 
   .filter-actions {
@@ -1465,9 +1507,29 @@ tr.empty-state-row:hover td {
     padding: 0.75rem 0.75rem;
     font-size: 0.85rem;
   }
+
   .file-path-cell {
     word-break: break-all;
+    min-width: 0;
   }
+
+  .file-name,
+  .file-dir {
+    white-space: normal;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+  }
+
+  .file-dir {
+    text-overflow: unset;
+    overflow: visible;
+  }
+
+  #search-input {
+    font-size: 0.875rem;
+  }
+
   /* Table remains horizontally scrollable, no columns hidden */
 }
 
