@@ -320,11 +320,10 @@ body {
 }
 
 .filter-bar-primary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1.25rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0.875rem;
   min-width: 0;
 }
 
@@ -343,7 +342,7 @@ body {
 
 .search-wrapper {
   position: relative;
-  flex: 1 1 280px;
+  width: 100%;
   min-width: 0;
 }
 
@@ -381,14 +380,14 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  flex: 1 1 360px;
   gap: 0.75rem;
+  width: 100%;
   min-width: 0;
 }
 
 .filters-wrapper select {
-  flex: 1 1 140px;
-  min-width: 0;
+  flex: 1 0 180px;
+  min-width: 180px;
 }
 
 .filters-wrapper select,
@@ -398,9 +397,10 @@ body {
 }
 
 .more-filters-toggle {
+  flex: 1 0 160px;
+  min-width: 160px;
   white-space: nowrap;
   padding: 0.75rem 1.25rem;
-  min-width: min(160px, 100%);
   justify-content: center;
 }
 
@@ -1144,6 +1144,28 @@ tr.empty-state-row:hover td {
   gap: 2rem; /* Spacing between charts */
 }
 
+@media (max-width: 1000px) {
+  .filter-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+
+  .filter-inputs {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .filter-inputs input[type="date"],
+  .filter-inputs input[type="number"] {
+    width: 100%;
+  }
+
+  .filter-separator {
+    justify-self: center;
+  }
+}
+
 @media (max-width: 768px) {
   /* Modal + charts only — main dashboard layout is fluid above this point
      so crossing 768px does not repaint the whole page. */
@@ -1353,12 +1375,6 @@ tr.empty-state-row:hover td {
 
   .metric-info p {
     font-size: 1.1rem;
-  }
-
-  .more-filters-toggle {
-    flex: 1 1 100%;
-    width: 100%;
-    justify-content: center;
   }
 
   .filter-separator {
