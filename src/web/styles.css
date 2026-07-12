@@ -60,6 +60,10 @@
   padding: 0;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background-color: var(--bg-main);
   color: var(--text-primary);
@@ -94,22 +98,32 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  padding: 2.5rem;
+  padding: clamp(1.25rem, 5vw, 2.5rem);
   max-width: 1400px;
   margin: 0 auto;
-  gap: 2rem; /* Increased margin between major panels */
+  gap: clamp(1.5rem, 4vw, 2rem);
 }
 
 /* Header Styling (DSM Desktop look) */
 .app-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  padding: 1.5rem 2rem;
+  gap: clamp(1rem, 2.5vw, 1.25rem);
+  padding: clamp(1.25rem, 3vw, 1.5rem) clamp(1.5rem, 4vw, 2rem);
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   box-shadow: var(--shadow-sm);
+}
+
+.header-actions {
+  display: flex;
+  flex: 1 1 280px;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .logo-container {
@@ -296,7 +310,7 @@ body {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  padding: 1.25rem 2rem;
+  padding: 1.25rem clamp(1rem, 4vw, 2rem);
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -311,6 +325,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 1.25rem;
+  min-width: 0;
 }
 
 .filter-bar-advanced {
@@ -328,8 +343,8 @@ body {
 
 .search-wrapper {
   position: relative;
-  flex: 1;
-  min-width: 280px;
+  flex: 1 1 280px;
+  min-width: 0;
 }
 
 .search-icon {
@@ -366,7 +381,14 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
+  flex: 1 1 360px;
   gap: 0.75rem;
+  min-width: 0;
+}
+
+.filters-wrapper select {
+  flex: 1 1 140px;
+  min-width: 0;
 }
 
 .filters-wrapper select,
@@ -378,7 +400,7 @@ body {
 .more-filters-toggle {
   white-space: nowrap;
   padding: 0.75rem 1.25rem;
-  min-width: 160px;
+  min-width: min(160px, 100%);
   justify-content: center;
 }
 
@@ -401,8 +423,8 @@ body {
 }
 
 .filter-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1.5rem;
   align-items: flex-start;
 }
@@ -412,7 +434,6 @@ body {
   flex-direction: column;
   gap: 0.75rem;
   min-width: 0;
-  flex: 1;
   border: none;
   margin: 0;
   padding: 0;
@@ -423,9 +444,12 @@ body {
   margin-bottom: 0;
 }
 
-.filter-group + .filter-group {
-  padding-left: 1.75rem;
-  border-left: 1px solid rgba(221, 226, 235, 0.9);
+.filter-inputs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  min-width: 0;
 }
 
 .filter-label {
@@ -434,14 +458,6 @@ body {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
-}
-
-.filter-inputs {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  flex-wrap: wrap;
-  min-width: 0;
 }
 
 .filter-separator {
@@ -623,7 +639,7 @@ select {
   font-size: 0.9rem;
   outline: none;
   cursor: pointer;
-  min-width: 160px;
+  min-width: min(160px, 100%);
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -672,7 +688,7 @@ th {
   font-family: var(--font-heading);
   font-weight: 600;
   color: var(--text-secondary);
-  padding: 1.25rem 1.75rem;
+  padding: clamp(0.9rem, 2vw, 1.25rem) clamp(1rem, 3vw, 1.75rem);
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   user-select: none;
@@ -712,7 +728,7 @@ th:hover {
 }
 
 td {
-  padding: 1.25rem 1.75rem;
+  padding: clamp(0.9rem, 2vw, 1.25rem) clamp(1rem, 3vw, 1.75rem);
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
   transition: background-color var(--transition-fast);
@@ -1129,173 +1145,8 @@ tr.empty-state-row:hover td {
 }
 
 @media (max-width: 768px) {
-  .app-container {
-    padding: 1.25rem;
-    gap: 1.5rem;
-  }
-
-  .metrics-grid {
-    gap: 1rem;
-  }
-
-  .metric-card {
-    padding: 1.15rem;
-    gap: 1rem;
-    border-radius: 10px;
-  }
-
-  .metric-icon {
-    width: 2.75rem;
-    height: 2.75rem;
-    font-size: 1.35rem;
-  }
-
-  .metric-info p {
-    font-size: 1.1rem;
-  }
-
-  .app-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 1.25rem;
-    padding: 1.25rem 1.5rem;
-  }
-
-  .header-actions {
-    display: flex;
-    width: 100%;
-    gap: 0.5rem;
-  }
-
-  .header-actions .btn {
-    flex: 1;
-    justify-content: center;
-    padding: 0.65rem 0.5rem;
-    font-size: 0.8rem;
-    margin-right: 0 !important;
-  }
-
-  .logo-container {
-    justify-content: center;
-  }
-
-  .logo-text {
-    text-align: center;
-  }
-
-  .filter-bar {
-    padding: 1.25rem 1rem;
-    overflow-x: clip;
-    max-width: 100%;
-  }
-
-  .filter-bar-primary {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 1rem;
-    min-width: 0;
-  }
-
-  .search-wrapper {
-    width: 100%;
-    min-width: 100%;
-  }
-
-  .filters-wrapper {
-    width: 100%;
-    gap: 0.75rem;
-  }
-
-  .filters-wrapper select {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .more-filters-toggle {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .filter-bar-advanced {
-    padding-top: 1rem;
-    margin-top: 1rem;
-    min-width: 0;
-    width: 100%;
-  }
-
-  .filter-row {
-    flex-direction: column;
-    gap: 1.25rem;
-    min-width: 0;
-    width: 100%;
-  }
-
-  .filter-group {
-    min-width: 0;
-    width: 100%;
-  }
-
-  .filter-group + .filter-group {
-    padding-left: 0;
-    border-left: none;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--border-color);
-  }
-
-  .filter-inputs {
-    flex-direction: column;
-    align-items: stretch;
-    width: 100%;
-    gap: 0.5rem;
-  }
-
-  .filter-separator {
-    text-align: center;
-    font-size: 0.78rem;
-    padding: 0.1rem 0;
-  }
-
-  .filter-inputs input[type="date"],
-  .filter-inputs input[type="number"] {
-    width: 100%;
-    flex: none;
-    min-width: 0;
-    max-width: 100%;
-  }
-
-  .filter-presets {
-    gap: 0.35rem;
-  }
-
-  .filter-preset {
-    font-size: 0.72rem;
-    padding: 0.26rem 0.6rem;
-  }
-
-  .filter-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .filter-actions-left {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .filter-result-count {
-    white-space: normal;
-  }
-
-  #clear-filters-btn {
-    width: 100%;
-    justify-content: center;
-  }
-
-  /* Collapse to single column at mobile width.
-     NOTE: This layout shift is what triggers Chart.js's internal ResizeObserver
-     to grow charts unboundedly. The matchMedia listener in index.html JS handles
-     this by destroying and recreating charts whenever this breakpoint is crossed
-     while the insights modal is open. Do not remove that listener. */
+  /* Modal + charts only — main dashboard layout is fluid above this point
+     so crossing 768px does not repaint the whole page. */
   .charts-grid {
     grid-template-columns: 1fr;
   }
@@ -1489,23 +1340,99 @@ tr.empty-state-row:hover td {
   cursor: pointer;
 }
 
-@media (max-width: 768px) {
-  th,
-  td {
-    padding: 0.9rem 1rem;
-    font-size: 0.85rem;
+@media (max-width: 640px) {
+  .metric-card {
+    border-radius: 10px;
   }
+
+  .metric-icon {
+    width: 2.75rem;
+    height: 2.75rem;
+    font-size: 1.35rem;
+  }
+
+  .metric-info p {
+    font-size: 1.1rem;
+  }
+
+  .more-filters-toggle {
+    flex: 1 1 100%;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .filter-separator {
+    text-align: center;
+    font-size: 0.78rem;
+    padding: 0.1rem 0;
+  }
+
+  .filter-inputs {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-inputs input[type="date"],
+  .filter-inputs input[type="number"] {
+    width: 100%;
+    flex: none;
+  }
+
+  .filter-preset {
+    font-size: 0.72rem;
+    padding: 0.26rem 0.6rem;
+  }
+
+  .filter-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-actions-left {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-result-count {
+    white-space: normal;
+  }
+
+  #clear-filters-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
   .pagination-container {
     padding: 1rem;
     justify-content: center;
   }
-}
 
-@media (max-width: 640px) {
-  th,
-  td {
-    padding: 0.75rem 0.75rem;
-    font-size: 0.85rem;
+  .app-header {
+    justify-content: center;
+  }
+
+  .logo-container {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  .logo-text {
+    text-align: center;
+  }
+
+  .header-actions {
+    flex: 1 1 100%;
+    width: 100%;
+    justify-content: stretch;
+    gap: 0.5rem;
+  }
+
+  .header-actions .btn {
+    flex: 1;
+    justify-content: center;
+    padding: 0.65rem 0.5rem;
+    font-size: 0.8rem;
+    margin-right: 0 !important;
   }
 
   .file-path-cell {
