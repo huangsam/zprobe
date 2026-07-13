@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    name: Build and Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Zig 0.16.0
+        shell: bash
+        run: |
+          set -e
+          ZIG_VERSION=0.16.0
+          case "${{ runner.os }}" in
+            Linux)
+              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-linux-x86_64-$ZIG_VERSION.tar.xz | tar -xJ
+              echo "$PWD/zig-linux-x86_64-$ZIG_VERSION" >> $GITHUB_PATH
+              ;;
+            macOS)
+              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-macos-x86_64-$ZIG_VERSION.tar.xz | tar -xJ
+              echo "$PWD/zig-macos-x86_64-$ZIG_VERSION" >> $GITHUB_PATH
+              ;;
+            Windows)
+              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-windows-x86_64-$ZIG_VERSION.zip -o zig.zip
+              7z x zig.zip
+              echo "$PWD/zig-windows-x86_64-$ZIG_VERSION" >> $GITHUB_PATH
+              ;;
+          esac
+
+      - name: Verify Zig installation
+        run: zig version
+
+      - name: Build zprobe (Debug)
+        run: zig build -Doptimize=Debug
+
+      - name: Build zprobe-server (Debug)
+        run: zig build zprobe-server -Doptimize=Debug
+
+      - name: Run tests
+        run: zig test src/root.zig
+
+  cross-compile:
+    name: Cross-compile Release binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Zig 0.16.0
+        shell: bash
+        run: |
+          set -e
+          curl -L https://ziglang.org/download/0.16.0/zig-linux-x86_64-0.16.0.tar.xz | tar -xJ
+          echo "$PWD/zig-linux-x86_64-0.16.0" >> $GITHUB_PATH
+
+      - name: Cross-compile for macOS ARM64
+        run: zig build -Dtarget=aarch64-macos -Doptimize=ReleaseSafe
+
+      - name: Cross-compile for Linux x86_64 musl (static)
+        run: zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSafe
+
+      - name: Cross-compile for Linux ARM64
+        run: zig build -Dtarget=aarch64-linux -Doptimize=ReleaseSafe
+
+      - name: Upload release binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: zprobe-binaries
+          path: zig-out/bin/
+          retention-days: 7
