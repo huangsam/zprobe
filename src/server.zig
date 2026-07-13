@@ -11,6 +11,42 @@ const font_outfit_600 = @embedFile("web/fonts/outfit-600.woff2");
 const font_pj_400 = @embedFile("web/fonts/plus-jakarta-400.woff2");
 const font_pj_600 = @embedFile("web/fonts/plus-jakarta-600.woff2");
 
+fn computeWorkerCount(cpu_count: usize) usize {
+    return @min(@max(cpu_count * 4, 8), 16);
+}
+
+const ConnectionPool = struct {
+    mutex: std.Io.Mutex = std.Io.Mutex.init,
+    cond: std.Io.Condition = std.Io.Condition.init,
+    queue: std.ArrayList(std.Io.net.Stream) = .empty,
+    allocator: std.mem.Allocator,
+
+    fn push(self: *ConnectionPool, io: std.Io, conn: std.Io.net.Stream) void {
+        self.mutex.lockUncancelable(io);
+        defer self.mutex.unlock(io);
+        self.queue.append(self.allocator, conn) catch {
+            conn.close(io);
+        };
+        self.cond.signal(io);
+    }
+
+    fn pop(self: *ConnectionPool, io: std.Io) std.Io.net.Stream {
+        self.mutex.lockUncancelable(io);
+        defer self.mutex.unlock(io);
+        while (self.queue.items.len == 0) {
+            self.cond.waitUncancelable(io, &self.mutex);
+        }
+        return self.queue.orderedRemove(0);
+    }
+};
+
+const WorkerContext = struct {
+    pool: *ConnectionPool,
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    database: *Db,
+};
+
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
@@ -58,61 +94,67 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    // Try to open the SQLite database
     var database = Db.init(allocator, db_path) catch |err| {
         std.debug.print("Failed to initialize database at '{s}'. Error: {}\n", .{ db_path, err });
         std.process.exit(1);
     };
     defer database.deinit();
 
-    // Listen on local interface (or change to 0.0.0.0 for external access)
     const addr = try std.Io.net.IpAddress.parse("0.0.0.0", port);
     var server = try addr.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
+
+    var pool: ConnectionPool = .{
+        .allocator = allocator,
+    };
+    defer pool.queue.deinit(allocator);
+
+    const cpu_count = std.Thread.getCpuCount() catch 4;
+    const num_workers = computeWorkerCount(cpu_count);
+
+    const threads = try allocator.alloc(std.Thread, num_workers);
+    defer allocator.free(threads);
+
+    const worker_ctx = WorkerContext{
+        .pool = &pool,
+        .allocator = allocator,
+        .io = io,
+        .database = &database,
+    };
+
+    var spawned_count: usize = 0;
+    defer {
+        for (threads[0..spawned_count]) |t| {
+            t.join();
+        }
+    }
+
+    for (0..num_workers) |i| {
+        threads[i] = try std.Thread.spawn(.{}, workerMain, .{worker_ctx});
+        spawned_count += 1;
+    }
 
     std.debug.print("---------------------------------------------------\n", .{});
     std.debug.print(" zprobe Insights Server running!\n", .{});
     std.debug.print(" Address:  http://0.0.0.0:{d}\n", .{port});
     std.debug.print(" Database: {s}\n", .{db_path});
+    std.debug.print(" Workers:  {d}\n", .{num_workers});
     std.debug.print("---------------------------------------------------\n", .{});
 
-    var client_id: usize = 0;
     while (true) {
         const conn = server.accept(io) catch |err| {
             std.debug.print("Connection accept error: {}\n", .{err});
             continue;
         };
-        client_id += 1;
-
-        const ctx = ClientContext{
-            .allocator = allocator,
-            .io = io,
-            .conn = conn,
-            .database = &database,
-            .client_id = client_id,
-        };
-
-        if (std.Thread.spawn(.{}, handleConnectionThread, .{ctx})) |thread| {
-            thread.detach();
-        } else |err| {
-            std.debug.print("Failed to spawn client handler thread: {}\n", .{err});
-            conn.close(io);
-        }
+        pool.push(io, conn);
     }
 }
 
-const ClientContext = struct {
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    conn: std.Io.net.Stream,
-    database: *Db,
-    client_id: usize,
-};
-
-fn handleConnectionThread(ctx: ClientContext) void {
-    handleConnection(ctx.allocator, ctx.io, ctx.conn, ctx.database) catch |err| {
-        std.debug.print("[Client #{d}] Request handling failed: {}\n", .{ ctx.client_id, err });
-    };
+fn workerMain(ctx: WorkerContext) void {
+    while (true) {
+        const conn = ctx.pool.pop(ctx.io);
+        handleConnection(ctx.allocator, ctx.io, conn, ctx.database) catch {};
+    }
 }
 
 fn urlDecode(allocator: std.mem.Allocator, input: []const u8) []const u8 {
@@ -154,7 +196,6 @@ fn urlDecode(allocator: std.mem.Allocator, input: []const u8) []const u8 {
 fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.Stream, database: *Db) !void {
     defer conn.close(io);
 
-    // 16KB buffers for reading and writing HTTP data
     var read_buffer: [16384]u8 = undefined;
     var write_buffer: [16384]u8 = undefined;
     var stream_reader = conn.reader(io, &read_buffer);
@@ -162,27 +203,30 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
 
     var http_server = std.http.Server.init(&stream_reader.interface, &stream_writer.interface);
 
-    var request = http_server.receiveHead() catch |err| {
-        std.debug.print("Could not read HTTP request head: {}\n", .{err});
-        return;
-    };
+    while (true) {
+        var request = http_server.receiveHead() catch break;
+        handleRequest(allocator, io, &request, database) catch break;
+    }
+}
 
+fn handleRequest(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    request: *std.http.Server.Request,
+    database: *Db,
+) !void {
     const target_path = request.head.target;
     const method = request.head.method;
 
-    // Split query parameters out of the path
     const query_index = std.mem.indexOfScalar(u8, target_path, '?');
     const base_path = if (query_index) |idx| target_path[0..idx] else target_path;
     const query_string = if (query_index) |idx| target_path[idx + 1 ..] else "";
-
-    std.debug.print("[HTTP] {s} {s}\n", .{ @tagName(method), base_path });
 
     if (method != .GET) {
         try request.respond("Method Not Allowed", .{
             .status = .method_not_allowed,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "text/plain" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
         return;
@@ -193,7 +237,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .status = .ok,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "text/html" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     } else if (std.mem.eql(u8, base_path, "/js/lucide.min.js")) {
@@ -202,7 +245,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "application/javascript" },
                 .{ .name = "Cache-Control", .value = "public, max-age=31536000, immutable" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     } else if (std.mem.eql(u8, base_path, "/js/chart.umd.js")) {
@@ -211,7 +253,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "application/javascript" },
                 .{ .name = "Cache-Control", .value = "public, max-age=31536000, immutable" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     } else if (std.mem.eql(u8, base_path, "/fonts/outfit-600.woff2")) {
@@ -220,7 +261,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "font/woff2" },
                 .{ .name = "Cache-Control", .value = "public, max-age=31536000, immutable" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     } else if (std.mem.eql(u8, base_path, "/fonts/plus-jakarta-400.woff2")) {
@@ -229,7 +269,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "font/woff2" },
                 .{ .name = "Cache-Control", .value = "public, max-age=31536000, immutable" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     } else if (std.mem.eql(u8, base_path, "/fonts/plus-jakarta-600.woff2")) {
@@ -238,7 +277,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "font/woff2" },
                 .{ .name = "Cache-Control", .value = "public, max-age=31536000, immutable" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     } else if (std.mem.eql(u8, base_path, "/styles.css")) {
@@ -247,7 +285,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "text/css" },
                 .{ .name = "Cache-Control", .value = "public, max-age=86400" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     } else if (std.mem.eql(u8, base_path, "/logo.svg")) {
@@ -256,21 +293,17 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "image/svg+xml" },
                 .{ .name = "Cache-Control", .value = "public, max-age=86400" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     } else if (std.mem.eql(u8, base_path, "/api/stats")) {
-        // Safe database locking for multi-threaded read/write
         const stats = blk: {
             database.lockRead(io);
             defer database.unlockRead(io);
-            break :blk database.getStatsCached(allocator, io) catch |err| {
-                std.debug.print("DB error fetching stats: {}\n", .{err});
+            break :blk database.getStatsCached(allocator, io) catch {
                 try request.respond("Internal Server Error: Database Query Failed", .{
                     .status = .internal_server_error,
                     .extra_headers = &.{
                         .{ .name = "Content-Type", .value = "text/plain" },
-                        .{ .name = "Connection", .value = "close" },
                     },
                 });
                 return;
@@ -284,13 +317,11 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
         {
             var aw: std.Io.Writer.Allocating = .fromArrayList(allocator, &json_buf);
             defer json_buf = aw.toArrayList();
-            std.json.Stringify.value(stats, .{}, &aw.writer) catch |err| {
-                std.debug.print("JSON serialization error: {}\n", .{err});
+            std.json.Stringify.value(stats, .{}, &aw.writer) catch {
                 try request.respond("Internal Server Error: JSON Encoding Failed", .{
                     .status = .internal_server_error,
                     .extra_headers = &.{
                         .{ .name = "Content-Type", .value = "text/plain" },
-                        .{ .name = "Connection", .value = "close" },
                     },
                 });
                 return;
@@ -301,7 +332,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .status = .ok,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "application/json" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     } else if (std.mem.eql(u8, base_path, "/api/media")) {
@@ -349,7 +379,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             }
         }
 
-        // URL decode all inputs
         const decoded_search = if (search) |s| urlDecode(allocator, s) else null;
         defer if (decoded_search) |ds| allocator.free(ds);
 
@@ -371,7 +400,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
         const decoded_order = if (sort_order) |so| urlDecode(allocator, so) else null;
         defer if (decoded_order) |dso| allocator.free(dso);
 
-        // Fetch paginated rows from database
         const result = blk: {
             database.lockRead(io);
             defer database.unlockRead(io);
@@ -388,13 +416,11 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
                 size_max,
                 decoded_sort,
                 decoded_order,
-            ) catch |err| {
-                std.debug.print("DB error fetching records: {}\n", .{err});
+            ) catch {
                 try request.respond("Internal Server Error: Database Query Failed", .{
                     .status = .internal_server_error,
                     .extra_headers = &.{
                         .{ .name = "Content-Type", .value = "text/plain" },
-                        .{ .name = "Connection", .value = "close" },
                     },
                 });
                 return;
@@ -415,13 +441,11 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
         {
             var aw: std.Io.Writer.Allocating = .fromArrayList(allocator, &json_buf);
             defer json_buf = aw.toArrayList();
-            std.json.Stringify.value(result, .{}, &aw.writer) catch |err| {
-                std.debug.print("JSON serialization error: {}\n", .{err});
+            std.json.Stringify.value(result, .{}, &aw.writer) catch {
                 try request.respond("Internal Server Error: JSON Encoding Failed", .{
                     .status = .internal_server_error,
                     .extra_headers = &.{
                         .{ .name = "Content-Type", .value = "text/plain" },
-                        .{ .name = "Connection", .value = "close" },
                     },
                 });
                 return;
@@ -432,7 +456,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .status = .ok,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "application/json" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     } else {
@@ -440,7 +463,6 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
             .status = .not_found,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "text/plain" },
-                .{ .name = "Connection", .value = "close" },
             },
         });
     }
