@@ -840,9 +840,61 @@ td:nth-child(4) {
 
 /* Specific cell formats */
 .file-path-cell {
+  vertical-align: middle;
+}
+
+.file-path-content {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.thumbnail-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  max-width: 44px;
+  max-height: 44px;
+  flex-shrink: 0;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.row-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.type-icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.5px;
+}
+
+.image-icon {
+  color: var(--primary);
+}
+
+.video-icon {
+  color: #10b981;
+}
+
+.file-name-container {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.25rem;
+  min-width: 0;
 }
 
 .file-name {
@@ -858,6 +910,32 @@ td:nth-child(4) {
   font-family: var(--font-mono);
   overflow-wrap: anywhere;
   max-width: 100%;
+}
+
+/* Drawer Preview Styles */
+.drawer-preview-container {
+  width: 100%;
+  height: 260px;
+  flex-shrink: 0;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.02);
+}
+
+.drawer-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(0, 0, 0, 0.05) 100%
+  );
 }
 
 .badge {
@@ -1528,6 +1606,13 @@ tr.empty-state-row:hover td {
     width: 35%;
     height: 0.7rem;
     margin-top: 4px;
+    display: block;
+  }
+
+  &.thumbnail-bar {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
     display: block;
   }
 }

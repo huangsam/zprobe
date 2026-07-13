@@ -781,8 +781,15 @@ function renderSkeletons() {
     html += `
       <tr class="skeleton-row">
         <td class="file-path-cell">
-          <span class="skeleton-bar name"></span>
-          <span class="skeleton-bar dir"></span>
+          <div class="file-path-content">
+            <div class="thumbnail-wrapper">
+              <span class="skeleton-bar thumbnail-bar"></span>
+            </div>
+            <div class="file-name-container">
+              <span class="skeleton-bar name"></span>
+              <span class="skeleton-bar dir"></span>
+            </div>
+          </div>
         </td>
         <td><span class="skeleton-bar date"></span></td>
         <td><span class="skeleton-bar size"></span></td>
@@ -1017,10 +1024,31 @@ function renderTable() {
 
     tr.setAttribute("aria-label", `View details for ${fileBase}`);
 
+    const isVideo =
+      ["mp4", "webm", "mkv", "mov", "avi"].includes(
+        (row.format || "").toLowerCase(),
+      ) || row.duration_sec !== null;
+    let thumbHtml = "";
+    if (row.has_thumbnail) {
+      const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
+      thumbHtml = `<img src="${url}" class="row-thumbnail" alt="Thumbnail" loading="lazy" />`;
+    } else if (isVideo) {
+      thumbHtml = `<i data-lucide="video" class="type-icon video-icon"></i>`;
+    } else {
+      thumbHtml = `<i data-lucide="image" class="type-icon image-icon"></i>`;
+    }
+
     tr.innerHTML = `
               <td class="file-path-cell">
-                  <span class="file-name">${highlightMatch(fileBase, query)}</span>
-                  <span class="file-dir" title="${escapeHtml(dirPath)}">${highlightMatch(dirPath, query)}</span>
+                  <div class="file-path-content">
+                      <div class="thumbnail-wrapper">
+                          ${thumbHtml}
+                      </div>
+                      <div class="file-name-container">
+                          <span class="file-name">${highlightMatch(fileBase, query)}</span>
+                          <span class="file-dir" title="${escapeHtml(dirPath)}">${highlightMatch(dirPath, query)}</span>
+                      </div>
+                  </div>
               </td>
               <td class="date-cell">${formatCaptureDate(row.create_time)}</td>
               <td>${formatBytes(row.size)}</td>
@@ -1029,6 +1057,7 @@ function renderTable() {
           `;
     tbody.appendChild(tr);
   });
+  lucide.createIcons({ root: tbody });
 }
 
 // Update UI pagination buttons and info labels
@@ -1075,7 +1104,17 @@ function showDetails(row, triggerEl) {
     videoFormats.includes((row.format || "").toLowerCase()) ||
     row.duration_sec !== null;
 
-  let html = `
+  let html = "";
+  if (row.has_thumbnail) {
+    const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
+    html += `
+          <div class="drawer-preview-container">
+              <img src="${url}" class="drawer-preview-image" alt="Thumbnail Preview" />
+          </div>
+    `;
+  }
+
+  html += `
           <div class="detail-section">
               <h4>File Info</h4>
               <div class="detail-row">

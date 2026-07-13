@@ -45,20 +45,23 @@ pub const ByteReader = struct {
 
     /// Advance the cursor forward by `count` bytes. Returns `error.OutOfBounds` if it goes past the end.
     pub fn skip(self: *ByteReader, count: usize) !void {
-        if (self.offset + count > self.buffer.len) return error.OutOfBounds;
+        // Use subtraction check (remaining) to prevent integer overflow on self.offset + count
+        if (count > self.remaining()) return error.OutOfBounds;
         self.offset += count;
     }
 
     /// Peek at the next `count` bytes without advancing the reader's cursor.
     pub fn peek(self: ByteReader, count: usize) ![]const u8 {
-        if (self.offset + count > self.buffer.len) return error.OutOfBounds;
+        // Use subtraction check (remaining) to prevent integer overflow on self.offset + count
+        if (count > self.remaining()) return error.OutOfBounds;
         return self.buffer[self.offset .. self.offset + count];
     }
 
     /// Yield a child `ByteReader` bounded strictly to the next `size` bytes.
     /// Advances the parent's cursor by `size` bytes. Useful for parsing nested TLV structures.
     pub fn subReader(self: *ByteReader, size: usize) !ByteReader {
-        if (self.offset + size > self.buffer.len) return error.OutOfBounds;
+        // Use subtraction check (remaining) to prevent integer overflow on self.offset + size
+        if (size > self.remaining()) return error.OutOfBounds;
         const sub_buf = self.buffer[self.offset .. self.offset + size];
         self.offset += size;
         return ByteReader.init(sub_buf, self.endian);
@@ -69,7 +72,8 @@ pub const ByteReader = struct {
     /// Supports any integer type: `u8`, `u16`, `u32`, `u64`, `i32`, etc.
     pub fn readInt(self: *ByteReader, comptime T: type) !T {
         const size = @sizeOf(T);
-        if (self.offset + size > self.buffer.len) return error.OutOfBounds;
+        // Use subtraction check (remaining) to prevent integer overflow on self.offset + size
+        if (size > self.remaining()) return error.OutOfBounds;
         const bytes = self.buffer[self.offset .. self.offset + size];
         self.offset += size;
         return std.mem.readInt(T, bytes[0..size], self.endian);
@@ -87,7 +91,8 @@ pub const ByteReader = struct {
     /// Read a fixed-size ASCII string from the stream, trim trailing null bytes
     /// and spaces, and allocate/return the result. The caller owns the returned slice.
     pub fn readAscii(self: *ByteReader, allocator: std.mem.Allocator, count: u32) ![]const u8 {
-        if (self.offset + count > self.buffer.len) return error.OutOfBounds;
+        // Use subtraction check (remaining) to prevent integer overflow on self.offset + count
+        if (count > self.remaining()) return error.OutOfBounds;
         const raw = self.buffer[self.offset .. self.offset + count];
         self.offset += count;
 

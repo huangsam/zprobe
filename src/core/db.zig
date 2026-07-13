@@ -23,6 +23,7 @@ pub const DbRecord = struct {
     gps_latitude: ?f64 = null,
     gps_longitude: ?f64 = null,
     duration_sec: ?f64 = null,
+    has_thumbnail: bool = false,
 
     /// Free heap-allocated strings stored within DbRecord.
     pub fn deinit(self: *const DbRecord, allocator: std.mem.Allocator) void {
@@ -164,6 +165,7 @@ const PagedStmtCache = struct {
 /// Manager wrapping SQLite database connection and prepared statements.
 pub const Db = struct {
     allocator: std.mem.Allocator,
+    db_path: []const u8,
     handle: ?*c.sqlite3,
     query_stmt: ?*c.sqlite3_stmt = null,
     insert_stmt: ?*c.sqlite3_stmt = null,
@@ -208,7 +210,8 @@ pub const Db = struct {
             \\    camera_model TEXT,
             \\    gps_latitude REAL,
             \\    gps_longitude REAL,
-            \\    duration_sec REAL
+            \\    duration_sec REAL,
+            \\    has_thumbnail INTEGER DEFAULT 0
             \\);
         ;
         var err_msg: [*c]u8 = null;
@@ -220,6 +223,9 @@ pub const Db = struct {
             }
             return error.DatabaseSchemaError;
         }
+
+        // Alter table to add column has_thumbnail if it doesn't exist
+        _ = c.sqlite3_exec(handle, "ALTER TABLE media ADD COLUMN has_thumbnail INTEGER DEFAULT 0;", null, null, null);
 
         const create_indices_sql =
             \\CREATE INDEX IF NOT EXISTS idx_media_size ON media(size);
@@ -237,7 +243,7 @@ pub const Db = struct {
         }
 
         var query_stmt: ?*c.sqlite3_stmt = null;
-        const query_sql = "SELECT size, mtime, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec FROM media WHERE path = ?;";
+        const query_sql = "SELECT size, mtime, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail FROM media WHERE path = ?;";
         if (c.sqlite3_prepare_v2(handle, query_sql, -1, &query_stmt, null) != c.SQLITE_OK) {
             std.debug.print("Failed to prepare cache query: {s}\n", .{c.sqlite3_errmsg(handle)});
             return error.DatabasePrepareError;
@@ -245,15 +251,19 @@ pub const Db = struct {
         errdefer _ = c.sqlite3_finalize(query_stmt);
 
         var insert_stmt: ?*c.sqlite3_stmt = null;
-        const insert_sql = "INSERT OR REPLACE INTO media (path, size, mtime, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        const insert_sql = "INSERT OR REPLACE INTO media (path, size, mtime, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
         if (c.sqlite3_prepare_v2(handle, insert_sql, -1, &insert_stmt, null) != c.SQLITE_OK) {
             std.debug.print("Failed to prepare insert query: {s}\n", .{c.sqlite3_errmsg(handle)});
             _ = c.sqlite3_finalize(query_stmt);
             return error.DatabasePrepareError;
         }
 
+        const dup_path = try allocator.dupe(u8, db_path);
+        errdefer allocator.free(dup_path);
+
         return Db{
             .allocator = allocator,
+            .db_path = dup_path,
             .handle = handle,
             .query_stmt = query_stmt,
             .insert_stmt = insert_stmt,
@@ -375,6 +385,7 @@ pub const Db = struct {
 
     /// Finalize statements and close connection.
     pub fn deinit(self: *Db) void {
+        self.allocator.free(self.db_path);
         self.paged_stmt_cache.deinit(self.paged_stmt_cache_arena.allocator());
         self.paged_stmt_cache_arena.deinit();
         self.stats_cache_arena.deinit();
@@ -430,6 +441,7 @@ pub const Db = struct {
                     .size = size,
                     .format = undefined,
                 };
+                errdefer json_out.deinit(allocator);
 
                 const fmt_raw = c.sqlite3_column_text(stmt, 2);
                 if (fmt_raw) |raw| {
@@ -438,6 +450,7 @@ pub const Db = struct {
                 } else {
                     json_out.format = try allocator.dupe(u8, "unknown");
                 }
+                errdefer allocator.free(json_out.format);
 
                 if (c.sqlite3_column_type(stmt, 3) != c.SQLITE_NULL) {
                     json_out.width = @intCast(c.sqlite3_column_int(stmt, 3));
@@ -471,6 +484,9 @@ pub const Db = struct {
                 }
                 if (c.sqlite3_column_type(stmt, 11) != c.SQLITE_NULL) {
                     json_out.duration_sec = c.sqlite3_column_double(stmt, 11);
+                }
+                if (c.sqlite3_column_type(stmt, 12) != c.SQLITE_NULL) {
+                    json_out.has_thumbnail = c.sqlite3_column_int(stmt, 12) != 0;
                 }
 
                 return .{ .hit = true, .json_out = json_out };
@@ -552,6 +568,8 @@ pub const Db = struct {
             _ = c.sqlite3_bind_null(stmt, 13);
         }
 
+        _ = c.sqlite3_bind_int(stmt, 14, if (json_out.has_thumbnail) 1 else 0);
+
         const rc = c.sqlite3_step(stmt);
         if (rc != c.SQLITE_DONE) {
             std.debug.print("Failed to insert media row: {s}\n", .{c.sqlite3_errmsg(self.handle)});
@@ -560,13 +578,29 @@ pub const Db = struct {
         }
     }
 
-    /// Retrieve all media catalog entries from the database.
-    /// The caller owns the returned slice and all nested heap-allocated strings,
-    /// and must free them (e.g., by calling freeAllRecords).
+    /// Update the has_thumbnail flag for a given media record.
+    pub fn updateHasThumbnail(self: *Db, path: []const u8, has_thumbnail: bool) !void {
+        if (self.handle == null) return error.DatabaseNotOpen;
+        const sql = "UPDATE media SET has_thumbnail = ? WHERE path = ?;";
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK) {
+            return error.DatabasePrepareError;
+        }
+        defer _ = c.sqlite3_finalize(stmt);
+
+        _ = c.sqlite3_bind_int(stmt, 1, if (has_thumbnail) 1 else 0);
+        _ = c.sqlite3_bind_text(stmt, 2, path.ptr, @intCast(path.len), null);
+
+        const rc = c.sqlite3_step(stmt);
+        if (rc != c.SQLITE_DONE) {
+            return error.DatabaseExecuteError;
+        }
+    }
+
     pub fn getAllRecords(self: *Db, allocator: std.mem.Allocator) ![]DbRecord {
         if (self.handle == null) return error.DatabaseNotOpen;
 
-        const select_sql = "SELECT path, size, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec FROM media;";
+        const select_sql = "SELECT path, size, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail FROM media;";
         var stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, select_sql, -1, &stmt, null) != c.SQLITE_OK) {
             std.debug.print("Failed to prepare select query: {s}\n", .{c.sqlite3_errmsg(self.handle)});
@@ -590,6 +624,7 @@ pub const Db = struct {
                 .size = undefined,
                 .format = undefined,
             };
+            errdefer record.deinit(allocator);
 
             const path_raw = c.sqlite3_column_text(stmt, 0);
             const path_len = c.sqlite3_column_bytes(stmt, 0);
@@ -639,6 +674,9 @@ pub const Db = struct {
             }
             if (c.sqlite3_column_type(stmt, 11) != c.SQLITE_NULL) {
                 record.duration_sec = c.sqlite3_column_double(stmt, 11);
+            }
+            if (c.sqlite3_column_type(stmt, 12) != c.SQLITE_NULL) {
+                record.has_thumbnail = c.sqlite3_column_int(stmt, 12) != 0;
             }
 
             try list.append(allocator, record);
@@ -980,7 +1018,7 @@ pub const Db = struct {
         var select_buf: std.ArrayList(u8) = .empty;
         defer select_buf.deinit(allocator);
         var select_aw = std.Io.Writer.Allocating.fromArrayList(allocator, &select_buf);
-        try select_aw.writer.writeAll("SELECT path, size, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec ");
+        try select_aw.writer.writeAll("SELECT path, size, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail ");
         try select_aw.writer.writeAll(base_where);
 
         // Sorting
@@ -1049,6 +1087,7 @@ pub const Db = struct {
                 .size = undefined,
                 .format = undefined,
             };
+            errdefer record.deinit(allocator);
 
             const path_raw = c.sqlite3_column_text(select_stmt, 0);
             const path_len = c.sqlite3_column_bytes(select_stmt, 0);
@@ -1098,6 +1137,9 @@ pub const Db = struct {
             }
             if (c.sqlite3_column_type(select_stmt, 11) != c.SQLITE_NULL) {
                 record.duration_sec = c.sqlite3_column_double(select_stmt, 11);
+            }
+            if (c.sqlite3_column_type(select_stmt, 12) != c.SQLITE_NULL) {
+                record.has_thumbnail = c.sqlite3_column_int(select_stmt, 12) != 0;
             }
 
             try list.append(allocator, record);
@@ -1868,4 +1910,95 @@ test "last 7 days window with June-only fixture returns zero rows" {
 
     try std.testing.expectEqual(@as(u32, 0), result.total);
     try std.testing.expectEqual(@as(usize, 0), result.records.len);
+}
+
+test "insertMedia and queryCache with has_thumbnail" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/thumb_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    const record = DbRecord{
+        .path = "/photos/thumb_test.jpg",
+        .size = 5000,
+        .format = "jpeg",
+        .has_thumbnail = true,
+    };
+    try seedRecord(&database, record, 123);
+
+    const hit = try database.queryCache(allocator, record.path, record.size, 123);
+    defer if (hit.hit) {
+        hit.json_out.deinit(allocator);
+        allocator.free(hit.json_out.format);
+    };
+    try std.testing.expect(hit.hit);
+    try std.testing.expect(hit.json_out.has_thumbnail);
+
+    const result = try database.getRecordsPaged(
+        allocator,
+        10,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 1), result.total);
+    try std.testing.expect(result.records[0].has_thumbnail);
+}
+
+test "updateHasThumbnail updates correctly" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/thumb_update_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    const record = DbRecord{
+        .path = "/photos/thumb_test.jpg",
+        .size = 5000,
+        .format = "jpeg",
+        .has_thumbnail = true,
+    };
+    try seedRecord(&database, record, 123);
+
+    {
+        const hit = try database.queryCache(allocator, record.path, record.size, 123);
+        defer if (hit.hit) {
+            hit.json_out.deinit(allocator);
+            allocator.free(hit.json_out.format);
+        };
+        try std.testing.expect(hit.hit);
+        try std.testing.expect(hit.json_out.has_thumbnail);
+    }
+
+    try database.updateHasThumbnail(record.path, false);
+
+    {
+        const hit = try database.queryCache(allocator, record.path, record.size, 123);
+        defer if (hit.hit) {
+            hit.json_out.deinit(allocator);
+            allocator.free(hit.json_out.format);
+        };
+        try std.testing.expect(hit.hit);
+        try std.testing.expect(!hit.json_out.has_thumbnail);
+    }
 }

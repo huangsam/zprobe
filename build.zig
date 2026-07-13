@@ -213,8 +213,17 @@ pub fn build(b: *std.Build) void {
     
     const run_exe_tests = b.addRunArtifact(exe_tests);
 
+    const server_tests = b.addTest(.{
+        .root_module = server_exe.root_module,
+    });
+    server_tests.root_module.linkLibrary(sqlite_lib);
+    server_tests.root_module.linkSystemLibrary("c", .{});
+
+    const run_server_tests = b.addRunArtifact(server_tests);
+
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
+    test_step.dependOn(&run_server_tests.step);
 }
 

@@ -32,12 +32,19 @@ pub const ImageMetadata = struct {
     gps_latitude: ?f64 = null,
     /// GPS longitude coordinate, if present.
     gps_longitude: ?f64 = null,
+    /// Heap-allocated thumbnail bytes (JPEG format), extracted from the EXIF IFD1
+    /// sub-directory via `tiff.parseIfd1ForThumbnail`. Populated for both JPEG
+    /// files (whose APP1 EXIF payload is a TIFF structure parsed by `parseTiff`)
+    /// and standalone TIFF files. All other formats (PNG, GIF, BMP, WebP, etc.)
+    /// fall through to ffmpeg for thumbnail generation.
+    thumbnail_data: ?[]const u8 = null,
 
     /// Free heap-allocated strings stored within ImageMetadata.
     pub fn deinit(self: *ImageMetadata, allocator: std.mem.Allocator) void {
         if (self.create_time) |s| allocator.free(s);
         if (self.camera_make) |s| allocator.free(s);
         if (self.camera_model) |s| allocator.free(s);
+        if (self.thumbnail_data) |s| allocator.free(s);
     }
 };
 

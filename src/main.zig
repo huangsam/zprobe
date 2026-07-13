@@ -56,6 +56,7 @@ fn populateJsonFromImage(
     meta: *const image_meta.ImageMetadata,
     path: []const u8,
     size: u64,
+    has_thumbnail: bool,
 ) !db.DbRecord {
     var json_out = db.DbRecord{
         .path = path,
@@ -69,6 +70,7 @@ fn populateJsonFromImage(
         .camera_model = null,
         .gps_latitude = meta.gps_latitude,
         .gps_longitude = meta.gps_longitude,
+        .has_thumbnail = has_thumbnail,
     };
 
     // Single errdefer at the top: if any allocation fails, deinit() will free
@@ -89,6 +91,7 @@ fn populateJsonFromVideo(
     meta: *const video_meta.VideoInfo,
     path: []const u8,
     size: u64,
+    has_thumbnail: bool,
 ) !db.DbRecord {
     var json_out = db.DbRecord{
         .path = path,
@@ -103,6 +106,7 @@ fn populateJsonFromVideo(
         .gps_latitude = null,
         .gps_longitude = null,
         .duration_sec = meta.duration_sec,
+        .has_thumbnail = has_thumbnail,
     };
 
     // Single errdefer: if allocation fails, deinit() safely handles partial state.
@@ -122,7 +126,75 @@ const WorkerContext = struct {
     stdout_mutex: *std.Io.Mutex,
     success_count: *std.atomic.Value(usize),
     db: ?*db.Db = null,
+    thumb_dir: ?[]const u8 = null,
+    has_ffmpeg: bool = false,
 };
+
+fn checkFFmpeg(io: std.Io) bool {
+    var proc = std.process.spawn(io, .{
+        .argv = &.{ "ffmpeg", "-version" },
+        .stdout = .ignore,
+        .stderr = .ignore,
+    }) catch return false;
+    const term = proc.wait(io) catch return false;
+    return switch (term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+}
+
+fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8, is_video: bool) !bool {
+    var hash_bytes: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
+    const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
+
+    const thumb_path = try std.fs.path.join(allocator, &.{ thumb_dir, &hex_hash });
+    defer allocator.free(thumb_path);
+    const thumb_path_jpg = try std.fmt.allocPrint(allocator, "{s}.jpg", .{thumb_path});
+    defer allocator.free(thumb_path_jpg);
+
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(allocator);
+
+    try argv.appendSlice(allocator, &.{ "ffmpeg", "-y", "-nostdin" });
+    if (is_video) {
+        try argv.appendSlice(allocator, &.{ "-ss", "00:00:01" });
+    }
+    try argv.appendSlice(allocator, &.{ "-i", original_path });
+    if (is_video) {
+        // -vframes 1 captures a single frame; -t 10 is a standard output-side
+        // time limit that aborts gracefully if the seek or decode stalls.
+        try argv.appendSlice(allocator, &.{ "-vframes", "1", "-t", "10" });
+    }
+    try argv.appendSlice(allocator, &.{ "-vf", "scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih)", "-f", "image2", thumb_path_jpg });
+
+    var child = std.process.spawn(io, .{
+        .argv = argv.items,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    }) catch return false;
+    const term = try child.wait(io);
+    return switch (term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+}
+
+fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8, bytes: []const u8) !bool {
+    var hash_bytes: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
+    const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
+
+    const thumb_path = try std.fs.path.join(allocator, &.{ thumb_dir, &hex_hash });
+    defer allocator.free(thumb_path);
+    const thumb_path_jpg = try std.fmt.allocPrint(allocator, "{s}.jpg", .{thumb_path});
+    defer allocator.free(thumb_path_jpg);
+
+    const file = std.Io.Dir.createFileAbsolute(io, thumb_path_jpg, .{}) catch return false;
+    defer std.Io.File.close(file, io);
+    try std.Io.File.writePositionalAll(file, io, bytes, 0);
+    return true;
+}
 
 const worker = struct {
     fn workerMain(c_ctx: WorkerContext) void {
@@ -180,6 +252,7 @@ const worker = struct {
         }
 
         if (!cache_hit) {
+            var has_thumb = false;
             if (is_video) {
                 var res = video_meta.getVideoMetadata(arena_allocator, entry.path, c_ctx.io) catch |err| {
                     c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
@@ -188,7 +261,12 @@ const worker = struct {
                     std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
                     return;
                 };
-                json_out = try populateJsonFromVideo(arena_allocator, &res, entry.path, fsize);
+                if (c_ctx.thumb_dir) |thumb_dir| {
+                    if (c_ctx.has_ffmpeg) {
+                        has_thumb = generateFfmpegThumbnail(c_ctx.io, arena_allocator, entry.path, thumb_dir, true) catch false;
+                    }
+                }
+                json_out = try populateJsonFromVideo(arena_allocator, &res, entry.path, fsize, has_thumb);
             } else {
                 var res = image_meta.parseFile(arena_allocator, entry.path, c_ctx.io) catch |err| {
                     c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
@@ -197,7 +275,14 @@ const worker = struct {
                     std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
                     return;
                 };
-                json_out = try populateJsonFromImage(arena_allocator, &res, entry.path, fsize);
+                if (c_ctx.thumb_dir) |thumb_dir| {
+                    if (res.thumbnail_data) |thumb_bytes| {
+                        has_thumb = saveThumbnailBytes(c_ctx.io, arena_allocator, entry.path, thumb_dir, thumb_bytes) catch false;
+                    } else if (c_ctx.has_ffmpeg) {
+                        has_thumb = generateFfmpegThumbnail(c_ctx.io, arena_allocator, entry.path, thumb_dir, false) catch false;
+                    }
+                }
+                json_out = try populateJsonFromImage(arena_allocator, &res, entry.path, fsize, has_thumb);
             }
 
             if (c_ctx.db) |d| {
@@ -331,10 +416,31 @@ pub fn main(init: std.process.Init) !void {
     // Initialize Database if path is provided
     var database: db.Db = undefined;
     var db_ptr: ?*db.Db = null;
+    var thumb_dir_path: ?[]const u8 = null;
+    defer if (thumb_dir_path) |p| allocator.free(p);
+
     if (target_db.len > 0) {
         database = try db.Db.init(allocator, target_db);
         db_ptr = &database;
         database.beginTransaction();
+
+        // Resolve absolute DB directory to create .zprobe_thumbnails next to it
+        const cwd = std.Io.Dir.cwd();
+        const dir = std.fs.path.dirname(target_db) orelse ".";
+        const abs_dir = cwd.realPathFileAlloc(io, dir, allocator) catch null;
+        defer if (abs_dir) |path| allocator.free(path);
+        const resolved_dir = if (abs_dir) |path| path else dir;
+        const abs_db = try std.fs.path.join(allocator, &.{ resolved_dir, std.fs.path.basename(target_db) });
+        defer allocator.free(abs_db);
+
+        const db_dir = std.fs.path.dirname(abs_db) orelse ".";
+        thumb_dir_path = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
+
+        std.Io.Dir.createDirPath(cwd, io, thumb_dir_path.?) catch |err| {
+            if (err != error.PathAlreadyExists and err != error.DirExists) {
+                std.debug.print("Warning: failed to create thumbnail directory: {s}\n", .{@errorName(err)});
+            }
+        };
     }
     defer {
         if (db_ptr) |d| {
@@ -396,6 +502,8 @@ pub fn main(init: std.process.Init) !void {
     const threads = try allocator.alloc(std.Thread, num_workers);
     defer allocator.free(threads);
 
+    const has_ffmpeg = checkFFmpeg(io);
+
     const worker_ctx = WorkerContext{
         .allocator = allocator,
         .io = io,
@@ -406,6 +514,8 @@ pub fn main(init: std.process.Init) !void {
         .stdout_mutex = &stdout_mutex,
         .success_count = &success_count,
         .db = db_ptr,
+        .thumb_dir = thumb_dir_path,
+        .has_ffmpeg = has_ffmpeg,
     };
 
     var spawned_count: usize = 0;
@@ -501,6 +611,8 @@ test "concurrent file processing integration test" {
         .file_index = &file_index,
         .stdout_mutex = &stdout_mutex,
         .success_count = &success_count,
+        .thumb_dir = null,
+        .has_ffmpeg = false,
     };
 
     const num_workers = 8;
@@ -608,6 +720,8 @@ test "sqlite db caching integration test" {
         .stdout_mutex = &stdout_mutex,
         .success_count = &success_count,
         .db = &database,
+        .thumb_dir = null,
+        .has_ffmpeg = false,
     };
 
     // First Run (should parse & cache)

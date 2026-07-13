@@ -131,7 +131,17 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    var database = Db.init(allocator, db_path) catch |err| {
+    const cwd = std.Io.Dir.cwd();
+    const abs_db_path = blk: {
+        const dir = std.fs.path.dirname(db_path) orelse ".";
+        const abs_dir = cwd.realPathFileAlloc(io, dir, allocator) catch null;
+        defer if (abs_dir) |path| allocator.free(path);
+        const resolved_dir = if (abs_dir) |path| path else dir;
+        break :blk try std.fs.path.join(allocator, &.{ resolved_dir, std.fs.path.basename(db_path) });
+    };
+    defer allocator.free(abs_db_path);
+
+    var database = Db.init(allocator, abs_db_path) catch |err| {
         std.debug.print("Failed to initialize database at '{s}'. Error: {}\n", .{ db_path, err });
         std.process.exit(1);
     };
@@ -224,7 +234,10 @@ fn urlDecode(allocator: std.mem.Allocator, input: []const u8) []const u8 {
     if (allocator.resize(result, out_idx)) {
         return result[0..out_idx];
     } else {
-        const new_res = allocator.dupe(u8, result[0..out_idx]) catch return result[0..out_idx];
+        const new_res = allocator.dupe(u8, result[0..out_idx]) catch {
+            allocator.free(result);
+            return input;
+        };
         allocator.free(result);
         return new_res;
     }
@@ -379,6 +392,99 @@ fn handleRequest(
                 .{ .name = "Content-Type", .value = "application/json" },
             },
         });
+    } else if (std.mem.eql(u8, base_path, "/api/thumbnail")) {
+        var query_path: ?[]const u8 = null;
+        var query_it = std.mem.splitScalar(u8, query_string, '&');
+        while (query_it.next()) |param| {
+            if (param.len == 0) continue;
+            const eq_idx = std.mem.indexOfScalar(u8, param, '=') orelse continue;
+            const key = param[0..eq_idx];
+            const val = param[eq_idx + 1 ..];
+            if (std.mem.eql(u8, key, "path")) {
+                query_path = val;
+            }
+        }
+
+        if (query_path == null) {
+            try request.respond("Bad Request: missing 'path' parameter", .{
+                .status = .bad_request,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        }
+
+        const decoded_path = urlDecode(allocator, query_path.?);
+        defer if (decoded_path.ptr != query_path.?.ptr) allocator.free(decoded_path);
+
+        const db_dir = std.fs.path.dirname(database.db_path) orelse ".";
+        const thumb_dir = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
+        defer allocator.free(thumb_dir);
+
+        var hash_bytes: [32]u8 = undefined;
+        std.crypto.hash.sha2.Sha256.hash(decoded_path, &hash_bytes, .{});
+        const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
+        const thumb_file_name = try std.fmt.allocPrint(allocator, "{s}.jpg", .{hex_hash});
+        defer allocator.free(thumb_file_name);
+
+        const thumb_abs_path = try std.fs.path.join(allocator, &.{ thumb_dir, thumb_file_name });
+        defer allocator.free(thumb_abs_path);
+
+        const file = std.Io.Dir.openFileAbsolute(io, thumb_abs_path, .{ .mode = .read_only }) catch |err| {
+            if (err == error.FileNotFound) {
+                // Heal the database cache desync: set has_thumbnail to 0.
+                // Lock scope is kept tight so the write lock is released before
+                // the HTTP respond() call below.
+                {
+                    database.lockWrite(io);
+                    defer database.unlockWrite(io);
+                    database.updateHasThumbnail(decoded_path, false) catch |db_err| {
+                        std.debug.print("Failed to update has_thumbnail cache for '{s}': {}\n", .{ decoded_path, db_err });
+                    };
+                }
+            }
+            try request.respond("Not Found: thumbnail not generated", .{
+                .status = .not_found,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        };
+        defer std.Io.File.close(file, io);
+
+        const st = std.Io.File.stat(file, io) catch {
+            try request.respond("Internal Server Error: stat failed", .{
+                .status = .internal_server_error,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        };
+
+        const buf = try allocator.alloc(u8, st.size);
+        defer allocator.free(buf);
+
+        const bytes_read = try std.Io.File.readPositionalAll(file, io, buf, 0);
+        if (bytes_read != st.size) {
+            try request.respond("Internal Server Error: partial read", .{
+                .status = .internal_server_error,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        }
+
+        try request.respond(buf, .{
+            .status = .ok,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "image/jpeg" },
+                .{ .name = "Cache-Control", .value = "public, max-age=86400" },
+            },
+        });
     } else if (std.mem.eql(u8, base_path, "/api/media")) {
         var limit: u32 = 25;
         var offset: u32 = 0;
@@ -425,25 +531,39 @@ fn handleRequest(
         }
 
         const decoded_search = if (search) |s| urlDecode(allocator, s) else null;
-        defer if (decoded_search) |ds| allocator.free(ds);
+        defer if (decoded_search) |ds| {
+            if (ds.ptr != search.?.ptr) allocator.free(ds);
+        };
 
         const decoded_format = if (filter_format) |f| urlDecode(allocator, f) else null;
-        defer if (decoded_format) |df| allocator.free(df);
+        defer if (decoded_format) |df| {
+            if (df.ptr != filter_format.?.ptr) allocator.free(df);
+        };
 
         const decoded_type = if (filter_type) |t| urlDecode(allocator, t) else null;
-        defer if (decoded_type) |dt| allocator.free(dt);
+        defer if (decoded_type) |dt| {
+            if (dt.ptr != filter_type.?.ptr) allocator.free(dt);
+        };
 
         const decoded_date_from = if (date_from) |df| urlDecode(allocator, df) else null;
-        defer if (decoded_date_from) |ddf| allocator.free(ddf);
+        defer if (decoded_date_from) |ddf| {
+            if (ddf.ptr != date_from.?.ptr) allocator.free(ddf);
+        };
 
         const decoded_date_to = if (date_to) |dt| urlDecode(allocator, dt) else null;
-        defer if (decoded_date_to) |ddt| allocator.free(ddt);
+        defer if (decoded_date_to) |ddt| {
+            if (ddt.ptr != date_to.?.ptr) allocator.free(ddt);
+        };
 
         const decoded_sort = if (sort_by) |sb| urlDecode(allocator, sb) else null;
-        defer if (decoded_sort) |dsb| allocator.free(dsb);
+        defer if (decoded_sort) |dsb| {
+            if (dsb.ptr != sort_by.?.ptr) allocator.free(dsb);
+        };
 
         const decoded_order = if (sort_order) |so| urlDecode(allocator, so) else null;
-        defer if (decoded_order) |dso| allocator.free(dso);
+        defer if (decoded_order) |dso| {
+            if (dso.ptr != sort_order.?.ptr) allocator.free(dso);
+        };
 
         const result = blk: {
             database.lockRead(io);
@@ -511,4 +631,21 @@ fn handleRequest(
             },
         });
     }
+}
+
+test "urlDecode parsing and fallback" {
+    const allocator = std.testing.allocator;
+
+    const decoded = urlDecode(allocator, "hello+world%20test");
+    defer if (decoded.ptr != "hello+world%20test".ptr) allocator.free(decoded);
+
+    try std.testing.expectEqualStrings("hello world test", decoded);
+
+    const empty = urlDecode(allocator, "");
+    defer if (empty.ptr != "".ptr) allocator.free(empty);
+    try std.testing.expectEqualStrings("", empty);
+
+    const invalid = urlDecode(allocator, "%xy");
+    defer if (invalid.ptr != "%xy".ptr) allocator.free(invalid);
+    try std.testing.expectEqualStrings("%xy", invalid);
 }
