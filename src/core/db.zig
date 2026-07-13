@@ -91,12 +91,88 @@ pub const DbStats = struct {
     }
 };
 
+/// SQL predicate matching image rows (shared across stats and filter queries).
+const is_image_pred = "duration_sec IS NULL AND format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi')";
+
+/// SQL predicate matching video rows (shared across stats and filter queries).
+const is_video_pred = "duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi')";
+
+/// Stats cache TTL — short enough to reflect crawler writes, long enough to absorb dashboard polling.
+const stats_cache_ttl_ns: i96 = 2 * std.time.ns_per_s;
+
+const PagedStmtCache = struct {
+    const max_entries = 16;
+
+    entries: [max_entries]Entry = [_]Entry{.{}} ** max_entries,
+    len: usize = 0,
+
+    const Entry = struct {
+        sql: ?[]const u8 = null,
+        stmt: ?*c.sqlite3_stmt = null,
+    };
+
+    fn get(self: *const PagedStmtCache, sql: []const u8) ?*c.sqlite3_stmt {
+        for (self.entries[0..self.len]) |entry| {
+            if (entry.sql) |cached_sql| {
+                if (std.mem.eql(u8, cached_sql, sql)) return entry.stmt;
+            }
+        }
+        return null;
+    }
+
+    fn put(
+        self: *PagedStmtCache,
+        allocator: std.mem.Allocator,
+        handle: *c.sqlite3,
+        sql: []const u8,
+    ) !*c.sqlite3_stmt {
+        if (self.get(sql)) |stmt| return stmt;
+
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(handle, sql.ptr, @intCast(sql.len), &stmt, null) != c.SQLITE_OK) {
+            return error.DatabasePrepareError;
+        }
+
+        const dup_sql = try allocator.dupe(u8, sql);
+        errdefer allocator.free(dup_sql);
+
+        if (self.len < max_entries) {
+            self.entries[self.len] = .{ .sql = dup_sql, .stmt = stmt.? };
+            self.len += 1;
+            return stmt.?;
+        }
+
+        // Evict the oldest entry when the cache is full.
+        if (self.entries[0].sql) |old_sql| allocator.free(old_sql);
+        if (self.entries[0].stmt) |old_stmt| _ = c.sqlite3_finalize(old_stmt);
+        for (1..self.len) |i| {
+            self.entries[i - 1] = self.entries[i];
+        }
+        self.entries[self.len - 1] = .{ .sql = dup_sql, .stmt = stmt.? };
+        return stmt.?;
+    }
+
+    fn deinit(self: *PagedStmtCache, allocator: std.mem.Allocator) void {
+        for (self.entries[0..self.len]) |entry| {
+            if (entry.sql) |sql| allocator.free(sql);
+            if (entry.stmt) |stmt| _ = c.sqlite3_finalize(stmt);
+        }
+        self.len = 0;
+    }
+};
+
 /// Manager wrapping SQLite database connection and prepared statements.
 pub const Db = struct {
+    allocator: std.mem.Allocator,
     handle: ?*c.sqlite3,
     query_stmt: ?*c.sqlite3_stmt = null,
     insert_stmt: ?*c.sqlite3_stmt = null,
-    mutex: std.Io.Mutex = std.Io.Mutex.init,
+    rwlock: std.Io.RwLock = std.Io.RwLock.init,
+    stats_cache: ?DbStats = null,
+    stats_cache_expires_ns: i96 = 0,
+    stats_cache_arena: std.heap.ArenaAllocator,
+    paged_stmt_cache: PagedStmtCache = .{},
+    paged_stmt_cache_arena: std.heap.ArenaAllocator,
 
     /// Initialize SQLite connection, run migrations, and prepare statements.
     pub fn init(allocator: std.mem.Allocator, db_path: []const u8) !Db {
@@ -177,14 +253,131 @@ pub const Db = struct {
         }
 
         return Db{
+            .allocator = allocator,
             .handle = handle,
             .query_stmt = query_stmt,
             .insert_stmt = insert_stmt,
+            .stats_cache_arena = std.heap.ArenaAllocator.init(allocator),
+            .paged_stmt_cache_arena = std.heap.ArenaAllocator.init(allocator),
         };
+    }
+
+    /// Acquire a shared lock for read-only database operations.
+    pub fn lockRead(self: *Db, io: std.Io) void {
+        self.rwlock.lockSharedUncancelable(io);
+    }
+
+    /// Release a shared read lock.
+    pub fn unlockRead(self: *Db, io: std.Io) void {
+        self.rwlock.unlockShared(io);
+    }
+
+    /// Acquire an exclusive lock for write operations.
+    pub fn lockWrite(self: *Db, io: std.Io) void {
+        self.rwlock.lockUncancelable(io);
+    }
+
+    /// Release an exclusive write lock.
+    pub fn unlockWrite(self: *Db, io: std.Io) void {
+        self.rwlock.unlock(io);
+    }
+
+    fn invalidateStatsCache(self: *Db) void {
+        self.stats_cache = null;
+        self.stats_cache_expires_ns = 0;
+        self.stats_cache_arena.deinit();
+        self.stats_cache_arena = std.heap.ArenaAllocator.init(self.allocator);
+    }
+
+    fn cloneStats(allocator: std.mem.Allocator, src: DbStats) !DbStats {
+        var image_formats: std.ArrayList(DbStats.FormatCount) = .empty;
+        errdefer {
+            for (image_formats.items) |item| allocator.free(item.format);
+            image_formats.deinit(allocator);
+        }
+        for (src.image_formats) |item| {
+            try image_formats.append(allocator, .{
+                .format = try allocator.dupe(u8, item.format),
+                .count = item.count,
+            });
+        }
+
+        var video_formats: std.ArrayList(DbStats.FormatCount) = .empty;
+        errdefer {
+            for (video_formats.items) |item| allocator.free(item.format);
+            video_formats.deinit(allocator);
+        }
+        for (src.video_formats) |item| {
+            try video_formats.append(allocator, .{
+                .format = try allocator.dupe(u8, item.format),
+                .count = item.count,
+            });
+        }
+
+        var cameras: std.ArrayList(DbStats.CameraCount) = .empty;
+        errdefer {
+            for (cameras.items) |item| {
+                allocator.free(item.make);
+                allocator.free(item.model);
+            }
+            cameras.deinit(allocator);
+        }
+        for (src.cameras) |item| {
+            try cameras.append(allocator, .{
+                .make = try allocator.dupe(u8, item.make),
+                .model = try allocator.dupe(u8, item.model),
+                .count = item.count,
+            });
+        }
+
+        return DbStats{
+            .total_files = src.total_files,
+            .total_size = src.total_size,
+            .num_images = src.num_images,
+            .num_videos = src.num_videos,
+            .image_formats = try image_formats.toOwnedSlice(allocator),
+            .video_formats = try video_formats.toOwnedSlice(allocator),
+            .cameras = try cameras.toOwnedSlice(allocator),
+            .image_sizes = src.image_sizes,
+            .video_sizes = src.video_sizes,
+            .video_durations = src.video_durations,
+        };
+    }
+
+    /// Return cached stats when fresh, otherwise refresh the cache.
+    pub fn getStatsCached(self: *Db, allocator: std.mem.Allocator, io: std.Io) !DbStats {
+        const now = std.Io.Clock.real.now(io).nanoseconds;
+        if (self.stats_cache) |cached| {
+            if (now < self.stats_cache_expires_ns) {
+                return try cloneStats(allocator, cached);
+            }
+        }
+
+        self.stats_cache_arena.deinit();
+        self.stats_cache_arena = std.heap.ArenaAllocator.init(self.allocator);
+        const cache_alloc = self.stats_cache_arena.allocator();
+
+        const fresh = try self.getStats(cache_alloc);
+        self.stats_cache = fresh;
+        self.stats_cache_expires_ns = now + stats_cache_ttl_ns;
+
+        return try cloneStats(allocator, fresh);
+    }
+
+    fn getOrPreparePagedStmt(self: *Db, sql: []const u8) !*c.sqlite3_stmt {
+        if (self.paged_stmt_cache.get(sql)) |stmt| return stmt;
+        return self.paged_stmt_cache.put(
+            self.paged_stmt_cache_arena.allocator(),
+            self.handle.?,
+            sql,
+        );
     }
 
     /// Finalize statements and close connection.
     pub fn deinit(self: *Db) void {
+        self.paged_stmt_cache.deinit(self.paged_stmt_cache_arena.allocator());
+        self.paged_stmt_cache_arena.deinit();
+        self.stats_cache_arena.deinit();
         if (self.query_stmt) |stmt| _ = c.sqlite3_finalize(stmt);
         if (self.insert_stmt) |stmt| _ = c.sqlite3_finalize(stmt);
         if (self.handle) |h| _ = c.sqlite3_close(h);
@@ -204,6 +397,7 @@ pub const Db = struct {
     pub fn commitTransaction(self: *Db) void {
         if (self.handle) |h| {
             _ = c.sqlite3_exec(h, "COMMIT TRANSACTION;", null, null, null);
+            self.invalidateStatsCache();
         }
     }
 
@@ -357,6 +551,8 @@ pub const Db = struct {
         const rc = c.sqlite3_step(stmt);
         if (rc != c.SQLITE_DONE) {
             std.debug.print("Failed to insert media row: {s}\n", .{c.sqlite3_errmsg(self.handle)});
+        } else {
+            self.invalidateStatsCache();
         }
     }
 
@@ -458,20 +654,37 @@ pub const Db = struct {
     pub fn getStats(self: *Db, allocator: std.mem.Allocator) !DbStats {
         if (self.handle == null) return error.DatabaseNotOpen;
 
-        // 1. Overall stats
+        // 1. Overall counts and all tier distributions in a single table scan.
         var total_files: u32 = 0;
         var total_size: u64 = 0;
         var num_images: u32 = 0;
         var num_videos: u32 = 0;
+        var img_sizes = DbStats.SizeTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
+        var vid_sizes = DbStats.SizeTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
+        var vid_durations = DbStats.DurationTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
 
         const overall_sql =
-            \\SELECT 
-            \\    COUNT(*), 
-            \\    COALESCE(SUM(size), 0),
-            \\    COALESCE(SUM(CASE WHEN duration_sec IS NULL AND format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi') THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi') THEN 1 ELSE 0 END), 0)
-            \\FROM media;
-        ;
+            "SELECT " ++
+            "COUNT(*), " ++
+            "COALESCE(SUM(size), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " AND size < 1048576 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " AND size >= 1048576 AND size < 5242880 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " AND size >= 5242880 AND size < 10485760 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " AND size >= 10485760 AND size < 26214400 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " AND size >= 26214400 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND size < 10485760 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND size >= 10485760 AND size < 104857600 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND size >= 104857600 AND size < 524288000 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND size >= 524288000 AND size < 2147483648 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND size >= 2147483648 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND duration_sec < 10 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND duration_sec >= 10 AND duration_sec < 60 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND duration_sec >= 60 AND duration_sec < 300 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND duration_sec >= 300 AND duration_sec < 900 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND duration_sec >= 900 THEN 1 ELSE 0 END), 0) " ++
+            "FROM media;";
         var overall_stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, overall_sql, -1, &overall_stmt, null) == c.SQLITE_OK) {
             defer _ = c.sqlite3_finalize(overall_stmt);
@@ -480,71 +693,70 @@ pub const Db = struct {
                 total_size = @intCast(c.sqlite3_column_int64(overall_stmt, 1));
                 num_images = @intCast(c.sqlite3_column_int(overall_stmt, 2));
                 num_videos = @intCast(c.sqlite3_column_int(overall_stmt, 3));
+                img_sizes.tier1 = @intCast(c.sqlite3_column_int(overall_stmt, 4));
+                img_sizes.tier2 = @intCast(c.sqlite3_column_int(overall_stmt, 5));
+                img_sizes.tier3 = @intCast(c.sqlite3_column_int(overall_stmt, 6));
+                img_sizes.tier4 = @intCast(c.sqlite3_column_int(overall_stmt, 7));
+                img_sizes.tier5 = @intCast(c.sqlite3_column_int(overall_stmt, 8));
+                vid_sizes.tier1 = @intCast(c.sqlite3_column_int(overall_stmt, 9));
+                vid_sizes.tier2 = @intCast(c.sqlite3_column_int(overall_stmt, 10));
+                vid_sizes.tier3 = @intCast(c.sqlite3_column_int(overall_stmt, 11));
+                vid_sizes.tier4 = @intCast(c.sqlite3_column_int(overall_stmt, 12));
+                vid_sizes.tier5 = @intCast(c.sqlite3_column_int(overall_stmt, 13));
+                vid_durations.tier1 = @intCast(c.sqlite3_column_int(overall_stmt, 14));
+                vid_durations.tier2 = @intCast(c.sqlite3_column_int(overall_stmt, 15));
+                vid_durations.tier3 = @intCast(c.sqlite3_column_int(overall_stmt, 16));
+                vid_durations.tier4 = @intCast(c.sqlite3_column_int(overall_stmt, 17));
+                vid_durations.tier5 = @intCast(c.sqlite3_column_int(overall_stmt, 18));
             }
         }
 
-        // 2. Image formats
-        const img_fmt_sql =
-            \\SELECT format, COUNT(*) 
-            \\FROM media 
-            \\WHERE duration_sec IS NULL AND format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi')
-            \\GROUP BY format;
-        ;
+        // 2. Image and video format counts in one round-trip.
+        const formats_sql =
+            "SELECT 'image' AS kind, format, COUNT(*) " ++
+            "FROM media WHERE " ++ is_image_pred ++ " GROUP BY format " ++
+            "UNION ALL " ++
+            "SELECT 'video' AS kind, format, COUNT(*) " ++
+            "FROM media WHERE " ++ is_video_pred ++ " GROUP BY format;";
         var img_formats: std.ArrayList(DbStats.FormatCount) = .empty;
         errdefer {
             for (img_formats.items) |item| allocator.free(item.format);
             img_formats.deinit(allocator);
         }
-        var img_fmt_stmt: ?*c.sqlite3_stmt = null;
-        if (c.sqlite3_prepare_v2(self.handle, img_fmt_sql, -1, &img_fmt_stmt, null) == c.SQLITE_OK) {
-            defer _ = c.sqlite3_finalize(img_fmt_stmt);
-            while (c.sqlite3_step(img_fmt_stmt) == c.SQLITE_ROW) {
-                const raw = c.sqlite3_column_text(img_fmt_stmt, 0);
-                const len = c.sqlite3_column_bytes(img_fmt_stmt, 0);
-                const count = @as(u32, @intCast(c.sqlite3_column_int(img_fmt_stmt, 1)));
-                try img_formats.append(allocator, .{
-                    .format = try allocator.dupe(u8, raw[0..@intCast(len)]),
-                    .count = count,
-                });
-            }
-        }
-
-        // 3. Video formats
-        const vid_fmt_sql =
-            \\SELECT format, COUNT(*) 
-            \\FROM media 
-            \\WHERE duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi')
-            \\GROUP BY format;
-        ;
         var vid_formats: std.ArrayList(DbStats.FormatCount) = .empty;
         errdefer {
             for (vid_formats.items) |item| allocator.free(item.format);
             vid_formats.deinit(allocator);
         }
-        var vid_fmt_stmt: ?*c.sqlite3_stmt = null;
-        if (c.sqlite3_prepare_v2(self.handle, vid_fmt_sql, -1, &vid_fmt_stmt, null) == c.SQLITE_OK) {
-            defer _ = c.sqlite3_finalize(vid_fmt_stmt);
-            while (c.sqlite3_step(vid_fmt_stmt) == c.SQLITE_ROW) {
-                const raw = c.sqlite3_column_text(vid_fmt_stmt, 0);
-                const len = c.sqlite3_column_bytes(vid_fmt_stmt, 0);
-                const count = @as(u32, @intCast(c.sqlite3_column_int(vid_fmt_stmt, 1)));
-                try vid_formats.append(allocator, .{
+        var formats_stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, formats_sql, -1, &formats_stmt, null) == c.SQLITE_OK) {
+            defer _ = c.sqlite3_finalize(formats_stmt);
+            while (c.sqlite3_step(formats_stmt) == c.SQLITE_ROW) {
+                const kind_raw = c.sqlite3_column_text(formats_stmt, 0);
+                const kind_len = c.sqlite3_column_bytes(formats_stmt, 0);
+                const kind = kind_raw[0..@intCast(kind_len)];
+                const raw = c.sqlite3_column_text(formats_stmt, 1);
+                const len = c.sqlite3_column_bytes(formats_stmt, 1);
+                const count = @as(u32, @intCast(c.sqlite3_column_int(formats_stmt, 2)));
+                const entry = DbStats.FormatCount{
                     .format = try allocator.dupe(u8, raw[0..@intCast(len)]),
                     .count = count,
-                });
+                };
+                if (std.mem.eql(u8, kind, "image")) {
+                    try img_formats.append(allocator, entry);
+                } else {
+                    try vid_formats.append(allocator, entry);
+                }
             }
         }
 
-        // 4. Cameras (top 5)
+        // 3. Cameras (top 5)
         const cameras_sql =
-            \\SELECT COALESCE(camera_make, ''), COALESCE(camera_model, ''), COUNT(*)
-            \\FROM media
-            \\WHERE duration_sec IS NULL AND format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi')
-            \\  AND (camera_make IS NOT NULL OR camera_model IS NOT NULL)
-            \\GROUP BY camera_make, camera_model
-            \\ORDER BY COUNT(*) DESC
-            \\LIMIT 5;
-        ;
+            "SELECT COALESCE(camera_make, ''), COALESCE(camera_model, ''), COUNT(*) " ++
+            "FROM media WHERE " ++ is_image_pred ++ " " ++
+            "AND (camera_make IS NOT NULL OR camera_model IS NOT NULL) " ++
+            "GROUP BY camera_make, camera_model " ++
+            "ORDER BY COUNT(*) DESC LIMIT 5;";
         var cameras: std.ArrayList(DbStats.CameraCount) = .empty;
         errdefer {
             for (cameras.items) |item| {
@@ -567,78 +779,6 @@ pub const Db = struct {
                     .model = try allocator.dupe(u8, model_raw[0..@intCast(model_len)]),
                     .count = count,
                 });
-            }
-        }
-
-        // 5. Image sizes distribution
-        const img_sizes_sql =
-            \\SELECT 
-            \\    COALESCE(SUM(CASE WHEN size < 1048576 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN size >= 1048576 AND size < 5242880 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN size >= 5242880 AND size < 10485760 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN size >= 10485760 AND size < 26214400 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN size >= 26214400 THEN 1 ELSE 0 END), 0)
-            \\FROM media
-            \\WHERE duration_sec IS NULL AND format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi');
-        ;
-        var img_sizes = DbStats.SizeTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
-        var img_sizes_stmt: ?*c.sqlite3_stmt = null;
-        if (c.sqlite3_prepare_v2(self.handle, img_sizes_sql, -1, &img_sizes_stmt, null) == c.SQLITE_OK) {
-            defer _ = c.sqlite3_finalize(img_sizes_stmt);
-            if (c.sqlite3_step(img_sizes_stmt) == c.SQLITE_ROW) {
-                img_sizes.tier1 = @intCast(c.sqlite3_column_int(img_sizes_stmt, 0));
-                img_sizes.tier2 = @intCast(c.sqlite3_column_int(img_sizes_stmt, 1));
-                img_sizes.tier3 = @intCast(c.sqlite3_column_int(img_sizes_stmt, 2));
-                img_sizes.tier4 = @intCast(c.sqlite3_column_int(img_sizes_stmt, 3));
-                img_sizes.tier5 = @intCast(c.sqlite3_column_int(img_sizes_stmt, 4));
-            }
-        }
-
-        // 6. Video sizes distribution
-        const vid_sizes_sql =
-            \\SELECT 
-            \\    COALESCE(SUM(CASE WHEN size < 10485760 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN size >= 10485760 AND size < 104857600 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN size >= 104857600 AND size < 524288000 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN size >= 524288000 AND size < 2147483648 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN size >= 2147483648 THEN 1 ELSE 0 END), 0)
-            \\FROM media
-            \\WHERE duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi');
-        ;
-        var vid_sizes = DbStats.SizeTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
-        var vid_sizes_stmt: ?*c.sqlite3_stmt = null;
-        if (c.sqlite3_prepare_v2(self.handle, vid_sizes_sql, -1, &vid_sizes_stmt, null) == c.SQLITE_OK) {
-            defer _ = c.sqlite3_finalize(vid_sizes_stmt);
-            if (c.sqlite3_step(vid_sizes_stmt) == c.SQLITE_ROW) {
-                vid_sizes.tier1 = @intCast(c.sqlite3_column_int(vid_sizes_stmt, 0));
-                vid_sizes.tier2 = @intCast(c.sqlite3_column_int(vid_sizes_stmt, 1));
-                vid_sizes.tier3 = @intCast(c.sqlite3_column_int(vid_sizes_stmt, 2));
-                vid_sizes.tier4 = @intCast(c.sqlite3_column_int(vid_sizes_stmt, 3));
-                vid_sizes.tier5 = @intCast(c.sqlite3_column_int(vid_sizes_stmt, 4));
-            }
-        }
-
-        // 7. Video durations distribution
-        const vid_durations_sql =
-            \\SELECT 
-            \\    COALESCE(SUM(CASE WHEN duration_sec < 10 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN duration_sec >= 10 AND duration_sec < 60 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN duration_sec >= 60 AND duration_sec < 300 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN duration_sec >= 300 AND duration_sec < 900 THEN 1 ELSE 0 END), 0),
-            \\    COALESCE(SUM(CASE WHEN duration_sec >= 900 THEN 1 ELSE 0 END), 0)
-            \\FROM media
-            \\WHERE duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi');
-        ;
-        var vid_durations = DbStats.DurationTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
-        var vid_durations_stmt: ?*c.sqlite3_stmt = null;
-        if (c.sqlite3_prepare_v2(self.handle, vid_durations_sql, -1, &vid_durations_stmt, null) == c.SQLITE_OK) {
-            defer _ = c.sqlite3_finalize(vid_durations_stmt);
-            if (c.sqlite3_step(vid_durations_stmt) == c.SQLITE_ROW) {
-                vid_durations.tier1 = @intCast(c.sqlite3_column_int(vid_durations_stmt, 0));
-                vid_durations.tier2 = @intCast(c.sqlite3_column_int(vid_durations_stmt, 1));
-                vid_durations.tier3 = @intCast(c.sqlite3_column_int(vid_durations_stmt, 2));
-                vid_durations.tier4 = @intCast(c.sqlite3_column_int(vid_durations_stmt, 3));
-                vid_durations.tier5 = @intCast(c.sqlite3_column_int(vid_durations_stmt, 4));
             }
         }
 
@@ -804,15 +944,17 @@ pub const Db = struct {
         const count_sql = try count_buf.toOwnedSlice(allocator);
         defer allocator.free(count_sql);
 
-        var count_stmt: ?*c.sqlite3_stmt = null;
-        if (c.sqlite3_prepare_v2(self.handle, count_sql.ptr, @intCast(count_sql.len), &count_stmt, null) != c.SQLITE_OK) {
+        const count_stmt = self.getOrPreparePagedStmt(count_sql) catch {
             std.debug.print("Failed to prepare count query: {s}\n", .{c.sqlite3_errmsg(self.handle)});
             return error.DatabasePrepareError;
+        };
+        defer {
+            _ = c.sqlite3_reset(count_stmt);
+            _ = c.sqlite3_clear_bindings(count_stmt);
         }
-        defer _ = c.sqlite3_finalize(count_stmt);
 
         bindFilters(
-            count_stmt.?,
+            count_stmt,
             search_like,
             format_filter,
             date_from_bound,
@@ -862,15 +1004,17 @@ pub const Db = struct {
         const select_sql = try select_buf.toOwnedSlice(allocator);
         defer allocator.free(select_sql);
 
-        var select_stmt: ?*c.sqlite3_stmt = null;
-        if (c.sqlite3_prepare_v2(self.handle, select_sql.ptr, @intCast(select_sql.len), &select_stmt, null) != c.SQLITE_OK) {
+        const select_stmt = self.getOrPreparePagedStmt(select_sql) catch {
             std.debug.print("Failed to prepare select paged query: {s}\n", .{c.sqlite3_errmsg(self.handle)});
             return error.DatabasePrepareError;
+        };
+        defer {
+            _ = c.sqlite3_reset(select_stmt);
+            _ = c.sqlite3_clear_bindings(select_stmt);
         }
-        defer _ = c.sqlite3_finalize(select_stmt);
 
         bindFilters(
-            select_stmt.?,
+            select_stmt,
             search_like,
             format_filter,
             date_from_bound,
@@ -1624,6 +1768,22 @@ test "getStats smoke after seeding (T19)" {
     try std.testing.expectEqual(@as(u32, 6), stats.total_files);
     try std.testing.expectEqual(@as(u32, 2), stats.num_videos);
     try std.testing.expectEqual(@as(u32, 4), stats.num_images);
+}
+
+test "getStatsCached returns equivalent data and reuses cache" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const fresh = try fixture.db.getStatsCached(allocator, io);
+    defer fresh.deinit(allocator);
+    const cached = try fixture.db.getStatsCached(allocator, io);
+    defer cached.deinit(allocator);
+
+    try std.testing.expectEqual(fresh.total_files, cached.total_files);
+    try std.testing.expectEqual(fresh.total_size, cached.total_size);
+    try std.testing.expect(fixture.db.stats_cache != null);
 }
 
 test "init creates expected indices (T20)" {

@@ -262,9 +262,9 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
     } else if (std.mem.eql(u8, base_path, "/api/stats")) {
         // Safe database locking for multi-threaded read/write
         const stats = blk: {
-            database.mutex.lockUncancelable(io);
-            defer database.mutex.unlock(io);
-            break :blk database.getStats(allocator) catch |err| {
+            database.lockRead(io);
+            defer database.unlockRead(io);
+            break :blk database.getStatsCached(allocator, io) catch |err| {
                 std.debug.print("DB error fetching stats: {}\n", .{err});
                 try request.respond("Internal Server Error: Database Query Failed", .{
                     .status = .internal_server_error,
@@ -373,8 +373,8 @@ fn handleConnection(allocator: std.mem.Allocator, io: std.Io, conn: std.Io.net.S
 
         // Fetch paginated rows from database
         const result = blk: {
-            database.mutex.lockUncancelable(io);
-            defer database.mutex.unlock(io);
+            database.lockRead(io);
+            defer database.unlockRead(io);
             break :blk database.getRecordsPaged(
                 allocator,
                 limit,

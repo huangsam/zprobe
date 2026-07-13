@@ -166,12 +166,12 @@ const worker = struct {
         var json_out: db.DbRecord = undefined;
 
         if (c_ctx.db) |d| {
-            d.mutex.lockUncancelable(c_ctx.io);
+            d.lockRead(c_ctx.io);
             const cache_res = d.queryCache(arena_allocator, entry.path, fsize, mtime) catch |err| blk: {
                 std.debug.print("Warning: cache query failed: {s}\n", .{@errorName(err)});
                 break :blk db.CacheResult{ .hit = false };
             };
-            d.mutex.unlock(c_ctx.io);
+            d.unlockRead(c_ctx.io);
 
             if (cache_res.hit) {
                 cache_hit = true;
@@ -201,11 +201,11 @@ const worker = struct {
             }
 
             if (c_ctx.db) |d| {
-                d.mutex.lockUncancelable(c_ctx.io);
+                d.lockWrite(c_ctx.io);
                 d.insertMedia(&json_out, mtime) catch |err| {
                     std.debug.print("Warning: failed to insert media to DB: {s}\n", .{@errorName(err)});
                 };
-                d.mutex.unlock(c_ctx.io);
+                d.unlockWrite(c_ctx.io);
             }
         }
 
