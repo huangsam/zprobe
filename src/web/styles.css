@@ -71,6 +71,7 @@
 }
 
 html {
+  background-color: var(--bg-main);
   scrollbar-gutter: stable;
 }
 
@@ -123,6 +124,7 @@ body {
 
 /* Header Styling (DSM Desktop look) */
 .app-header {
+  container-type: inline-size;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -133,9 +135,11 @@ body {
 
 .header-actions {
   display: flex;
-  flex: 1 1 280px;
+  flex: 1 1 17.5rem;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.75rem;
+  min-width: min(100%, 17.5rem);
 }
 
 .logo-container {
@@ -159,6 +163,35 @@ body {
 .logo-text .subtitle {
   font-size: 0.85rem;
   color: var(--text-secondary);
+}
+
+@container (max-width: 36rem) {
+  .app-header {
+    justify-content: center;
+  }
+
+  .logo-container {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  .logo-text {
+    text-align: center;
+  }
+
+  .header-actions {
+    flex: 1 1 100%;
+    width: 100%;
+    justify-content: stretch;
+    gap: 0.5rem;
+  }
+
+  .header-actions .btn {
+    flex: 1;
+    justify-content: center;
+    padding: 0.65rem 0.5rem;
+    font-size: 0.8rem;
+  }
 }
 
 /* Dashboard Main Layout */
@@ -225,14 +258,15 @@ body {
   transform: scale(0.97);
 }
 
-/* Dashboard Metrics Grid - Generous gap */
+/* Dashboard Metrics Grid - flex-wrap reflows smoothly without column snaps */
 .metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1.75rem; /* Increased space between metric cards */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.75rem;
 }
 
 .metric-card {
+  flex: 1 1 15rem;
   padding: 1.75rem;
   display: flex;
   align-items: center;
@@ -253,10 +287,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 3.5rem;
-  height: 3.5rem;
+  width: clamp(2.75rem, 6vw, 3.5rem);
+  height: clamp(2.75rem, 6vw, 3.5rem);
   border-radius: 10px;
-  font-size: 1.75rem;
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  flex-shrink: 0;
 }
 
 .metric-icon.blue {
@@ -288,7 +323,7 @@ body {
 .metric-info p {
   font-family: var(--font-sans);
   font-weight: 600;
-  font-size: 1.2rem;
+  font-size: clamp(1.1rem, 2vw, 1.2rem);
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
@@ -307,6 +342,7 @@ body {
 }
 
 .filter-bar {
+  container-type: inline-size;
   padding: 1.25rem clamp(1rem, 4vw, 2rem);
   display: flex;
   flex-direction: column;
@@ -368,7 +404,7 @@ body {
   width: 100%;
   background: var(--bg-input);
   padding: 0.75rem 1rem 0.75rem 2.75rem;
-  font-size: 0.95rem;
+  font-size: clamp(0.875rem, 1.5vw, 0.95rem);
 }
 
 .filters-wrapper {
@@ -380,8 +416,8 @@ body {
 }
 
 .filters-wrapper select {
-  flex: 1 0 180px;
-  min-width: 180px;
+  flex: 1 1 10rem;
+  min-width: 0;
 }
 
 .filters-wrapper select,
@@ -410,8 +446,8 @@ body {
 }
 
 .filter-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 1.5rem;
   align-items: flex-start;
 }
@@ -419,6 +455,7 @@ body {
 .filter-group {
   display: flex;
   flex-direction: column;
+  flex: 1 1 16.25rem;
   gap: 0.75rem;
   border: none;
   margin: 0;
@@ -522,6 +559,22 @@ body {
   flex-wrap: wrap;
   padding-top: 0.25rem;
   border-top: 1px solid var(--border-color);
+}
+
+@container (max-width: 32rem) {
+  .filter-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #clear-filters-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .filter-result-count {
+    white-space: normal;
+  }
 }
 
 .filter-actions-left {
@@ -713,14 +766,23 @@ th {
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   user-select: none;
-  transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast);
 }
 
 th:hover {
   background: #edf2f7;
   color: var(--text-primary);
+}
+
+@media (hover: hover) {
+  th {
+    transition:
+      background-color var(--transition-fast),
+      color var(--transition-fast);
+  }
+
+  tr:hover td {
+    transition: background-color var(--transition-fast);
+  }
 }
 
 #media-table th.sort-asc::after,
@@ -747,7 +809,6 @@ td {
   padding: clamp(0.9rem, 2vw, 1.25rem) clamp(1rem, 3vw, 1.75rem);
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
-  transition: background-color var(--transition-fast);
 }
 
 tr {
@@ -799,16 +860,16 @@ td:nth-child(4) {
 .file-name {
   font-weight: 500;
   color: var(--text-primary);
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
 .file-dir {
   font-size: 0.75rem;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 80ch;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
 .badge {
@@ -1167,9 +1228,13 @@ tr.empty-state-row:hover td {
 
 /* Charts Grid Layout */
 .charts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 2rem; /* Spacing between charts */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+}
+
+.charts-grid .chart-container {
+  flex: 1 1 20rem;
 }
 
 .chart-container {
@@ -1192,7 +1257,7 @@ tr.empty-state-row:hover td {
 }
 
 .chart-container.full-width {
-  grid-column: 1 / -1;
+  flex: 1 1 100%;
 }
 
 .canvas-wrapper {
@@ -1292,7 +1357,7 @@ tr.empty-state-row:hover td {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.25rem 2rem;
+  padding: clamp(1rem, 2vw, 1.25rem) clamp(1rem, 3vw, 2rem);
   border-top: 1px solid var(--border-color);
   background: var(--bg-surface);
   flex-wrap: wrap;
@@ -1323,101 +1388,6 @@ tr.empty-state-row:hover td {
   color: var(--text-primary);
   min-width: 100px;
   text-align: center;
-}
-
-@media (max-width: 640px) {
-  .metric-card {
-    border-radius: 10px;
-  }
-
-  .metric-icon {
-    width: 2.75rem;
-    height: 2.75rem;
-    font-size: 1.35rem;
-  }
-
-  .metric-info p {
-    font-size: 1.1rem;
-  }
-
-  .filter-separator {
-    font-size: 0.78rem;
-    padding: 0.1rem 0;
-  }
-
-  .filter-preset {
-    font-size: 0.72rem;
-    padding: 0.26rem 0.6rem;
-  }
-
-  .filter-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .filter-result-count {
-    white-space: normal;
-  }
-
-  #clear-filters-btn {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .pagination-container {
-    padding: 1rem;
-    justify-content: center;
-  }
-
-  .app-header {
-    justify-content: center;
-  }
-
-  .logo-container {
-    flex: 1 1 100%;
-    justify-content: center;
-  }
-
-  .logo-text {
-    text-align: center;
-  }
-
-  .header-actions {
-    flex: 1 1 100%;
-    width: 100%;
-    justify-content: stretch;
-    gap: 0.5rem;
-  }
-
-  .header-actions .btn {
-    flex: 1;
-    justify-content: center;
-    padding: 0.65rem 0.5rem;
-    font-size: 0.8rem;
-  }
-
-  .file-path-cell {
-    word-break: break-all;
-  }
-
-  .file-name,
-  .file-dir {
-    white-space: normal;
-    word-break: break-all;
-    overflow-wrap: anywhere;
-    max-width: 100%;
-  }
-
-  .file-dir {
-    text-overflow: unset;
-    overflow: visible;
-  }
-
-  #search-input {
-    font-size: 0.875rem;
-  }
-
-  /* Table remains horizontally scrollable, no columns hidden */
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
