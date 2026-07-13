@@ -7,9 +7,8 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="stylesheet" href="/styles.css" />
 
-    <!-- Embedded JS Libraries -->
-    <script src="/js/lucide.min.js"></script>
-    <script src="/js/chart.umd.js"></script>
+    <!-- Lucide deferred so it does not block first paint -->
+    <script src="/js/lucide.min.js" defer></script>
   </head>
   <body>
     <a href="#catalog-table" class="skip-link">Skip to catalog table</a>
@@ -592,6 +591,23 @@
       let vidFormatChart = null;
       let vidSizeChart = null;
       let vidDurationChart = null;
+
+      let chartJsLoadPromise = null;
+
+      function loadChartJs() {
+        if (window.Chart) return Promise.resolve();
+        if (!chartJsLoadPromise) {
+          chartJsLoadPromise = new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "/js/chart.umd.js";
+            script.onload = () => resolve();
+            script.onerror = () =>
+              reject(new Error("Failed to load Chart.js"));
+            document.head.appendChild(script);
+          });
+        }
+        return chartJsLoadPromise;
+      }
 
       // Helper: Collect focusable elements inside a dialog container
       function getFocusableElements(container) {
@@ -1401,7 +1417,11 @@
       }
 
       // Fetch database paged records
-      async function fetchMedia(isInitial = false) {
+      async function fetchMedia({
+        refetchStats = false,
+        showSkeleton = true,
+        showRefreshSpinner = false,
+      } = {}) {
         // Cancel any previous in-flight request so rapid navigation always
         // reflects the latest currentPage without waiting for stale fetches.
         if (currentFetchController) currentFetchController.abort();
@@ -1411,12 +1431,12 @@
         const tbody = document.getElementById("media-tbody");
         const tableContainer = document.querySelector(".table-container");
         if (tableContainer) tableContainer.setAttribute("aria-busy", "true");
-        renderSkeletons();
+        if (showSkeleton) renderSkeletons();
 
         const refreshBtn = document.getElementById("refresh-btn");
         const refreshIcon = document.querySelector("#refresh-btn .lucide");
 
-        if (!isInitial) {
+        if (showRefreshSpinner) {
           if (refreshBtn) refreshBtn.disabled = true;
           if (refreshIcon) refreshIcon.classList.add("spin");
         }
@@ -1424,8 +1444,7 @@
         const startTime = Date.now();
 
         try {
-          // If refreshing or initial, re-fetch stats as well
-          if (!isInitial) {
+          if (refetchStats) {
             await fetchStats();
           }
 
@@ -1479,12 +1498,12 @@
         } finally {
           if (controller === currentFetchController) {
             const elapsedTime = Date.now() - startTime;
-            const minDuration = isInitial ? 0 : 500;
+            const minDuration = showRefreshSpinner ? 500 : 0;
             const remainingTime = Math.max(0, minDuration - elapsedTime);
 
             setTimeout(() => {
               if (controller !== currentFetchController) return;
-              if (!isInitial && refreshIcon)
+              if (showRefreshSpinner && refreshIcon)
                 refreshIcon.classList.remove("spin");
               if (refreshBtn) refreshBtn.disabled = false;
               const tableContainer = document.querySelector(".table-container");
@@ -1570,10 +1589,11 @@
         const query = searchInput ? searchInput.value : "";
 
         tbody.innerHTML = "";
-        mediaData.forEach((row) => {
+        mediaData.forEach((row, index) => {
           const tr = document.createElement("tr");
           tr.tabIndex = 0;
           tr.setAttribute("role", "button");
+          tr.dataset.rowIndex = String(index);
 
           const dims =
             row.width && row.height
@@ -1583,13 +1603,6 @@
           const dirPath = row.path.substring(0, row.path.lastIndexOf("/"));
 
           tr.setAttribute("aria-label", `View details for ${fileBase}`);
-          tr.addEventListener("click", () => showDetails(row, tr));
-          tr.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              showDetails(row, tr);
-            }
-          });
 
           tr.innerHTML = `
                     <td class="file-path-cell">
@@ -1808,12 +1821,17 @@
         }
       }
 
-      function toggleModal(show) {
+      async function toggleModal(show) {
         const modal = document.getElementById("insights-modal");
         if (show) {
           modal.classList.add("open");
           modal.setAttribute("aria-hidden", "false");
-          switchModalTab(activeModalTab); // recreates charts at current size
+          try {
+            await loadChartJs();
+            switchModalTab(activeModalTab); // recreates charts at current size
+          } catch (err) {
+            console.error("Failed to load Chart.js:", err);
+          }
           document.addEventListener("keydown", handleModalKeydown);
           requestAnimationFrame(() => {
             document.getElementById("close-modal-btn")?.focus();
@@ -2169,12 +2187,12 @@
       // Setup UI Event Listeners
       document.addEventListener("DOMContentLoaded", () => {
         // Initial load: fetch stats, then fetch media
-        fetchStats().then(() => fetchMedia(true));
+        fetchStats().then(() => fetchMedia());
 
         // Reload View button
         document.getElementById("refresh-btn").addEventListener("click", () => {
           currentPage = 1;
-          fetchMedia(false);
+          fetchMedia({ refetchStats: true, showRefreshSpinner: true });
         });
 
         // Insights button
@@ -2235,11 +2253,16 @@
         // container width rather than growing via Chart.js's ResizeObserver.
         window
           .matchMedia("(max-width: 768px)")
-          .addEventListener("change", () => {
+          .addEventListener("change", async () => {
             const modal = document.getElementById("insights-modal");
             if (modal.classList.contains("open")) {
               destroyAllCharts();
-              switchModalTab(activeModalTab);
+              try {
+                await loadChartJs();
+                switchModalTab(activeModalTab);
+              } catch (err) {
+                console.error("Failed to load Chart.js:", err);
+              }
             }
           });
 
@@ -2308,9 +2331,31 @@
           .getElementById("media-tbody")
           ?.addEventListener("click", (e) => {
             const btn = e.target.closest(".empty-state-action");
-            if (!btn) return;
-            e.stopPropagation();
-            handleEmptyStateAction(btn);
+            if (btn) {
+              e.stopPropagation();
+              handleEmptyStateAction(btn);
+              return;
+            }
+
+            const tr = e.target.closest("tr[data-row-index]");
+            if (!tr) return;
+            const idx = parseInt(tr.dataset.rowIndex, 10);
+            if (!Number.isNaN(idx) && mediaData[idx]) {
+              showDetails(mediaData[idx], tr);
+            }
+          });
+
+        document
+          .getElementById("media-tbody")
+          ?.addEventListener("keydown", (e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            const tr = e.target.closest("tr[data-row-index]");
+            if (!tr) return;
+            e.preventDefault();
+            const idx = parseInt(tr.dataset.rowIndex, 10);
+            if (!Number.isNaN(idx) && mediaData[idx]) {
+              showDetails(mediaData[idx], tr);
+            }
           });
 
         // Search input with 300ms debounce
@@ -2328,7 +2373,7 @@
           .addEventListener("click", () => {
             if (currentPage > 1) {
               currentPage--;
-              fetchMedia();
+              fetchMedia({ showSkeleton: false });
             }
           });
         document
@@ -2337,7 +2382,7 @@
             const totalPages = Math.ceil(totalRecords / pageSize) || 1;
             if (currentPage < totalPages) {
               currentPage++;
-              fetchMedia();
+              fetchMedia({ showSkeleton: false });
             }
           });
         document
@@ -2345,7 +2390,7 @@
           .addEventListener("change", (e) => {
             pageSize = parseInt(e.target.value, 10);
             currentPage = 1;
-            fetchMedia();
+            fetchMedia({ showSkeleton: false });
           });
 
         // Sort headers
@@ -2372,7 +2417,7 @@
             updateSortAriaIndicators();
 
             currentPage = 1;
-            fetchMedia();
+            fetchMedia({ showSkeleton: false });
           });
         });
 
