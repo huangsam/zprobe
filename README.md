@@ -1,5 +1,8 @@
 # zprobe
 
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/huangsam/zprobe/ci.yml)](https://github.com/huangsam/zprobe/actions)
+[![License](https://img.shields.io/github/license/huangsam/zprobe)](https://github.com/huangsam/zprobe/blob/main/LICENSE)
+
 A lightweight, zero-dependency media toolkit written in Zig for recursively scanning directories and extracting dimensions, format, and metadata directly from image and video file headers.
 
 The project ships as two focused binaries: `zprobe` for fast CLI scanning and metadata extraction, and `zprobe-server` for browsing cached results through a local web dashboard.
