@@ -19,38 +19,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install Zig 0.16.0
-        shell: bash
-        run: |
-          set -e
-          ZIG_VERSION=0.16.0
-          case "${{ runner.os }}" in
-            Linux)
-              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz | tar -xJ
-              echo "$PWD/zig-x86_64-linux-$ZIG_VERSION" >> $GITHUB_PATH
-              ;;
-            macOS)
-              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-macos-$ZIG_VERSION.tar.xz | tar -xJ
-              echo "$PWD/zig-x86_64-macos-$ZIG_VERSION" >> $GITHUB_PATH
-              ;;
-            Windows)
-              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-windows-$ZIG_VERSION.zip -o zig.zip
-              7z x zig.zip
-              echo "$PWD/zig-x86_64-windows-$ZIG_VERSION" >> $GITHUB_PATH
-              ;;
-          esac
-
-      - name: Verify Zig installation
-        run: zig version
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
 
       - name: Build zprobe (Debug)
         run: zig build -Doptimize=Debug
 
-      - name: Build zprobe-server (Debug)
-        run: zig build zprobe-server -Doptimize=Debug
-
       - name: Run tests
-        run: zig test src/root.zig
+        run: zig build test
 
   cross-compile:
     name: Cross-compile Release binaries
@@ -60,12 +38,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install Zig 0.16.0
-        shell: bash
-        run: |
-          set -e
-          curl -L https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ
-          echo "$PWD/zig-x86_64-linux-0.16.0" >> $GITHUB_PATH
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
 
       - name: Cross-compile for macOS ARM64
         run: zig build -Dtarget=aarch64-macos -Doptimize=ReleaseSafe
