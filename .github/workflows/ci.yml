@@ -26,17 +26,17 @@ jobs:
           ZIG_VERSION=0.16.0
           case "${{ runner.os }}" in
             Linux)
-              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-linux-x86_64-$ZIG_VERSION.tar.xz | tar -xJ
-              echo "$PWD/zig-linux-x86_64-$ZIG_VERSION" >> $GITHUB_PATH
+              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz | tar -xJ
+              echo "$PWD/zig-x86_64-linux-$ZIG_VERSION" >> $GITHUB_PATH
               ;;
             macOS)
-              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-macos-x86_64-$ZIG_VERSION.tar.xz | tar -xJ
-              echo "$PWD/zig-macos-x86_64-$ZIG_VERSION" >> $GITHUB_PATH
+              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-macos-$ZIG_VERSION.tar.xz | tar -xJ
+              echo "$PWD/zig-x86_64-macos-$ZIG_VERSION" >> $GITHUB_PATH
               ;;
             Windows)
-              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-windows-x86_64-$ZIG_VERSION.zip -o zig.zip
+              curl -L https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-windows-$ZIG_VERSION.zip -o zig.zip
               7z x zig.zip
-              echo "$PWD/zig-windows-x86_64-$ZIG_VERSION" >> $GITHUB_PATH
+              echo "$PWD/zig-x86_64-windows-$ZIG_VERSION" >> $GITHUB_PATH
               ;;
           esac
 
@@ -64,8 +64,8 @@ jobs:
         shell: bash
         run: |
           set -e
-          curl -L https://ziglang.org/download/0.16.0/zig-linux-x86_64-0.16.0.tar.xz | tar -xJ
-          echo "$PWD/zig-linux-x86_64-0.16.0" >> $GITHUB_PATH
+          curl -L https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ
+          echo "$PWD/zig-x86_64-linux-0.16.0" >> $GITHUB_PATH
 
       - name: Cross-compile for macOS ARM64
         run: zig build -Dtarget=aarch64-macos -Doptimize=ReleaseSafe
