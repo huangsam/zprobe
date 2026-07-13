@@ -20,3 +20,6 @@ media/
 # Databases & SQLite sidecar files
 *.db
 *.db-*
+
+# Local systemd service files
+*.service

@@ -69,7 +69,40 @@ The server and cache database are configured with SQLite's **Write-Ahead Logging
 ./zig-out/bin/zprobe --db /path/to/cache.db /path/to/new/photos
 ```
 
-The CLI scan will write to the database concurrently, and clicking "Reload View" on the dashboard will immediately refresh the view with the new files.
+### Running as a Service (systemd)
+
+`zprobe-server` can generate its own systemd service file tailored specifically to the target environment:
+
+1. Copy the compiled `zprobe-server` binary to its deployment location (e.g. `/usr/local/bin/zprobe-server`).
+2. Run the server with your desired configuration flags and `--setup-service` to output the service configuration:
+   ```bash
+   /usr/local/bin/zprobe-server --port 8085 --db /var/lib/zprobe/zprobe_cache.db --setup-service > zprobe-server.service
+   ```
+   This dynamically detects the current user, working directory, absolute path of the executable, and parameters to output a valid systemd configuration.
+3. Move the file to your systemd services directory and enable it:
+   ```bash
+   sudo mv zprobe-server.service /etc/systemd/system/zprobe-server.service
+   sudo systemctl daemon-reload
+   sudo systemctl enable zprobe-server.service
+   sudo systemctl start zprobe-server.service
+   ```
+
+### Running via Docker
+
+Alternatively, you can run `zprobe-server` inside a lightweight container:
+
+1. Build the Docker image from the root of the workspace:
+   ```bash
+   docker build -t zprobe-server .
+   ```
+2. Start the container, mounting the directory hosting your cache database:
+   ```bash
+   docker run -d \
+     -p 8085:8085 \
+     -v /volume1/homes/sunbunbun/Tools:/app/data \
+     --name zprobe-server \
+     zprobe-server
+   ```
 
 ### REST API Reference
 

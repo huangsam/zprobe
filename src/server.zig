@@ -81,12 +81,48 @@ pub fn main(init: std.process.Init) !void {
                 std.debug.print("Error: --db requires a path value\n", .{});
                 std.process.exit(1);
             }
+        } else if (std.mem.eql(u8, arg, "--setup-service")) {
+            var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const len = std.process.executablePath(io, &exe_buf) catch 0;
+            const exe_path = if (len > 0) exe_buf[0..len] else "/usr/local/bin/zprobe-server";
+
+            const work_dir = std.fs.path.dirname(exe_path) orelse "/usr/local/bin";
+
+            const user = init.environ_map.get("USER") orelse init.environ_map.get("LOGNAME") orelse "zprobe";
+
+            const db_abs_path = std.fs.path.resolve(allocator, &[_][]const u8{ work_dir, db_path }) catch db_path;
+            defer if (!std.mem.eql(u8, db_abs_path, db_path)) allocator.free(db_abs_path);
+
+            // Output service directly to stdout so it can be piped
+            var stdout_buf: [1024]u8 = undefined;
+            var writer = std.Io.File.Writer.init(.stdout(), io, &stdout_buf);
+            const interface = &writer.interface;
+            interface.print(
+                \\[Unit]
+                \\Description=zprobe Insights Server
+                \\After=network.target
+                \\
+                \\[Service]
+                \\Type=simple
+                \\User={s}
+                \\WorkingDirectory={s}
+                \\ExecStart={s} --port {d} --db {s}
+                \\Restart=on-failure
+                \\RestartSec=5
+                \\
+                \\[Install]
+                \\WantedBy=multi-user.target
+                \\
+            , .{ user, work_dir, exe_path, port, db_abs_path }) catch {};
+            writer.flush() catch {};
+            std.process.exit(0);
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             std.debug.print("zprobe-server: Insights for the zprobe SQLite cache.\n\n", .{});
             std.debug.print("Usage: zprobe-server [options]\n\n", .{});
             std.debug.print("Options:\n", .{});
             std.debug.print("  -p, --port <number>    Port to listen on (default: 8080)\n", .{});
             std.debug.print("  -d, --db <path>        Path to zprobe_cache.db (default: zprobe_cache.db)\n", .{});
+            std.debug.print("  --setup-service        Generate and print a systemd service file tailored to this environment\n", .{});
             std.debug.print("  -h, --help             Show this help menu\n", .{});
             std.process.exit(0);
         } else {
