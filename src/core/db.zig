@@ -432,8 +432,12 @@ pub const Db = struct {
                 };
 
                 const fmt_raw = c.sqlite3_column_text(stmt, 2);
-                const fmt_len = c.sqlite3_column_bytes(stmt, 2);
-                json_out.format = try allocator.dupe(u8, fmt_raw[0..@intCast(fmt_len)]);
+                if (fmt_raw) |raw| {
+                    const fmt_len = c.sqlite3_column_bytes(stmt, 2);
+                    json_out.format = try allocator.dupe(u8, raw[0..@intCast(fmt_len)]);
+                } else {
+                    json_out.format = try allocator.dupe(u8, "unknown");
+                }
 
                 if (c.sqlite3_column_type(stmt, 3) != c.SQLITE_NULL) {
                     json_out.width = @intCast(c.sqlite3_column_int(stmt, 3));
@@ -595,8 +599,12 @@ pub const Db = struct {
             record.size = @intCast(c.sqlite3_column_int64(stmt, 1));
 
             const fmt_raw = c.sqlite3_column_text(stmt, 2);
-            const fmt_len = c.sqlite3_column_bytes(stmt, 2);
-            record.format = try allocator.dupe(u8, fmt_raw[0..@intCast(fmt_len)]);
+            if (fmt_raw) |raw| {
+                const fmt_len = c.sqlite3_column_bytes(stmt, 2);
+                record.format = try allocator.dupe(u8, raw[0..@intCast(fmt_len)]);
+            } else {
+                record.format = try allocator.dupe(u8, "unknown");
+            }
             errdefer allocator.free(record.format);
 
             if (c.sqlite3_column_type(stmt, 3) != c.SQLITE_NULL) {
@@ -713,10 +721,10 @@ pub const Db = struct {
 
         // 2. Image and video format counts in one round-trip.
         const formats_sql =
-            "SELECT 'image' AS kind, format, COUNT(*) " ++
+            "SELECT 'image' AS kind, COALESCE(format, 'unknown') AS format, COUNT(*) " ++
             "FROM media WHERE " ++ is_image_pred ++ " GROUP BY format " ++
             "UNION ALL " ++
-            "SELECT 'video' AS kind, format, COUNT(*) " ++
+            "SELECT 'video' AS kind, COALESCE(format, 'unknown') AS format, COUNT(*) " ++
             "FROM media WHERE " ++ is_video_pred ++ " GROUP BY format;";
         var img_formats: std.ArrayList(DbStats.FormatCount) = .empty;
         errdefer {
@@ -736,10 +744,10 @@ pub const Db = struct {
                 const kind_len = c.sqlite3_column_bytes(formats_stmt, 0);
                 const kind = kind_raw[0..@intCast(kind_len)];
                 const raw = c.sqlite3_column_text(formats_stmt, 1);
-                const len = c.sqlite3_column_bytes(formats_stmt, 1);
+                const format_name = if (raw) |r| r[0..@intCast(c.sqlite3_column_bytes(formats_stmt, 1))] else "unknown";
                 const count = @as(u32, @intCast(c.sqlite3_column_int(formats_stmt, 2)));
                 const entry = DbStats.FormatCount{
-                    .format = try allocator.dupe(u8, raw[0..@intCast(len)]),
+                    .format = try allocator.dupe(u8, format_name),
                     .count = count,
                 };
                 if (std.mem.eql(u8, kind, "image")) {
@@ -1050,8 +1058,12 @@ pub const Db = struct {
             record.size = @intCast(c.sqlite3_column_int64(select_stmt, 1));
 
             const fmt_raw = c.sqlite3_column_text(select_stmt, 2);
-            const fmt_len = c.sqlite3_column_bytes(select_stmt, 2);
-            record.format = try allocator.dupe(u8, fmt_raw[0..@intCast(fmt_len)]);
+            if (fmt_raw) |raw| {
+                const fmt_len = c.sqlite3_column_bytes(select_stmt, 2);
+                record.format = try allocator.dupe(u8, raw[0..@intCast(fmt_len)]);
+            } else {
+                record.format = try allocator.dupe(u8, "unknown");
+            }
             errdefer allocator.free(record.format);
 
             if (c.sqlite3_column_type(select_stmt, 3) != c.SQLITE_NULL) {
