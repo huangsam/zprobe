@@ -601,8 +601,7 @@
             const script = document.createElement("script");
             script.src = "/js/chart.umd.js";
             script.onload = () => resolve();
-            script.onerror = () =>
-              reject(new Error("Failed to load Chart.js"));
+            script.onerror = () => reject(new Error("Failed to load Chart.js"));
             document.head.appendChild(script);
           });
         }
@@ -2213,7 +2212,8 @@
 
           if (vidDurationChart) {
             vidDurationChart.data.labels = Object.keys(durationTiers);
-            vidDurationChart.data.datasets[0].data = Object.values(durationTiers);
+            vidDurationChart.data.datasets[0].data =
+              Object.values(durationTiers);
             vidDurationChart.update();
           } else {
             const durCtx = document
