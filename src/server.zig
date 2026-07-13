@@ -4,6 +4,7 @@ const Db = zprobe.db.Db;
 
 const index_html = @embedFile("web/index.html");
 const styles_css = @embedFile("web/styles.css");
+const app_js = @embedFile("web/app.js");
 const logo_svg = @embedFile("web/logo.svg");
 const lucide_js = @embedFile("web/js/lucide.min.js");
 const chart_js = @embedFile("web/js/chart.umd.js");
@@ -284,6 +285,14 @@ fn handleRequest(
             .status = .ok,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "text/css" },
+                .{ .name = "Cache-Control", .value = "public, max-age=86400" },
+            },
+        });
+    } else if (std.mem.eql(u8, base_path, "/app.js")) {
+        try request.respond(app_js, .{
+            .status = .ok,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "application/javascript" },
                 .{ .name = "Cache-Control", .value = "public, max-age=86400" },
             },
         });
