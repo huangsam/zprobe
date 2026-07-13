@@ -132,16 +132,40 @@ const WorkerContext = struct {
 };
 
 fn checkFFmpeg(io: std.Io) bool {
-    var proc = std.process.spawn(io, .{
-        .argv = &.{ "ffmpeg", "-version" },
-        .stdout = .ignore,
-        .stderr = .ignore,
+    const allocator = std.heap.page_allocator;
+
+    const decoders_res = std.process.run(allocator, io, .{
+        .argv = &.{ "ffmpeg", "-decoders" },
     }) catch return false;
-    const term = proc.wait(io) catch return false;
-    return switch (term) {
-        .exited => |code| code == 0,
-        else => false,
-    };
+    defer {
+        allocator.free(decoders_res.stdout);
+        allocator.free(decoders_res.stderr);
+    }
+    switch (decoders_res.term) {
+        .exited => |code| if (code != 0) return false,
+        else => return false,
+    }
+
+    if (std.mem.indexOf(u8, decoders_res.stdout, "mjpeg") == null) return false;
+    if (std.mem.indexOf(u8, decoders_res.stdout, "png") == null) return false;
+    if (std.mem.indexOf(u8, decoders_res.stdout, "webp") == null) return false;
+    if (std.mem.indexOf(u8, decoders_res.stdout, "h264") == null) return false;
+
+    const encoders_res = std.process.run(allocator, io, .{
+        .argv = &.{ "ffmpeg", "-encoders" },
+    }) catch return false;
+    defer {
+        allocator.free(encoders_res.stdout);
+        allocator.free(encoders_res.stderr);
+    }
+    switch (encoders_res.term) {
+        .exited => |code| if (code != 0) return false,
+        else => return false,
+    }
+
+    if (std.mem.indexOf(u8, encoders_res.stdout, "mjpeg") == null) return false;
+
+    return true;
 }
 
 fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8, is_video: bool) !bool {
