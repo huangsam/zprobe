@@ -128,6 +128,7 @@ const WorkerContext = struct {
     db: ?*db.Db = null,
     thumb_dir: ?[]const u8 = null,
     has_ffmpeg: bool = false,
+    ffmpeg_sem: ?*std.Io.Semaphore = null,
 };
 
 fn checkFFmpeg(io: std.Io) bool {
@@ -263,6 +264,8 @@ const worker = struct {
                 };
                 if (c_ctx.thumb_dir) |thumb_dir| {
                     if (c_ctx.has_ffmpeg) {
+                        if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                        defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
                         has_thumb = generateFfmpegThumbnail(c_ctx.io, arena_allocator, entry.path, thumb_dir, true) catch false;
                     }
                 }
@@ -279,6 +282,8 @@ const worker = struct {
                     if (res.thumbnail_data) |thumb_bytes| {
                         has_thumb = saveThumbnailBytes(c_ctx.io, arena_allocator, entry.path, thumb_dir, thumb_bytes) catch false;
                     } else if (c_ctx.has_ffmpeg) {
+                        if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                        defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
                         has_thumb = generateFfmpegThumbnail(c_ctx.io, arena_allocator, entry.path, thumb_dir, false) catch false;
                     }
                 }
@@ -503,6 +508,8 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(threads);
 
     const has_ffmpeg = checkFFmpeg(io);
+    const ffmpeg_concurrency = @min(@max(cpu_count / 2, 1), 4);
+    var ffmpeg_sem: std.Io.Semaphore = .{ .permits = ffmpeg_concurrency };
 
     const worker_ctx = WorkerContext{
         .allocator = allocator,
@@ -516,6 +523,7 @@ pub fn main(init: std.process.Init) !void {
         .db = db_ptr,
         .thumb_dir = thumb_dir_path,
         .has_ffmpeg = has_ffmpeg,
+        .ffmpeg_sem = &ffmpeg_sem,
     };
 
     var spawned_count: usize = 0;
