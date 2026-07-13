@@ -527,7 +527,7 @@
                     <canvas id="chart-img-sizes"></canvas>
                   </div>
                 </div>
-                <div class="chart-container full-width">
+                <div class="chart-container">
                   <h3>Top Camera Models</h3>
                   <div class="canvas-wrapper" id="wrapper-img-cameras">
                     <canvas id="chart-img-cameras"></canvas>
@@ -557,7 +557,7 @@
                     <canvas id="chart-vid-sizes"></canvas>
                   </div>
                 </div>
-                <div class="chart-container full-width">
+                <div class="chart-container">
                   <h3>Video Duration Breakdown</h3>
                   <div class="canvas-wrapper" id="wrapper-vid-durations">
                     <canvas id="chart-vid-durations"></canvas>
@@ -1788,19 +1788,16 @@
 
       // ─── Chart.js resize-loop mitigation ───────────────────────────────────
       // Chart.js attaches an internal ResizeObserver to every canvas when
-      // responsive:true is set (the default). When the modal is hidden the
-      // observer still fires on viewport changes, causing charts to grow
-      // unboundedly each time the browser is resized (especially when crossing
-      // the 768px CSS breakpoint that collapses the 2-column grid to 1-column).
+      // responsive:true is set. When the modal is closed, we destroy all charts
+      // to kill all observers and release memory.
       //
       // Strategy:
-      //   1. destroyAllCharts() on modal CLOSE  → kills every observer immediately.
-      //   2. switchModalTab() destroys the inactive tab's charts on each switch.
-      //   3. render*Charts() uses chart.update() when instances already exist.
-      //   4. matchMedia 768px listener resizes active-tab charts in place.
+      //   1. destroyAllCharts() on modal CLOSE → kills every observer immediately.
+      //   2. render*Charts() uses chart.update() when instances already exist.
+      //   3. switchModalTab() resizes active-tab charts on switch.
       // ────────────────────────────────────────────────────────────────────────
 
-      function destroyImageCharts() {
+      function destroyAllCharts() {
         if (imgFormatChart) {
           imgFormatChart.destroy();
           imgFormatChart = null;
@@ -1813,9 +1810,6 @@
           imgCameraChart.destroy();
           imgCameraChart = null;
         }
-      }
-
-      function destroyVideoCharts() {
         if (vidFormatChart) {
           vidFormatChart.destroy();
           vidFormatChart = null;
@@ -1828,11 +1822,6 @@
           vidDurationChart.destroy();
           vidDurationChart = null;
         }
-      }
-
-      function destroyAllCharts() {
-        destroyImageCharts();
-        destroyVideoCharts();
       }
 
       function resizeActiveCharts() {
@@ -1900,12 +1889,11 @@
         videosPane.hidden = isImages;
 
         if (tabName === "images") {
-          destroyVideoCharts();
           renderImageCharts();
         } else {
-          destroyImageCharts();
           renderVideoCharts();
         }
+        resizeActiveCharts();
       }
 
       // Helper to toggle visual placeholders when data is absent
@@ -2300,17 +2288,6 @@
         document
           .getElementById("tab-btn-videos")
           ?.addEventListener("click", () => switchModalTab("videos"));
-
-        // When the 768px layout breakpoint is crossed while the modal is open,
-        // resize active-tab charts so they measure the new container width.
-        window
-          .matchMedia("(max-width: 768px)")
-          .addEventListener("change", () => {
-            const modal = document.getElementById("insights-modal");
-            if (modal.classList.contains("open")) {
-              resizeActiveCharts();
-            }
-          });
 
         // Filter changes
         document
