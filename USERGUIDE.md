@@ -78,10 +78,14 @@ The server exposes the following JSON endpoints:
 - **`GET /api/stats`**: Returns database summary metrics including total file counts/sizes, format distributions, camera models, and video duration tiers.
 - **`GET /api/media`**: Returns paginated, sorted, and filtered lists of media files.
   - **Query Parameters:**
-    - `limit`: Number of records to return (default: 50).
+    - `limit`: Number of records to return (default: 25).
     - `offset`: Record index offset (default: 0).
     - `sort`: Column to sort by (`path`, `size`, `format`, `width`, `height`, `duration_sec`, `camera_model`, `create_time`).
     - `order`: Sort order (`asc` or `desc`).
     - `search`: Substring filter matching file paths or camera model.
     - `format`: Match exact format (e.g. `jpeg`, `mp4`).
     - `type`: Match file category (`image` or `video`).
+    - `date_from`: Filter files captured on or after this ISO date (`YYYY-MM-DD`).
+    - `date_to`: Filter files captured on or before this ISO date (`YYYY-MM-DD`).
+    - `size_min`: Filter files larger than or equal to this size in bytes.
+    - `size_max`: Filter files smaller than or equal to this size in bytes.
