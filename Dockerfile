@@ -27,17 +27,17 @@ RUN zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSafe
 FROM alpine:latest
 
 # Create a non-root user for security
-RUN addgroup -S sunbunbun && adduser -S sunbunbun -G sunbunbun
+RUN addgroup -S nonroot && adduser -S nonroot -G nonroot
 
 # Set up directory structure
 WORKDIR /app
-RUN mkdir -p /app/data && chown -R sunbunbun:sunbunbun /app
+RUN mkdir -p /app/data && chown -R nonroot:nonroot /app
 
 # Copy the statically compiled zprobe-server binary from the builder
 COPY --from=builder /src/zig-out/bin/zprobe-server /usr/local/bin/zprobe-server
 
 # Use non-root user
-USER sunbunbun
+USER nonroot
 
 # Expose default dashboard port
 EXPOSE 8085
