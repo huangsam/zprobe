@@ -258,15 +258,14 @@ body {
   transform: scale(0.97);
 }
 
-/* Dashboard Metrics Grid - flex-wrap reflows smoothly without column snaps */
+/* Dashboard Metrics Grid - Grid layout for uniform card sizing */
 .metrics-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
   gap: 1.75rem;
 }
 
 .metric-card {
-  flex: 1 1 15rem;
   padding: 1.75rem;
   display: flex;
   align-items: center;
