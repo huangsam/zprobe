@@ -12,6 +12,7 @@ zig-out/
 Thumbs.db
 
 # Additional assets
+.zprobe_thumbnails/
 brainstorm/
 playground/
 scratch/
@@ -21,6 +22,11 @@ media/
 # Databases & SQLite sidecar files
 *.db
 *.db-*
+
+# Backup files
+*.bak
+*.bck
+*.backup
 
 # Local systemd service files
 *.service
