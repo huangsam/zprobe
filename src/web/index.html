@@ -649,6 +649,13 @@
         if (dialog) trapFocus(e, dialog);
       }
 
+      function handleModalBackdropClick(event) {
+        const modal = document.getElementById("insights-modal");
+        if (event.target === modal) {
+          toggleModal(false);
+        }
+      }
+
       function handleModalTablistKeydown(e) {
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         const modal = document.getElementById("insights-modal");
@@ -1753,7 +1760,7 @@
         drawer.classList.add("open");
         drawer.setAttribute("aria-hidden", "false");
         document.getElementById("drawer-backdrop").classList.add("visible");
-        lucide.createIcons();
+        lucide.createIcons({ root: drawer });
         document.addEventListener("keydown", handleDrawerKeydown);
         requestAnimationFrame(() => {
           document.getElementById("close-drawer-btn")?.focus();
@@ -1789,12 +1796,12 @@
       //
       // Strategy:
       //   1. destroyAllCharts() on modal CLOSE  → kills every observer immediately.
-      //   2. switchModalTab()   on modal OPEN   → recreates charts at current size.
-      //   3. matchMedia 768px listener (below)  → destroys+recreates charts if the
-      //      breakpoint is crossed while the modal is already open.
+      //   2. switchModalTab() destroys the inactive tab's charts on each switch.
+      //   3. render*Charts() uses chart.update() when instances already exist.
+      //   4. matchMedia 768px listener resizes active-tab charts in place.
       // ────────────────────────────────────────────────────────────────────────
 
-      function destroyAllCharts() {
+      function destroyImageCharts() {
         if (imgFormatChart) {
           imgFormatChart.destroy();
           imgFormatChart = null;
@@ -1807,6 +1814,9 @@
           imgCameraChart.destroy();
           imgCameraChart = null;
         }
+      }
+
+      function destroyVideoCharts() {
         if (vidFormatChart) {
           vidFormatChart.destroy();
           vidFormatChart = null;
@@ -1818,6 +1828,23 @@
         if (vidDurationChart) {
           vidDurationChart.destroy();
           vidDurationChart = null;
+        }
+      }
+
+      function destroyAllCharts() {
+        destroyImageCharts();
+        destroyVideoCharts();
+      }
+
+      function resizeActiveCharts() {
+        if (activeModalTab === "images") {
+          imgFormatChart?.resize();
+          imgSizeChart?.resize();
+          imgCameraChart?.resize();
+        } else {
+          vidFormatChart?.resize();
+          vidSizeChart?.resize();
+          vidDurationChart?.resize();
         }
       }
 
@@ -1833,6 +1860,7 @@
             console.error("Failed to load Chart.js:", err);
           }
           document.addEventListener("keydown", handleModalKeydown);
+          window.addEventListener("click", handleModalBackdropClick);
           requestAnimationFrame(() => {
             document.getElementById("close-modal-btn")?.focus();
           });
@@ -1841,6 +1869,7 @@
           modal.setAttribute("aria-hidden", "true");
           destroyAllCharts(); // stop observers before modal is hidden
           document.removeEventListener("keydown", handleModalKeydown);
+          window.removeEventListener("click", handleModalBackdropClick);
           const returnFocus = modalReturnFocus;
           modalReturnFocus = null;
           if (returnFocus && typeof returnFocus.focus === "function") {
@@ -1872,8 +1901,10 @@
         videosPane.hidden = isImages;
 
         if (tabName === "images") {
+          destroyVideoCharts();
           renderImageCharts();
         } else {
+          destroyImageCharts();
           renderVideoCharts();
         }
       }
@@ -1923,36 +1954,41 @@
           );
           const data = statsData.image_formats.map((f) => f.count);
 
-          if (imgFormatChart) imgFormatChart.destroy();
-          const ctx = document
-            .getElementById("chart-img-formats")
-            .getContext("2d");
-          imgFormatChart = new Chart(ctx, {
-            type: "doughnut",
-            data: {
-              labels: labels,
-              datasets: [
-                {
-                  data: data,
-                  backgroundColor: [
-                    "#2b76db",
-                    "#34d399",
-                    "#fbbf24",
-                    "#f87171",
-                    "#a78bfa",
-                    "#38bdf8",
-                  ],
-                  borderWidth: 1,
-                  borderColor: "#ffffff",
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { legend: { position: "right" } },
-            },
-          });
+          if (imgFormatChart) {
+            imgFormatChart.data.labels = labels;
+            imgFormatChart.data.datasets[0].data = data;
+            imgFormatChart.update();
+          } else {
+            const ctx = document
+              .getElementById("chart-img-formats")
+              .getContext("2d");
+            imgFormatChart = new Chart(ctx, {
+              type: "doughnut",
+              data: {
+                labels: labels,
+                datasets: [
+                  {
+                    data: data,
+                    backgroundColor: [
+                      "#2b76db",
+                      "#34d399",
+                      "#fbbf24",
+                      "#f87171",
+                      "#a78bfa",
+                      "#38bdf8",
+                    ],
+                    borderWidth: 1,
+                    borderColor: "#ffffff",
+                  },
+                ],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: "right" } },
+              },
+            });
+          }
         } else if (imgFormatChart) {
           imgFormatChart.destroy();
           imgFormatChart = null;
@@ -1969,29 +2005,34 @@
             "> 25 MB": tiers.tier5,
           };
 
-          if (imgSizeChart) imgSizeChart.destroy();
-          const sizeCtx = document
-            .getElementById("chart-img-sizes")
-            .getContext("2d");
-          imgSizeChart = new Chart(sizeCtx, {
-            type: "bar",
-            data: {
-              labels: Object.keys(sizeTiers),
-              datasets: [
-                {
-                  data: Object.values(sizeTiers),
-                  backgroundColor: "#2b76db",
-                  borderRadius: 4,
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
-              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-            },
-          });
+          if (imgSizeChart) {
+            imgSizeChart.data.labels = Object.keys(sizeTiers);
+            imgSizeChart.data.datasets[0].data = Object.values(sizeTiers);
+            imgSizeChart.update();
+          } else {
+            const sizeCtx = document
+              .getElementById("chart-img-sizes")
+              .getContext("2d");
+            imgSizeChart = new Chart(sizeCtx, {
+              type: "bar",
+              data: {
+                labels: Object.keys(sizeTiers),
+                datasets: [
+                  {
+                    data: Object.values(sizeTiers),
+                    backgroundColor: "#2b76db",
+                    borderRadius: 4,
+                  },
+                ],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+              },
+            });
+          }
         } else if (imgSizeChart) {
           imgSizeChart.destroy();
           imgSizeChart = null;
@@ -2014,30 +2055,35 @@
           });
           const data = statsData.cameras.map((c) => c.count);
 
-          if (imgCameraChart) imgCameraChart.destroy();
-          const camCtx = document
-            .getElementById("chart-img-cameras")
-            .getContext("2d");
-          imgCameraChart = new Chart(camCtx, {
-            type: "bar",
-            data: {
-              labels: labels,
-              datasets: [
-                {
-                  data: data,
-                  backgroundColor: "#a78bfa",
-                  borderRadius: 4,
-                },
-              ],
-            },
-            options: {
-              indexAxis: "y",
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
-              scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
-            },
-          });
+          if (imgCameraChart) {
+            imgCameraChart.data.labels = labels;
+            imgCameraChart.data.datasets[0].data = data;
+            imgCameraChart.update();
+          } else {
+            const camCtx = document
+              .getElementById("chart-img-cameras")
+              .getContext("2d");
+            imgCameraChart = new Chart(camCtx, {
+              type: "bar",
+              data: {
+                labels: labels,
+                datasets: [
+                  {
+                    data: data,
+                    backgroundColor: "#a78bfa",
+                    borderRadius: 4,
+                  },
+                ],
+              },
+              options: {
+                indexAxis: "y",
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+              },
+            });
+          }
         } else if (imgCameraChart) {
           imgCameraChart.destroy();
           imgCameraChart = null;
@@ -2071,35 +2117,40 @@
           );
           const data = statsData.video_formats.map((f) => f.count);
 
-          if (vidFormatChart) vidFormatChart.destroy();
-          const ctx = document
-            .getElementById("chart-vid-formats")
-            .getContext("2d");
-          vidFormatChart = new Chart(ctx, {
-            type: "doughnut",
-            data: {
-              labels: labels,
-              datasets: [
-                {
-                  data: data,
-                  backgroundColor: [
-                    "#2b76db",
-                    "#fbbf24",
-                    "#7c3aed",
-                    "#ec4899",
-                    "#64748b",
-                  ],
-                  borderWidth: 1,
-                  borderColor: "#ffffff",
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { legend: { position: "right" } },
-            },
-          });
+          if (vidFormatChart) {
+            vidFormatChart.data.labels = labels;
+            vidFormatChart.data.datasets[0].data = data;
+            vidFormatChart.update();
+          } else {
+            const ctx = document
+              .getElementById("chart-vid-formats")
+              .getContext("2d");
+            vidFormatChart = new Chart(ctx, {
+              type: "doughnut",
+              data: {
+                labels: labels,
+                datasets: [
+                  {
+                    data: data,
+                    backgroundColor: [
+                      "#2b76db",
+                      "#fbbf24",
+                      "#7c3aed",
+                      "#ec4899",
+                      "#64748b",
+                    ],
+                    borderWidth: 1,
+                    borderColor: "#ffffff",
+                  },
+                ],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: "right" } },
+              },
+            });
+          }
         } else if (vidFormatChart) {
           vidFormatChart.destroy();
           vidFormatChart = null;
@@ -2116,29 +2167,34 @@
             "> 2 GB": tiers.tier5,
           };
 
-          if (vidSizeChart) vidSizeChart.destroy();
-          const sizeCtx = document
-            .getElementById("chart-vid-sizes")
-            .getContext("2d");
-          vidSizeChart = new Chart(sizeCtx, {
-            type: "bar",
-            data: {
-              labels: Object.keys(sizeTiers),
-              datasets: [
-                {
-                  data: Object.values(sizeTiers),
-                  backgroundColor: "#2b76db",
-                  borderRadius: 4,
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
-              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-            },
-          });
+          if (vidSizeChart) {
+            vidSizeChart.data.labels = Object.keys(sizeTiers);
+            vidSizeChart.data.datasets[0].data = Object.values(sizeTiers);
+            vidSizeChart.update();
+          } else {
+            const sizeCtx = document
+              .getElementById("chart-vid-sizes")
+              .getContext("2d");
+            vidSizeChart = new Chart(sizeCtx, {
+              type: "bar",
+              data: {
+                labels: Object.keys(sizeTiers),
+                datasets: [
+                  {
+                    data: Object.values(sizeTiers),
+                    backgroundColor: "#2b76db",
+                    borderRadius: 4,
+                  },
+                ],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+              },
+            });
+          }
         } else if (vidSizeChart) {
           vidSizeChart.destroy();
           vidSizeChart = null;
@@ -2155,29 +2211,34 @@
             "> 15m": tiers.tier5,
           };
 
-          if (vidDurationChart) vidDurationChart.destroy();
-          const durCtx = document
-            .getElementById("chart-vid-durations")
-            .getContext("2d");
-          vidDurationChart = new Chart(durCtx, {
-            type: "bar",
-            data: {
-              labels: Object.keys(durationTiers),
-              datasets: [
-                {
-                  data: Object.values(durationTiers),
-                  backgroundColor: "#d97706",
-                  borderRadius: 4,
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
-              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-            },
-          });
+          if (vidDurationChart) {
+            vidDurationChart.data.labels = Object.keys(durationTiers);
+            vidDurationChart.data.datasets[0].data = Object.values(durationTiers);
+            vidDurationChart.update();
+          } else {
+            const durCtx = document
+              .getElementById("chart-vid-durations")
+              .getContext("2d");
+            vidDurationChart = new Chart(durCtx, {
+              type: "bar",
+              data: {
+                labels: Object.keys(durationTiers),
+                datasets: [
+                  {
+                    data: Object.values(durationTiers),
+                    backgroundColor: "#d97706",
+                    borderRadius: 4,
+                  },
+                ],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+              },
+            });
+          }
         } else if (vidDurationChart) {
           vidDurationChart.destroy();
           vidDurationChart = null;
@@ -2229,14 +2290,6 @@
           .getElementById("close-modal-btn")
           .addEventListener("click", () => toggleModal(false));
 
-        // Close modal on background click
-        window.addEventListener("click", (event) => {
-          const modal = document.getElementById("insights-modal");
-          if (event.target === modal) {
-            toggleModal(false);
-          }
-        });
-
         document
           .querySelector(".modal-tabs")
           ?.addEventListener("keydown", handleModalTablistKeydown);
@@ -2249,20 +2302,13 @@
           ?.addEventListener("click", () => switchModalTab("videos"));
 
         // When the 768px layout breakpoint is crossed while the modal is open,
-        // destroy and immediately recreate charts so they measure the new
-        // container width rather than growing via Chart.js's ResizeObserver.
+        // resize active-tab charts so they measure the new container width.
         window
           .matchMedia("(max-width: 768px)")
-          .addEventListener("change", async () => {
+          .addEventListener("change", () => {
             const modal = document.getElementById("insights-modal");
             if (modal.classList.contains("open")) {
-              destroyAllCharts();
-              try {
-                await loadChartJs();
-                switchModalTab(activeModalTab);
-              } catch (err) {
-                console.error("Failed to load Chart.js:", err);
-              }
+              resizeActiveCharts();
             }
           });
 
