@@ -43,14 +43,8 @@ jobs:
         with:
           version: 0.16.0
 
-      - name: Cross-compile for macOS ARM64
-        run: zig build -Dtarget=aarch64-macos -Doptimize=ReleaseSafe
-
-      - name: Cross-compile for Linux x86_64 musl (static)
-        run: zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSafe
-
-      - name: Cross-compile for Linux ARM64
-        run: zig build -Dtarget=aarch64-linux -Doptimize=ReleaseSafe
+      - name: Run cross-compilation for all release targets
+        run: zig build release-all
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v7
