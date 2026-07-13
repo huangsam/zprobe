@@ -11,6 +11,8 @@ let activeSizePresetMb = null;
 let drawerReturnFocus = null;
 let modalReturnFocus = null;
 
+const FILTER_DEBOUNCE_MS = 500;
+
 let imgFormatChart = null;
 let imgSizeChart = null;
 let imgCameraChart = null;
@@ -1745,11 +1747,16 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  let dateFilterTimeout;
   ["filter-date-from", "filter-date-to"].forEach((id) => {
-    document.getElementById(id).addEventListener("change", () => {
+    const el = document.getElementById(id);
+    const handleDateInput = () => {
       clearDatePresetActive();
-      triggerFilterRefresh();
-    });
+      clearTimeout(dateFilterTimeout);
+      dateFilterTimeout = setTimeout(triggerFilterRefresh, FILTER_DEBOUNCE_MS);
+    };
+    el.addEventListener("input", handleDateInput);
+    el.addEventListener("change", handleDateInput);
   });
 
   let sizeFilterTimeout;
@@ -1757,7 +1764,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById(id).addEventListener("input", () => {
       clearSizePresetActive();
       clearTimeout(sizeFilterTimeout);
-      sizeFilterTimeout = setTimeout(triggerFilterRefresh, 400);
+      sizeFilterTimeout = setTimeout(triggerFilterRefresh, FILTER_DEBOUNCE_MS);
     });
   });
 
@@ -1802,11 +1809,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Search input with 300ms debounce
+  // Search input with 500ms debounce
   let searchTimeout;
   document.getElementById("search-input").addEventListener("input", () => {
     clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(triggerFilterRefresh, 300);
+    searchTimeout = setTimeout(triggerFilterRefresh, FILTER_DEBOUNCE_MS);
   });
 
   // Pagination buttons
