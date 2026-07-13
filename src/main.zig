@@ -156,9 +156,9 @@ fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, original_pa
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
 
-    try argv.appendSlice(allocator, &.{ "ffmpeg", "-y", "-nostdin" });
+    try argv.appendSlice(allocator, &.{ "ffmpeg", "-y", "-nostdin", "-threads", "1" });
     if (is_video) {
-        try argv.appendSlice(allocator, &.{ "-ss", "00:00:01" });
+        try argv.appendSlice(allocator, &.{ "-skip_frame", "nokey", "-ss", "00:00:01" });
     }
     try argv.appendSlice(allocator, &.{ "-i", original_path });
     if (is_video) {
