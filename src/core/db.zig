@@ -92,10 +92,10 @@ pub const DbStats = struct {
 };
 
 /// SQL predicate matching image rows (shared across stats and filter queries).
-const is_image_pred = "duration_sec IS NULL AND format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi')";
+const is_image_pred = "(duration_sec IS NULL AND format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
 
 /// SQL predicate matching video rows (shared across stats and filter queries).
-const is_video_pred = "duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi')";
+const is_video_pred = "(duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
 
 /// Stats cache TTL — short enough to reflect crawler writes, long enough to absorb dashboard polling.
 const stats_cache_ttl_ns: i96 = 2 * std.time.ns_per_s;
@@ -1768,6 +1768,36 @@ test "getStats smoke after seeding (T19)" {
     try std.testing.expectEqual(@as(u32, 6), stats.total_files);
     try std.testing.expectEqual(@as(u32, 2), stats.num_videos);
     try std.testing.expectEqual(@as(u32, 4), stats.num_images);
+}
+
+test "getStats video tiers are mutually exclusive buckets" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const stats = try fixture.db.getStats(allocator);
+    defer stats.deinit(allocator);
+
+    const vid_size_sum = stats.video_sizes.tier1 +
+        stats.video_sizes.tier2 +
+        stats.video_sizes.tier3 +
+        stats.video_sizes.tier4 +
+        stats.video_sizes.tier5;
+    try std.testing.expectEqual(stats.num_videos, vid_size_sum);
+    try std.testing.expectEqual(@as(u32, 0), stats.video_sizes.tier1);
+    try std.testing.expectEqual(@as(u32, 1), stats.video_sizes.tier2);
+    try std.testing.expectEqual(@as(u32, 1), stats.video_sizes.tier4);
+
+    const vid_dur_sum = stats.video_durations.tier1 +
+        stats.video_durations.tier2 +
+        stats.video_durations.tier3 +
+        stats.video_durations.tier4 +
+        stats.video_durations.tier5;
+    try std.testing.expectEqual(stats.num_videos, vid_dur_sum);
+    try std.testing.expectEqual(@as(u32, 1), stats.video_durations.tier1);
+    try std.testing.expectEqual(@as(u32, 1), stats.video_durations.tier2);
+
+    try std.testing.expectEqual(@as(u32, 2), stats.video_formats.len);
 }
 
 test "getStatsCached returns equivalent data and reuses cache" {
