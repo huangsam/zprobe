@@ -827,6 +827,77 @@ pub const Db = struct {
         }
     }
 
+    /// Delete a path from the database (triggers will clean up associated metadata).
+    pub fn deletePath(self: *Db, path: []const u8) !void {
+        if (self.handle == null) return error.DatabaseNotOpen;
+        const sql = "DELETE FROM media_paths WHERE path = ?;";
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK) {
+            return error.DatabasePrepareError;
+        }
+        defer _ = c.sqlite3_finalize(stmt);
+
+        _ = c.sqlite3_bind_text(stmt, 1, path.ptr, @intCast(path.len), null);
+
+        const rc = c.sqlite3_step(stmt);
+        if (rc != c.SQLITE_DONE) {
+            return error.DatabaseExecuteError;
+        }
+        self.invalidateStatsCache();
+    }
+
+    /// Prune any cache entries starting with one of target_dirs that are not present in active_paths.
+    pub fn pruneStalePaths(self: *Db, target_dirs: [][]const u8, active_paths: *const std.StringHashMap(void)) !u32 {
+        if (self.handle == null) return error.DatabaseNotOpen;
+
+        const select_sql = "SELECT path FROM media_paths;";
+        var select_stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, select_sql, -1, &select_stmt, null) != c.SQLITE_OK) {
+            return error.DatabasePrepareError;
+        }
+        defer _ = c.sqlite3_finalize(select_stmt);
+
+        var to_delete: std.ArrayList([]const u8) = .empty;
+        defer {
+            for (to_delete.items) |p| self.allocator.free(p);
+            to_delete.deinit(self.allocator);
+        }
+
+        while (c.sqlite3_step(select_stmt) == c.SQLITE_ROW) {
+            const raw_path = c.sqlite3_column_text(select_stmt, 0);
+            const len = c.sqlite3_column_bytes(select_stmt, 0);
+            const path = raw_path[0..@intCast(len)];
+
+            // Check if this path resides in one of the scanned directories
+            var in_scanned_dir = false;
+            for (target_dirs) |dir| {
+                if (std.mem.startsWith(u8, path, dir)) {
+                    if (path.len == dir.len or path[dir.len] == '/' or path[dir.len] == '\\') {
+                        in_scanned_dir = true;
+                        break;
+                    }
+                }
+            }
+
+            if (in_scanned_dir) {
+                if (!active_paths.contains(path)) {
+                    const dup = try self.allocator.dupe(u8, path);
+                    try to_delete.append(self.allocator, dup);
+                }
+            }
+        }
+
+        var pruned_count: u32 = 0;
+        if (to_delete.items.len > 0) {
+            for (to_delete.items) |p| {
+                try self.deletePath(p);
+                pruned_count += 1;
+            }
+        }
+
+        return pruned_count;
+    }
+
     pub fn getAllRecords(self: *Db, allocator: std.mem.Allocator) ![]DbRecord {
         if (self.handle == null) return error.DatabaseNotOpen;
 

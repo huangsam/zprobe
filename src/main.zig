@@ -437,6 +437,7 @@ fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  -j, --concurrency <n> Number of concurrent worker threads (default: CPU-based dynamic clamp 8-16)
         \\  --no-thumbnails      Bypass generating and saving thumbnails (useful on slow NAS / 1GB RAM)
         \\  --rebuild-thumbnails Re-generate missing thumbnails during scanning
+        \\  --prune              Prune stale cache entries from DB for paths inside scanned directories but no longer present on disk
         \\
         \\Supported Formats:
         \\  Images: JPEG, PNG, GIF, BMP, WebP, TIFF, AVIF, ICO, JXL
@@ -471,6 +472,7 @@ pub fn main(init: std.process.Init) !void {
     var concurrency_override: ?usize = null;
     var no_thumbnails = false;
     var rebuild_thumbnails = false;
+    var prune_mode = false;
 
     var arg_idx: usize = 1;
     while (arg_idx < args.len) : (arg_idx += 1) {
@@ -481,6 +483,8 @@ pub fn main(init: std.process.Init) !void {
             no_thumbnails = true;
         } else if (std.mem.eql(u8, arg, "--rebuild-thumbnails")) {
             rebuild_thumbnails = true;
+        } else if (std.mem.eql(u8, arg, "--prune")) {
+            prune_mode = true;
         } else if (std.mem.eql(u8, arg, "--concurrency") or std.mem.eql(u8, arg, "-j")) {
             if (arg_idx + 1 < args.len) {
                 arg_idx += 1;
@@ -656,6 +660,21 @@ pub fn main(init: std.process.Init) !void {
         t.join();
     }
     spawned_count = 0;
+
+    // Run pruning pass if requested
+    if (prune_mode and db_ptr != null) {
+        const d = db_ptr.?;
+        var active_paths = std.StringHashMap(void).init(allocator);
+        defer active_paths.deinit();
+        for (all_entries.items) |entry| {
+            try active_paths.put(entry.path, {});
+        }
+
+        const pruned_count = try d.pruneStalePaths(target_dirs.items, &active_paths);
+        if (pruned_count > 0 and !json_mode) {
+            std.debug.print("Pruned {d} stale cache entries\n", .{pruned_count});
+        }
+    }
 
     // Commit transaction
     if (db_ptr) |d| {
@@ -1013,4 +1032,63 @@ test "rebuild missing thumbnails unit test" {
 
     // 2. Verify checkThumbnailExists now returns true
     try std.testing.expect(checkThumbnailExists(io, allocator, full_image_path, temp_ctx.abs_path));
+}
+
+test "Db.pruneStalePaths pruning logic" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/prune_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try db.Db.init(allocator, path);
+    defer database.deinit();
+
+    // Insert two files
+    const rec1 = db.DbRecord{
+        .path = "/photos/a.jpg",
+        .size = 100,
+        .format = "jpeg",
+    };
+    const rec2 = db.DbRecord{
+        .path = "/videos/b.mp4",
+        .size = 200,
+        .format = "mp4",
+    };
+
+    try database.insertMedia(&rec1, 10);
+    try database.insertMedia(&rec2, 20);
+
+    // Build active paths containing only a.jpg
+    var active_paths = std.StringHashMap(void).init(allocator);
+    defer active_paths.deinit();
+    try active_paths.put("/photos/a.jpg", {});
+
+    // Target dirs to check: we scan /photos and /videos
+    var target_dirs: std.ArrayList([]const u8) = .empty;
+    defer target_dirs.deinit(allocator);
+    try target_dirs.append(allocator, "/photos");
+    try target_dirs.append(allocator, "/videos");
+
+    // Prune: b.mp4 is in /videos (which is in target_dirs) but not in active_paths. a.jpg is in active_paths.
+    // So b.mp4 should be pruned, and a.jpg should remain.
+    const pruned_count = try database.pruneStalePaths(target_dirs.items, &active_paths);
+    try std.testing.expectEqual(@as(u32, 1), pruned_count);
+
+    // Verify b.mp4 is deleted, a.jpg remains
+    const hit_a = try database.queryCache(allocator, "/photos/a.jpg", 100, 10);
+    defer if (hit_a.hit) {
+        hit_a.json_out.deinit(allocator);
+        allocator.free(hit_a.json_out.format);
+    };
+    try std.testing.expect(hit_a.hit);
+
+    const hit_b = try database.queryCache(allocator, "/videos/b.mp4", 200, 20);
+    defer if (hit_b.hit) {
+        hit_b.json_out.deinit(allocator);
+        allocator.free(hit_b.json_out.format);
+    };
+    try std.testing.expect(!hit_b.hit);
 }
