@@ -85,6 +85,7 @@ pub fn getStatsCached(self: *Db, allocator: std.mem.Allocator, io: std.Io) !DbSt
         }
     }
 
+    self.stats_cache = null;
     self.stats_cache_arena.deinit();
     self.stats_cache_arena = std.heap.ArenaAllocator.init(self.allocator);
     const cache_alloc = self.stats_cache_arena.allocator();
@@ -789,9 +790,9 @@ pub fn getRecordsPaged(
     }
     if (type_filter) |t| {
         if (std.mem.eql(u8, t, "image")) {
-            try writer.writeAll(" AND (m.duration_sec IS NULL AND m.format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))");
+            try writer.writeAll(" AND " ++ is_image_pred_m);
         } else if (std.mem.eql(u8, t, "video")) {
-            try writer.writeAll(" AND (m.duration_sec IS NOT NULL OR m.format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))");
+            try writer.writeAll(" AND " ++ is_video_pred_m);
         }
     }
     if (date_from) |_| {

@@ -86,12 +86,6 @@ pub const DbStats = struct {
     }
 };
 
-/// SQL predicate matching image rows (shared across stats and filter queries).
-pub const is_image_pred = "(duration_sec IS NULL AND format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
-
-/// SQL predicate matching video rows (shared across stats and filter queries).
-pub const is_video_pred = "(duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
-
 pub const is_image_pred_m = "(m.duration_sec IS NULL AND m.format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
 pub const is_video_pred_m = "(m.duration_sec IS NOT NULL OR m.format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
 
