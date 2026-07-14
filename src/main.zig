@@ -377,6 +377,8 @@ fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  -h, --help           Show this help message and exit
         \\  --json               Output metadata in JSON lines format
         \\  --db <database>      Path to SQLite database for metadata caching and indexing
+        \\  -j, --concurrency <n> Number of concurrent worker threads (default: CPU-based dynamic clamp 8-16)
+        \\  --no-thumbnails      Bypass generating and saving thumbnails (useful on slow NAS / 1GB RAM)
         \\
         \\Supported Formats:
         \\  Images: JPEG, PNG, GIF, BMP, WebP, TIFF, AVIF, ICO, JXL
@@ -408,12 +410,36 @@ pub fn main(init: std.process.Init) !void {
     var show_help = false;
     var target_dirs: std.ArrayList([]const u8) = .empty;
     defer target_dirs.deinit(allocator);
+    var concurrency_override: ?usize = null;
+    var no_thumbnails = false;
 
     var arg_idx: usize = 1;
     while (arg_idx < args.len) : (arg_idx += 1) {
         const arg = args[arg_idx];
         if (std.mem.eql(u8, arg, "--json")) {
             json_mode = true;
+        } else if (std.mem.eql(u8, arg, "--no-thumbnails")) {
+            no_thumbnails = true;
+        } else if (std.mem.eql(u8, arg, "--concurrency") or std.mem.eql(u8, arg, "-j")) {
+            if (arg_idx + 1 < args.len) {
+                arg_idx += 1;
+                const val = args[arg_idx];
+                const parsed = std.fmt.parseInt(usize, val, 10) catch {
+                    try out.print("Error: Invalid concurrency value '{s}'\n", .{val});
+                    try out.flush();
+                    std.process.exit(1);
+                };
+                if (parsed == 0) {
+                    try out.print("Error: Concurrency must be at least 1\n", .{});
+                    try out.flush();
+                    std.process.exit(1);
+                }
+                concurrency_override = parsed;
+            } else {
+                try out.print("Error: --concurrency/-j option requires a value\n", .{});
+                try out.flush();
+                std.process.exit(1);
+            }
         } else if (std.mem.eql(u8, arg, "--db")) {
             if (arg_idx + 1 < args.len) {
                 arg_idx += 1;
@@ -453,23 +479,25 @@ pub fn main(init: std.process.Init) !void {
         db_ptr = &database;
         database.beginTransaction();
 
-        // Resolve absolute DB directory to create .zprobe_thumbnails next to it
-        const cwd = std.Io.Dir.cwd();
-        const dir = std.fs.path.dirname(target_db) orelse ".";
-        const abs_dir = cwd.realPathFileAlloc(io, dir, allocator) catch null;
-        defer if (abs_dir) |path| allocator.free(path);
-        const resolved_dir = if (abs_dir) |path| path else dir;
-        const abs_db = try std.fs.path.join(allocator, &.{ resolved_dir, std.fs.path.basename(target_db) });
-        defer allocator.free(abs_db);
+        if (!no_thumbnails) {
+            // Resolve absolute DB directory to create .zprobe_thumbnails next to it
+            const cwd = std.Io.Dir.cwd();
+            const dir = std.fs.path.dirname(target_db) orelse ".";
+            const abs_dir = cwd.realPathFileAlloc(io, dir, allocator) catch null;
+            defer if (abs_dir) |path| allocator.free(path);
+            const resolved_dir = if (abs_dir) |path| path else dir;
+            const abs_db = try std.fs.path.join(allocator, &.{ resolved_dir, std.fs.path.basename(target_db) });
+            defer allocator.free(abs_db);
 
-        const db_dir = std.fs.path.dirname(abs_db) orelse ".";
-        thumb_dir_path = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
+            const db_dir = std.fs.path.dirname(abs_db) orelse ".";
+            thumb_dir_path = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
 
-        std.Io.Dir.createDirPath(cwd, io, thumb_dir_path.?) catch |err| {
-            if (err != error.PathAlreadyExists and err != error.DirExists) {
-                std.debug.print("Warning: failed to create thumbnail directory: {s}\n", .{@errorName(err)});
-            }
-        };
+            std.Io.Dir.createDirPath(cwd, io, thumb_dir_path.?) catch |err| {
+                if (err != error.PathAlreadyExists and err != error.DirExists) {
+                    std.debug.print("Warning: failed to create thumbnail directory: {s}\n", .{@errorName(err)});
+                }
+            };
+        }
     }
     defer {
         if (db_ptr) |d| {
@@ -526,13 +554,13 @@ pub fn main(init: std.process.Init) !void {
     var success_count = std.atomic.Value(usize).init(0);
 
     const cpu_count = std.Thread.getCpuCount() catch 4;
-    const num_workers = computeWorkerCount(cpu_count);
+    const num_workers = if (concurrency_override) |override| override else computeWorkerCount(cpu_count);
 
     const threads = try allocator.alloc(std.Thread, num_workers);
     defer allocator.free(threads);
 
     const has_ffmpeg = checkFFmpeg(io);
-    const ffmpeg_concurrency = @min(@max(cpu_count / 2, 1), 4);
+    const ffmpeg_concurrency = @min(num_workers, @min(@max(cpu_count / 2, 1), 4));
     var ffmpeg_sem: std.Io.Semaphore = .{ .permits = ffmpeg_concurrency };
 
     const worker_ctx = WorkerContext{
@@ -816,4 +844,60 @@ test "sqlite db caching integration test" {
 
     // If it successfully hits the cache, it won't parse the file and will succeed!
     try std.testing.expectEqual(@as(usize, 1), success_count.load(.monotonic));
+}
+
+test "CLI options integration check" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    // Check if the binary exists, if not, skip the test
+    const cwd = std.Io.Dir.cwd();
+    const abs_bin_path = cwd.realPathFileAlloc(io, "./zig-out/bin/zprobe", allocator) catch {
+        // Skip test if binary not built yet
+        return;
+    };
+    defer allocator.free(abs_bin_path);
+
+    const bin_file = std.Io.Dir.openFileAbsolute(io, abs_bin_path, .{ .mode = .read_only }) catch {
+        return;
+    };
+    std.Io.File.close(bin_file, io);
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+
+    const png_header = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x02\x80\x00\x00\x01\xe0\x08\x02\x00\x00\x00";
+    const file = try std.Io.Dir.createFile(temp_ctx.tmp.dir, io, "img.png", .{});
+    try std.Io.File.writePositionalAll(file, io, png_header, 0);
+    std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_ctx.tmp.dir, io, "img.png") catch {};
+
+    const db_path = "test_cli.db";
+    const full_db_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, db_path });
+    defer allocator.free(full_db_path);
+    defer std.Io.Dir.deleteFile(temp_ctx.tmp.dir, io, db_path) catch {};
+
+    // Run with -j 1 and --no-thumbnails
+    const run_res = try std.process.run(allocator, io, .{
+        .argv = &.{ abs_bin_path, "-j", "1", "--no-thumbnails", "--db", full_db_path, temp_ctx.abs_path },
+    });
+    defer {
+        allocator.free(run_res.stdout);
+        allocator.free(run_res.stderr);
+    }
+
+    try std.testing.expectEqual(@as(u32, 0), switch (run_res.term) {
+        .exited => |code| code,
+        else => 99,
+    });
+
+    // Verify thumbnail directory was NOT created
+    const thumb_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, ".zprobe_thumbnails" });
+    defer allocator.free(thumb_path);
+    const thumb_exists = if (std.Io.Dir.openDirAbsolute(io, thumb_path, .{})) |d| blk: {
+        std.Io.Dir.close(d, io);
+        break :blk true;
+    } else |_| false;
+
+    try std.testing.expect(!thumb_exists);
 }
