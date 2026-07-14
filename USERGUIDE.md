@@ -27,6 +27,9 @@ zig build -OReleaseSafe
 
 # Run with custom concurrency (e.g. 2 threads) and bypass thumbnail generation (saves CPU/disk writes on NAS)
 ./zig-out/bin/zprobe -j 2 --no-thumbnails --db /path/to/cache.db /path/to/media/directory
+
+# Run daily scan and automatically prune stale cache entries for files deleted/moved in the target directories
+./zig-out/bin/zprobe --db /path/to/cache.db --prune /path/to/media/directory
 ```
 
 ## Cross-Compilation

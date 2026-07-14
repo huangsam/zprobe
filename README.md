@@ -26,6 +26,9 @@ zprobe /path/to/photo /path/to/video
 # Scan with SQLite metadata caching enabled
 zprobe --db /path/to/cache.db /path/to/photo
 
+# Scan and prune stale database entries for deleted files in the target directories
+zprobe --db /path/to/cache.db --prune /path/to/photo
+
 # Start the dashboard web server
 zprobe-server --port 8080 --db /path/to/cache.db
 
