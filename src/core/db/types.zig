@@ -1,0 +1,165 @@
+const std = @import("std");
+const c = @import("../db.zig").c;
+
+/// Represents a media metadata row stored in the database.
+pub const DbRecord = struct {
+    path: []const u8,
+    size: u64,
+    format: []const u8,
+    width: ?u32 = null,
+    height: ?u32 = null,
+    orientation: ?u16 = null,
+    create_time: ?[]const u8 = null,
+    camera_make: ?[]const u8 = null,
+    camera_model: ?[]const u8 = null,
+    gps_latitude: ?f64 = null,
+    gps_longitude: ?f64 = null,
+    duration_sec: ?f64 = null,
+    has_thumbnail: bool = false,
+    file_hash: ?[]const u8 = null,
+
+    /// Free heap-allocated strings stored within DbRecord.
+    pub fn deinit(self: *const DbRecord, allocator: std.mem.Allocator) void {
+        if (self.create_time) |s| allocator.free(s);
+        if (self.camera_make) |s| allocator.free(s);
+        if (self.camera_model) |s| allocator.free(s);
+        if (self.file_hash) |s| allocator.free(s);
+    }
+};
+
+/// Result returned from checking the cache.
+pub const CacheResult = struct {
+    hit: bool,
+    json_out: DbRecord = undefined,
+};
+
+/// Holds aggregated statistics for dashboard charts and metrics.
+pub const DbStats = struct {
+    total_files: u32,
+    total_size: u64,
+    num_images: u32,
+    num_videos: u32,
+    image_formats: []const FormatCount,
+    video_formats: []const FormatCount,
+    cameras: []const CameraCount,
+    image_sizes: SizeTiers,
+    video_sizes: SizeTiers,
+    video_durations: DurationTiers,
+
+    pub const FormatCount = struct {
+        format: []const u8,
+        count: u32,
+    };
+
+    pub const CameraCount = struct {
+        make: []const u8,
+        model: []const u8,
+        count: u32,
+    };
+
+    pub const SizeTiers = struct {
+        tier1: u32,
+        tier2: u32,
+        tier3: u32,
+        tier4: u32,
+        tier5: u32,
+    };
+
+    pub const DurationTiers = struct {
+        tier1: u32,
+        tier2: u32,
+        tier3: u32,
+        tier4: u32,
+        tier5: u32,
+    };
+
+    pub fn deinit(self: DbStats, allocator: std.mem.Allocator) void {
+        for (self.image_formats) |item| allocator.free(item.format);
+        allocator.free(self.image_formats);
+        for (self.video_formats) |item| allocator.free(item.format);
+        allocator.free(self.video_formats);
+        for (self.cameras) |item| {
+            allocator.free(item.make);
+            allocator.free(item.model);
+        }
+        allocator.free(self.cameras);
+    }
+};
+
+/// SQL predicate matching image rows (shared across stats and filter queries).
+pub const is_image_pred = "(duration_sec IS NULL AND format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
+
+/// SQL predicate matching video rows (shared across stats and filter queries).
+pub const is_video_pred = "(duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
+
+pub const is_image_pred_m = "(m.duration_sec IS NULL AND m.format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
+pub const is_video_pred_m = "(m.duration_sec IS NOT NULL OR m.format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
+
+/// Stats cache TTL — short enough to reflect crawler writes, long enough to absorb dashboard polling.
+pub const stats_cache_ttl_ns: i96 = 2 * std.time.ns_per_s;
+
+pub const PagedStmtCache = struct {
+    const max_entries = 16;
+
+    entries: [max_entries]Entry = [_]Entry{.{}} ** max_entries,
+    len: usize = 0,
+
+    pub const Entry = struct {
+        sql: ?[]const u8 = null,
+        stmt: ?*c.sqlite3_stmt = null,
+    };
+
+    pub fn get(self: *const PagedStmtCache, sql: []const u8) ?*c.sqlite3_stmt {
+        for (self.entries[0..self.len]) |entry| {
+            if (entry.sql) |cached_sql| {
+                if (std.mem.eql(u8, cached_sql, sql)) return entry.stmt;
+            }
+        }
+        return null;
+    }
+
+    pub fn put(
+        self: *PagedStmtCache,
+        allocator: std.mem.Allocator,
+        handle: *c.sqlite3,
+        sql: []const u8,
+    ) !*c.sqlite3_stmt {
+        if (self.get(sql)) |stmt| return stmt;
+
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(handle, sql.ptr, @intCast(sql.len), &stmt, null) != c.SQLITE_OK) {
+            return error.DatabasePrepareError;
+        }
+
+        const dup_sql = try allocator.dupe(u8, sql);
+        errdefer allocator.free(dup_sql);
+
+        if (self.len < max_entries) {
+            self.entries[self.len] = .{ .sql = dup_sql, .stmt = stmt.? };
+            self.len += 1;
+            return stmt.?;
+        }
+
+        // Evict the oldest entry when the cache is full.
+        if (self.entries[0].sql) |old_sql| allocator.free(old_sql);
+        if (self.entries[0].stmt) |old_stmt| _ = c.sqlite3_finalize(old_stmt);
+        for (1..self.len) |i| {
+            self.entries[i - 1] = self.entries[i];
+        }
+        self.entries[self.len - 1] = .{ .sql = dup_sql, .stmt = stmt.? };
+        return stmt.?;
+    }
+
+    pub fn deinit(self: *PagedStmtCache, allocator: std.mem.Allocator) void {
+        for (self.entries[0..self.len]) |entry| {
+            if (entry.sql) |sql| allocator.free(sql);
+            if (entry.stmt) |stmt| _ = c.sqlite3_finalize(stmt);
+        }
+        self.len = 0;
+    }
+};
+
+pub const PagedResult = struct {
+    total: u32,
+    records: []DbRecord,
+};
