@@ -97,6 +97,74 @@ pub fn getStatsCached(self: *Db, allocator: std.mem.Allocator, io: std.Io) !DbSt
     return try cloneStats(allocator, fresh);
 }
 
+fn fillMetadataFields(
+    allocator: std.mem.Allocator,
+    record: *DbRecord,
+    stmt: ?*c.sqlite3_stmt,
+    base_idx: c_int,
+    has_hash: bool,
+) !void {
+    if (c.sqlite3_column_type(stmt, base_idx + 0) != c.SQLITE_NULL) {
+        record.width = @intCast(c.sqlite3_column_int(stmt, base_idx + 0));
+    }
+    if (c.sqlite3_column_type(stmt, base_idx + 1) != c.SQLITE_NULL) {
+        record.height = @intCast(c.sqlite3_column_int(stmt, base_idx + 1));
+    }
+    if (c.sqlite3_column_type(stmt, base_idx + 2) != c.SQLITE_NULL) {
+        record.orientation = @intCast(c.sqlite3_column_int(stmt, base_idx + 2));
+    }
+    if (c.sqlite3_column_type(stmt, base_idx + 3) != c.SQLITE_NULL) {
+        const raw = c.sqlite3_column_text(stmt, base_idx + 3);
+        const len = c.sqlite3_column_bytes(stmt, base_idx + 3);
+        record.create_time = try allocator.dupe(u8, raw[0..@intCast(len)]);
+    }
+    errdefer {
+        if (record.create_time) |ct| {
+            allocator.free(ct);
+            record.create_time = null;
+        }
+    }
+    if (c.sqlite3_column_type(stmt, base_idx + 4) != c.SQLITE_NULL) {
+        const raw = c.sqlite3_column_text(stmt, base_idx + 4);
+        const len = c.sqlite3_column_bytes(stmt, base_idx + 4);
+        record.camera_make = try allocator.dupe(u8, raw[0..@intCast(len)]);
+    }
+    errdefer {
+        if (record.camera_make) |cm| {
+            allocator.free(cm);
+            record.camera_make = null;
+        }
+    }
+    if (c.sqlite3_column_type(stmt, base_idx + 5) != c.SQLITE_NULL) {
+        const raw = c.sqlite3_column_text(stmt, base_idx + 5);
+        const len = c.sqlite3_column_bytes(stmt, base_idx + 5);
+        record.camera_model = try allocator.dupe(u8, raw[0..@intCast(len)]);
+    }
+    errdefer {
+        if (record.camera_model) |cm| {
+            allocator.free(cm);
+            record.camera_model = null;
+        }
+    }
+    if (c.sqlite3_column_type(stmt, base_idx + 6) != c.SQLITE_NULL) {
+        record.gps_latitude = c.sqlite3_column_double(stmt, base_idx + 6);
+    }
+    if (c.sqlite3_column_type(stmt, base_idx + 7) != c.SQLITE_NULL) {
+        record.gps_longitude = c.sqlite3_column_double(stmt, base_idx + 7);
+    }
+    if (c.sqlite3_column_type(stmt, base_idx + 8) != c.SQLITE_NULL) {
+        record.duration_sec = c.sqlite3_column_double(stmt, base_idx + 8);
+    }
+    if (c.sqlite3_column_type(stmt, base_idx + 9) != c.SQLITE_NULL) {
+        record.has_thumbnail = c.sqlite3_column_int(stmt, base_idx + 9) != 0;
+    }
+    if (has_hash and c.sqlite3_column_type(stmt, base_idx + 10) != c.SQLITE_NULL) {
+        const raw = c.sqlite3_column_text(stmt, base_idx + 10);
+        const len = c.sqlite3_column_bytes(stmt, base_idx + 10);
+        record.file_hash = try allocator.dupe(u8, raw[0..@intCast(len)]);
+    }
+}
+
 /// Check if a cached media record matching size and modification time exists.
 pub fn queryCache(
     self: *Db,
@@ -144,47 +212,7 @@ pub fn queryCache(
             }
             errdefer allocator.free(json_out.format);
 
-            if (c.sqlite3_column_type(stmt, 3) != c.SQLITE_NULL) {
-                json_out.width = @intCast(c.sqlite3_column_int(stmt, 3));
-            }
-            if (c.sqlite3_column_type(stmt, 4) != c.SQLITE_NULL) {
-                json_out.height = @intCast(c.sqlite3_column_int(stmt, 4));
-            }
-            if (c.sqlite3_column_type(stmt, 5) != c.SQLITE_NULL) {
-                json_out.orientation = @intCast(c.sqlite3_column_int(stmt, 5));
-            }
-            if (c.sqlite3_column_type(stmt, 6) != c.SQLITE_NULL) {
-                const raw = c.sqlite3_column_text(stmt, 6);
-                const len = c.sqlite3_column_bytes(stmt, 6);
-                json_out.create_time = try allocator.dupe(u8, raw[0..@intCast(len)]);
-            }
-            if (c.sqlite3_column_type(stmt, 7) != c.SQLITE_NULL) {
-                const raw = c.sqlite3_column_text(stmt, 7);
-                const len = c.sqlite3_column_bytes(stmt, 7);
-                json_out.camera_make = try allocator.dupe(u8, raw[0..@intCast(len)]);
-            }
-            if (c.sqlite3_column_type(stmt, 8) != c.SQLITE_NULL) {
-                const raw = c.sqlite3_column_text(stmt, 8);
-                const len = c.sqlite3_column_bytes(stmt, 8);
-                json_out.camera_model = try allocator.dupe(u8, raw[0..@intCast(len)]);
-            }
-            if (c.sqlite3_column_type(stmt, 9) != c.SQLITE_NULL) {
-                json_out.gps_latitude = c.sqlite3_column_double(stmt, 9);
-            }
-            if (c.sqlite3_column_type(stmt, 10) != c.SQLITE_NULL) {
-                json_out.gps_longitude = c.sqlite3_column_double(stmt, 10);
-            }
-            if (c.sqlite3_column_type(stmt, 11) != c.SQLITE_NULL) {
-                json_out.duration_sec = c.sqlite3_column_double(stmt, 11);
-            }
-            if (c.sqlite3_column_type(stmt, 12) != c.SQLITE_NULL) {
-                json_out.has_thumbnail = c.sqlite3_column_int(stmt, 12) != 0;
-            }
-            if (c.sqlite3_column_type(stmt, 13) != c.SQLITE_NULL) {
-                const raw = c.sqlite3_column_text(stmt, 13);
-                const len = c.sqlite3_column_bytes(stmt, 13);
-                json_out.file_hash = try allocator.dupe(u8, raw[0..@intCast(len)]);
-            }
+            try fillMetadataFields(allocator, &json_out, stmt, 3, true);
 
             return .{ .hit = true, .json_out = json_out };
         }
@@ -232,42 +260,7 @@ pub fn queryMetadataByHash(
         }
         errdefer allocator.free(json_out.format);
 
-        if (c.sqlite3_column_type(stmt, 1) != c.SQLITE_NULL) {
-            json_out.width = @intCast(c.sqlite3_column_int(stmt, 1));
-        }
-        if (c.sqlite3_column_type(stmt, 2) != c.SQLITE_NULL) {
-            json_out.height = @intCast(c.sqlite3_column_int(stmt, 2));
-        }
-        if (c.sqlite3_column_type(stmt, 3) != c.SQLITE_NULL) {
-            json_out.orientation = @intCast(c.sqlite3_column_int(stmt, 3));
-        }
-        if (c.sqlite3_column_type(stmt, 4) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(stmt, 4);
-            const len = c.sqlite3_column_bytes(stmt, 4);
-            json_out.create_time = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
-        if (c.sqlite3_column_type(stmt, 5) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(stmt, 5);
-            const len = c.sqlite3_column_bytes(stmt, 5);
-            json_out.camera_make = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
-        if (c.sqlite3_column_type(stmt, 6) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(stmt, 6);
-            const len = c.sqlite3_column_bytes(stmt, 6);
-            json_out.camera_model = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
-        if (c.sqlite3_column_type(stmt, 7) != c.SQLITE_NULL) {
-            json_out.gps_latitude = c.sqlite3_column_double(stmt, 7);
-        }
-        if (c.sqlite3_column_type(stmt, 8) != c.SQLITE_NULL) {
-            json_out.gps_longitude = c.sqlite3_column_double(stmt, 8);
-        }
-        if (c.sqlite3_column_type(stmt, 9) != c.SQLITE_NULL) {
-            json_out.duration_sec = c.sqlite3_column_double(stmt, 9);
-        }
-        if (c.sqlite3_column_type(stmt, 10) != c.SQLITE_NULL) {
-            json_out.has_thumbnail = c.sqlite3_column_int(stmt, 10) != 0;
-        }
+        try fillMetadataFields(allocator, &json_out, stmt, 1, false);
 
         return json_out;
     }
@@ -538,47 +531,7 @@ pub fn getAllRecords(self: *Db, allocator: std.mem.Allocator) ![]DbRecord {
         }
         errdefer allocator.free(record.format);
 
-        if (c.sqlite3_column_type(stmt, 3) != c.SQLITE_NULL) {
-            record.width = @intCast(c.sqlite3_column_int(stmt, 3));
-        }
-        if (c.sqlite3_column_type(stmt, 4) != c.SQLITE_NULL) {
-            record.height = @intCast(c.sqlite3_column_int(stmt, 4));
-        }
-        if (c.sqlite3_column_type(stmt, 5) != c.SQLITE_NULL) {
-            record.orientation = @intCast(c.sqlite3_column_int(stmt, 5));
-        }
-        if (c.sqlite3_column_type(stmt, 6) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(stmt, 6);
-            const len = c.sqlite3_column_bytes(stmt, 6);
-            record.create_time = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
-        if (c.sqlite3_column_type(stmt, 7) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(stmt, 7);
-            const len = c.sqlite3_column_bytes(stmt, 7);
-            record.camera_make = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
-        if (c.sqlite3_column_type(stmt, 8) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(stmt, 8);
-            const len = c.sqlite3_column_bytes(stmt, 8);
-            record.camera_model = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
-        if (c.sqlite3_column_type(stmt, 9) != c.SQLITE_NULL) {
-            record.gps_latitude = c.sqlite3_column_double(stmt, 9);
-        }
-        if (c.sqlite3_column_type(stmt, 10) != c.SQLITE_NULL) {
-            record.gps_longitude = c.sqlite3_column_double(stmt, 10);
-        }
-        if (c.sqlite3_column_type(stmt, 11) != c.SQLITE_NULL) {
-            record.duration_sec = c.sqlite3_column_double(stmt, 11);
-        }
-        if (c.sqlite3_column_type(stmt, 12) != c.SQLITE_NULL) {
-            record.has_thumbnail = c.sqlite3_column_int(stmt, 12) != 0;
-        }
-        if (c.sqlite3_column_type(stmt, 13) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(stmt, 13);
-            const len = c.sqlite3_column_bytes(stmt, 13);
-            record.file_hash = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
+        try fillMetadataFields(allocator, &record, stmt, 3, true);
 
         try list.append(allocator, record);
     }
@@ -1013,47 +966,7 @@ pub fn getRecordsPaged(
         }
         errdefer allocator.free(record.format);
 
-        if (c.sqlite3_column_type(select_stmt, 3) != c.SQLITE_NULL) {
-            record.width = @intCast(c.sqlite3_column_int(select_stmt, 3));
-        }
-        if (c.sqlite3_column_type(select_stmt, 4) != c.SQLITE_NULL) {
-            record.height = @intCast(c.sqlite3_column_int(select_stmt, 4));
-        }
-        if (c.sqlite3_column_type(select_stmt, 5) != c.SQLITE_NULL) {
-            record.orientation = @intCast(c.sqlite3_column_int(select_stmt, 5));
-        }
-        if (c.sqlite3_column_type(select_stmt, 6) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(select_stmt, 6);
-            const len = c.sqlite3_column_bytes(select_stmt, 6);
-            record.create_time = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
-        if (c.sqlite3_column_type(select_stmt, 7) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(select_stmt, 7);
-            const len = c.sqlite3_column_bytes(select_stmt, 7);
-            record.camera_make = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
-        if (c.sqlite3_column_type(select_stmt, 8) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(select_stmt, 8);
-            const len = c.sqlite3_column_bytes(select_stmt, 8);
-            record.camera_model = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
-        if (c.sqlite3_column_type(select_stmt, 9) != c.SQLITE_NULL) {
-            record.gps_latitude = c.sqlite3_column_double(select_stmt, 9);
-        }
-        if (c.sqlite3_column_type(select_stmt, 10) != c.SQLITE_NULL) {
-            record.gps_longitude = c.sqlite3_column_double(select_stmt, 10);
-        }
-        if (c.sqlite3_column_type(select_stmt, 11) != c.SQLITE_NULL) {
-            record.duration_sec = c.sqlite3_column_double(select_stmt, 11);
-        }
-        if (c.sqlite3_column_type(select_stmt, 12) != c.SQLITE_NULL) {
-            record.has_thumbnail = c.sqlite3_column_int(select_stmt, 12) != 0;
-        }
-        if (c.sqlite3_column_type(select_stmt, 13) != c.SQLITE_NULL) {
-            const raw = c.sqlite3_column_text(select_stmt, 13);
-            const len = c.sqlite3_column_bytes(select_stmt, 13);
-            record.file_hash = try allocator.dupe(u8, raw[0..@intCast(len)]);
-        }
+        try fillMetadataFields(allocator, &record, select_stmt, 3, true);
 
         try list.append(allocator, record);
     }
