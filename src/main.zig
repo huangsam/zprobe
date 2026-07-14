@@ -129,6 +129,7 @@ const WorkerContext = struct {
     thumb_dir: ?[]const u8 = null,
     has_ffmpeg: bool = false,
     ffmpeg_sem: ?*std.Io.Semaphore = null,
+    rebuild_thumbnails: bool = false,
 };
 
 fn checkFFmpeg(io: std.Io) bool {
@@ -221,6 +222,21 @@ fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, original_path: [
     return true;
 }
 
+fn checkThumbnailExists(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8) bool {
+    var hash_bytes: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
+    const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
+
+    const thumb_path = std.fs.path.join(allocator, &.{ thumb_dir, &hex_hash }) catch return false;
+    defer allocator.free(thumb_path);
+    const thumb_path_jpg = std.fmt.allocPrint(allocator, "{s}.jpg", .{thumb_path}) catch return false;
+    defer allocator.free(thumb_path_jpg);
+
+    const file = std.Io.Dir.openFileAbsolute(io, thumb_path_jpg, .{ .mode = .read_only }) catch return false;
+    std.Io.File.close(file, io);
+    return true;
+}
+
 const worker = struct {
     fn workerMain(c_ctx: WorkerContext) void {
         while (true) {
@@ -273,6 +289,13 @@ const worker = struct {
             if (cache_res.hit) {
                 cache_hit = true;
                 json_out = cache_res.json_out;
+
+                if (c_ctx.rebuild_thumbnails and c_ctx.thumb_dir != null) {
+                    const has_thumb_file = checkThumbnailExists(c_ctx.io, arena_allocator, entry.path, c_ctx.thumb_dir.?);
+                    if (!has_thumb_file) {
+                        cache_hit = false;
+                    }
+                }
             }
         }
 
@@ -379,6 +402,7 @@ fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  --db <database>      Path to SQLite database for metadata caching and indexing
         \\  -j, --concurrency <n> Number of concurrent worker threads (default: CPU-based dynamic clamp 8-16)
         \\  --no-thumbnails      Bypass generating and saving thumbnails (useful on slow NAS / 1GB RAM)
+        \\  --rebuild-thumbnails Re-generate missing thumbnails during scanning
         \\
         \\Supported Formats:
         \\  Images: JPEG, PNG, GIF, BMP, WebP, TIFF, AVIF, ICO, JXL
@@ -412,6 +436,7 @@ pub fn main(init: std.process.Init) !void {
     defer target_dirs.deinit(allocator);
     var concurrency_override: ?usize = null;
     var no_thumbnails = false;
+    var rebuild_thumbnails = false;
 
     var arg_idx: usize = 1;
     while (arg_idx < args.len) : (arg_idx += 1) {
@@ -420,6 +445,8 @@ pub fn main(init: std.process.Init) !void {
             json_mode = true;
         } else if (std.mem.eql(u8, arg, "--no-thumbnails")) {
             no_thumbnails = true;
+        } else if (std.mem.eql(u8, arg, "--rebuild-thumbnails")) {
+            rebuild_thumbnails = true;
         } else if (std.mem.eql(u8, arg, "--concurrency") or std.mem.eql(u8, arg, "-j")) {
             if (arg_idx + 1 < args.len) {
                 arg_idx += 1;
@@ -576,6 +603,7 @@ pub fn main(init: std.process.Init) !void {
         .thumb_dir = thumb_dir_path,
         .has_ffmpeg = has_ffmpeg,
         .ffmpeg_sem = &ffmpeg_sem,
+        .rebuild_thumbnails = rebuild_thumbnails,
     };
 
     var spawned_count: usize = 0;
@@ -900,4 +928,55 @@ test "CLI options integration check" {
     } else |_| false;
 
     try std.testing.expect(!thumb_exists);
+}
+
+test "rebuild missing thumbnails unit test" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    const png_header = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0dIHDR\x00\x00\x02\x80\x00\x00\x01\xe0\x08\x02\x00\x00\x00";
+    const filename = "test_rebuild.png";
+    const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+    try std.Io.File.writePositionalAll(file, io, png_header, 0);
+    std.Io.File.close(file, io);
+    defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+    const full_image_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, filename });
+    defer allocator.free(full_image_path);
+
+    const db_filename = "test_rebuild.db";
+    const full_db_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, db_filename });
+    defer allocator.free(full_db_path);
+    defer std.Io.Dir.deleteFile(temp_dir, io, db_filename) catch {};
+
+    var database = try db.Db.init(allocator, full_db_path);
+    defer database.deinit();
+
+    // Create thumbnail dir
+    const thumb_dir_name = "test_rebuild_thumbs";
+    const full_thumb_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, thumb_dir_name });
+    defer allocator.free(full_thumb_path);
+    try std.Io.Dir.createDirPath(std.Io.Dir.cwd(), io, full_thumb_path);
+    defer std.Io.Dir.deleteDir(std.Io.Dir.cwd(), io, full_thumb_path) catch {};
+
+    // 1. Verify checkThumbnailExists returns false since no thumbnail exists yet
+    try std.testing.expect(!checkThumbnailExists(io, allocator, full_image_path, full_thumb_path));
+
+    // Create a mock thumbnail file manually
+    var hash_bytes: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(full_image_path, &hash_bytes, .{});
+    const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
+    const mock_thumb_filename = try std.fmt.allocPrint(allocator, "{s}.jpg", .{hex_hash});
+    defer allocator.free(mock_thumb_filename);
+
+    const mock_thumb_file = try std.Io.Dir.createFile(temp_dir, io, mock_thumb_filename, .{});
+    try std.Io.File.writePositionalAll(mock_thumb_file, io, "MOCK_THUMB", 0);
+    std.Io.File.close(mock_thumb_file, io);
+
+    // 2. Verify checkThumbnailExists now returns true
+    try std.testing.expect(checkThumbnailExists(io, allocator, full_image_path, temp_ctx.abs_path));
 }
