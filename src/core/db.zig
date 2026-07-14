@@ -23,13 +23,11 @@ pub const Db = struct {
     allocator: std.mem.Allocator,
     db_path: []const u8,
     handle: ?*c.sqlite3,
-    query_stmt: ?*c.sqlite3_stmt = null,
     rwlock: std.Io.RwLock = std.Io.RwLock.init,
+    stats_mutex: std.Io.Mutex = std.Io.Mutex.init,
     stats_cache: ?DbStats = null,
     stats_cache_expires_ns: i96 = 0,
     stats_cache_arena: std.heap.ArenaAllocator,
-    paged_stmt_cache: types.PagedStmtCache = .{},
-    paged_stmt_cache_arena: std.heap.ArenaAllocator,
 
     pub const PagedResult = types.PagedResult;
 
@@ -56,8 +54,7 @@ pub const Db = struct {
     pub const getStatsCached = query.getStatsCached;
     pub const getRecordsPaged = query.getRecordsPaged;
 
-    // Internal helper methods used by query.zig
-    pub const getOrPreparePagedStmt = query.getOrPreparePagedStmt;
+    // Package-internal helpers (not part of public API)
     pub const invalidateStatsCache = query.invalidateStatsCache;
 };
 

@@ -98,67 +98,6 @@ pub const is_video_pred_m = "(m.duration_sec IS NOT NULL OR m.format IN ('mp4', 
 /// Stats cache TTL — short enough to reflect crawler writes, long enough to absorb dashboard polling.
 pub const stats_cache_ttl_ns: i96 = 2 * std.time.ns_per_s;
 
-pub const PagedStmtCache = struct {
-    const max_entries = 16;
-
-    entries: [max_entries]Entry = [_]Entry{.{}} ** max_entries,
-    len: usize = 0,
-
-    pub const Entry = struct {
-        sql: ?[]const u8 = null,
-        stmt: ?*c.sqlite3_stmt = null,
-    };
-
-    pub fn get(self: *const PagedStmtCache, sql: []const u8) ?*c.sqlite3_stmt {
-        for (self.entries[0..self.len]) |entry| {
-            if (entry.sql) |cached_sql| {
-                if (std.mem.eql(u8, cached_sql, sql)) return entry.stmt;
-            }
-        }
-        return null;
-    }
-
-    pub fn put(
-        self: *PagedStmtCache,
-        allocator: std.mem.Allocator,
-        handle: *c.sqlite3,
-        sql: []const u8,
-    ) !*c.sqlite3_stmt {
-        if (self.get(sql)) |stmt| return stmt;
-
-        var stmt: ?*c.sqlite3_stmt = null;
-        if (c.sqlite3_prepare_v2(handle, sql.ptr, @intCast(sql.len), &stmt, null) != c.SQLITE_OK) {
-            return error.DatabasePrepareError;
-        }
-
-        const dup_sql = try allocator.dupe(u8, sql);
-        errdefer allocator.free(dup_sql);
-
-        if (self.len < max_entries) {
-            self.entries[self.len] = .{ .sql = dup_sql, .stmt = stmt.? };
-            self.len += 1;
-            return stmt.?;
-        }
-
-        // Evict the oldest entry when the cache is full.
-        if (self.entries[0].sql) |old_sql| allocator.free(old_sql);
-        if (self.entries[0].stmt) |old_stmt| _ = c.sqlite3_finalize(old_stmt);
-        for (1..self.len) |i| {
-            self.entries[i - 1] = self.entries[i];
-        }
-        self.entries[self.len - 1] = .{ .sql = dup_sql, .stmt = stmt.? };
-        return stmt.?;
-    }
-
-    pub fn deinit(self: *PagedStmtCache, allocator: std.mem.Allocator) void {
-        for (self.entries[0..self.len]) |entry| {
-            if (entry.sql) |sql| allocator.free(sql);
-            if (entry.stmt) |stmt| _ = c.sqlite3_finalize(stmt);
-        }
-        self.len = 0;
-    }
-};
-
 pub const PagedResult = struct {
     total: u32,
     records: []DbRecord,

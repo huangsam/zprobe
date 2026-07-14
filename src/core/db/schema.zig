@@ -169,43 +169,24 @@ pub fn init(allocator: std.mem.Allocator, db_path: []const u8) !Db {
     }
     _ = c.sqlite3_exec(handle, "COMMIT TRANSACTION;", null, null, null);
 
-    var query_stmt: ?*c.sqlite3_stmt = null;
-    const query_sql =
-        \\SELECT p.size, p.mtime, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.file_hash
-        \\FROM media_paths p
-        \\JOIN media_metadata m ON p.metadata_id = m.id
-        \\WHERE p.path = ?;
-    ;
-    if (c.sqlite3_prepare_v2(handle, query_sql, -1, &query_stmt, null) != c.SQLITE_OK) {
-        std.debug.print("Failed to prepare cache query: {s}\n", .{c.sqlite3_errmsg(handle)});
-        return error.DatabasePrepareError;
-    }
-
     const dup_path = try allocator.dupe(u8, db_path);
     errdefer {
         allocator.free(dup_path);
-        _ = c.sqlite3_finalize(query_stmt);
     }
 
     return Db{
         .allocator = allocator,
         .db_path = dup_path,
         .handle = handle,
-        .query_stmt = query_stmt,
         .stats_cache_arena = std.heap.ArenaAllocator.init(allocator),
-        .paged_stmt_cache_arena = std.heap.ArenaAllocator.init(allocator),
     };
 }
 
 /// Finalize statements and close connection.
 pub fn deinit(self: *Db) void {
     self.allocator.free(self.db_path);
-    self.paged_stmt_cache.deinit(self.paged_stmt_cache_arena.allocator());
-    self.paged_stmt_cache_arena.deinit();
     self.stats_cache_arena.deinit();
-    if (self.query_stmt) |stmt| _ = c.sqlite3_finalize(stmt);
     if (self.handle) |h| _ = c.sqlite3_close(h);
-    self.query_stmt = null;
     self.handle = null;
 }
 

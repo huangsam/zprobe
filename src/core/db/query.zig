@@ -75,6 +75,9 @@ fn cloneStats(allocator: std.mem.Allocator, src: DbStats) !DbStats {
 
 /// Return cached stats when fresh, otherwise refresh the cache.
 pub fn getStatsCached(self: *Db, allocator: std.mem.Allocator, io: std.Io) !DbStats {
+    self.stats_mutex.lockUncancelable(io);
+    defer self.stats_mutex.unlock(io);
+
     const now = std.Io.Clock.real.now(io).nanoseconds;
     if (self.stats_cache) |cached| {
         if (now < self.stats_cache_expires_ns) {
@@ -93,15 +96,6 @@ pub fn getStatsCached(self: *Db, allocator: std.mem.Allocator, io: std.Io) !DbSt
     return try cloneStats(allocator, fresh);
 }
 
-pub fn getOrPreparePagedStmt(self: *Db, sql: []const u8) !*c.sqlite3_stmt {
-    if (self.paged_stmt_cache.get(sql)) |stmt| return stmt;
-    return self.paged_stmt_cache.put(
-        self.paged_stmt_cache_arena.allocator(),
-        self.handle.?,
-        sql,
-    );
-}
-
 /// Check if a cached media record matching size and modification time exists.
 pub fn queryCache(
     self: *Db,
@@ -110,12 +104,19 @@ pub fn queryCache(
     size: u64,
     mtime: i64,
 ) !CacheResult {
-    if (self.handle == null or self.query_stmt == null) return .{ .hit = false };
-    const stmt = self.query_stmt.?;
+    if (self.handle == null) return .{ .hit = false };
 
-    _ = c.sqlite3_reset(stmt);
-    _ = c.sqlite3_clear_bindings(stmt);
-    defer _ = c.sqlite3_reset(stmt);
+    const query_sql =
+        \\SELECT p.size, p.mtime, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.file_hash
+        \\FROM media_paths p
+        \\JOIN media_metadata m ON p.metadata_id = m.id
+        \\WHERE p.path = ?;
+    ;
+    var stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, query_sql, -1, &stmt, null) != c.SQLITE_OK) {
+        return .{ .hit = false };
+    }
+    defer _ = c.sqlite3_finalize(stmt);
 
     if (c.sqlite3_bind_text(stmt, 1, path.ptr, @intCast(path.len), null) != c.SQLITE_OK) {
         return .{ .hit = false };
@@ -885,14 +886,13 @@ pub fn getRecordsPaged(
     const count_sql = try count_buf.toOwnedSlice(allocator);
     defer allocator.free(count_sql);
 
-    const count_stmt = self.getOrPreparePagedStmt(count_sql) catch {
+    var count_stmt_raw: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, count_sql.ptr, @intCast(count_sql.len), &count_stmt_raw, null) != c.SQLITE_OK) {
         std.debug.print("Failed to prepare count query: {s}\n", .{c.sqlite3_errmsg(self.handle)});
         return error.DatabasePrepareError;
-    };
-    defer {
-        _ = c.sqlite3_reset(count_stmt);
-        _ = c.sqlite3_clear_bindings(count_stmt);
     }
+    const count_stmt = count_stmt_raw.?;
+    defer _ = c.sqlite3_finalize(count_stmt_raw);
 
     bindFilters(
         count_stmt,
@@ -958,14 +958,13 @@ pub fn getRecordsPaged(
     const select_sql = try select_buf.toOwnedSlice(allocator);
     defer allocator.free(select_sql);
 
-    const select_stmt = self.getOrPreparePagedStmt(select_sql) catch {
+    var select_stmt_raw: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, select_sql.ptr, @intCast(select_sql.len), &select_stmt_raw, null) != c.SQLITE_OK) {
         std.debug.print("Failed to prepare select paged query: {s}\n", .{c.sqlite3_errmsg(self.handle)});
         return error.DatabasePrepareError;
-    };
-    defer {
-        _ = c.sqlite3_reset(select_stmt);
-        _ = c.sqlite3_clear_bindings(select_stmt);
     }
+    const select_stmt = select_stmt_raw.?;
+    defer _ = c.sqlite3_finalize(select_stmt_raw);
 
     bindFilters(
         select_stmt,
