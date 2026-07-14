@@ -24,12 +24,14 @@ pub const DbRecord = struct {
     gps_longitude: ?f64 = null,
     duration_sec: ?f64 = null,
     has_thumbnail: bool = false,
+    file_hash: ?[]const u8 = null,
 
     /// Free heap-allocated strings stored within DbRecord.
     pub fn deinit(self: *const DbRecord, allocator: std.mem.Allocator) void {
         if (self.create_time) |s| allocator.free(s);
         if (self.camera_make) |s| allocator.free(s);
         if (self.camera_model) |s| allocator.free(s);
+        if (self.file_hash) |s| allocator.free(s);
     }
 };
 
@@ -98,6 +100,9 @@ const is_image_pred = "(duration_sec IS NULL AND format NOT IN ('mp4', 'webm', '
 /// SQL predicate matching video rows (shared across stats and filter queries).
 const is_video_pred = "(duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
 
+const is_image_pred_m = "(m.duration_sec IS NULL AND m.format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
+const is_video_pred_m = "(m.duration_sec IS NOT NULL OR m.format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
+
 /// Stats cache TTL — short enough to reflect crawler writes, long enough to absorb dashboard polling.
 const stats_cache_ttl_ns: i96 = 2 * std.time.ns_per_s;
 
@@ -162,13 +167,125 @@ const PagedStmtCache = struct {
     }
 };
 
+fn getDbUserVersion(handle: *c.sqlite3) !i32 {
+    var stmt: ?*c.sqlite3_stmt = null;
+    const sql = "PRAGMA user_version;";
+    if (c.sqlite3_prepare_v2(handle, sql, -1, &stmt, null) != c.SQLITE_OK) {
+        return error.DatabasePrepareError;
+    }
+    defer _ = c.sqlite3_finalize(stmt);
+    if (c.sqlite3_step(stmt) == c.SQLITE_ROW) {
+        return @intCast(c.sqlite3_column_int(stmt, 0));
+    }
+    return 0;
+}
+
+fn setDbUserVersion(handle: *c.sqlite3, version: i32) !void {
+    var buf: [64]u8 = undefined;
+    const sql = try std.fmt.bufPrint(&buf, "PRAGMA user_version = {d};\x00", .{version});
+    var err_msg: [*c]u8 = null;
+    if (c.sqlite3_exec(handle, sql.ptr, null, null, &err_msg) != c.SQLITE_OK) {
+        if (err_msg) |msg| {
+            std.debug.print("Failed to set user_version: {s}\n", .{msg});
+            c.sqlite3_free(msg);
+        }
+        return error.DatabaseExecuteError;
+    }
+}
+
+const migrations = [_][]const u8{
+    // Version 1: Initial legacy schema
+    \\CREATE TABLE IF NOT EXISTS media (
+    \\    path TEXT PRIMARY KEY,
+    \\    size INTEGER,
+    \\    mtime INTEGER,
+    \\    format TEXT,
+    \\    width INTEGER,
+    \\    height INTEGER,
+    \\    orientation INTEGER,
+    \\    create_time TEXT,
+    \\    camera_make TEXT,
+    \\    camera_model TEXT,
+    \\    gps_latitude REAL,
+    \\    gps_longitude REAL,
+    \\    duration_sec REAL,
+    \\    has_thumbnail INTEGER DEFAULT 0
+    \\);
+    \\CREATE INDEX IF NOT EXISTS idx_media_size ON media(size);
+    \\CREATE INDEX IF NOT EXISTS idx_media_create_time ON media(create_time);
+    \\CREATE INDEX IF NOT EXISTS idx_media_format ON media(format);
+    ,
+    // Version 2: Relational Schema & Legacy Data Migration
+    \\CREATE TABLE IF NOT EXISTS media_metadata (
+    \\    id INTEGER PRIMARY KEY,
+    \\    file_hash TEXT UNIQUE,
+    \\    format TEXT,
+    \\    width INTEGER,
+    \\    height INTEGER,
+    \\    orientation INTEGER,
+    \\    create_time TEXT,
+    \\    camera_make TEXT,
+    \\    camera_model TEXT,
+    \\    gps_latitude REAL,
+    \\    gps_longitude REAL,
+    \\    duration_sec REAL,
+    \\    has_thumbnail INTEGER DEFAULT 0
+    \\);
+    \\
+    \\CREATE TABLE IF NOT EXISTS media_paths (
+    \\    path TEXT PRIMARY KEY,
+    \\    size INTEGER,
+    \\    mtime INTEGER,
+    \\    metadata_id INTEGER NOT NULL,
+    \\    FOREIGN KEY(metadata_id) REFERENCES media_metadata(id) ON DELETE CASCADE
+    \\);
+    \\
+    \\CREATE INDEX IF NOT EXISTS idx_paths_metadata_id ON media_paths(metadata_id);
+    \\CREATE INDEX IF NOT EXISTS idx_paths_size ON media_paths(size);
+    \\CREATE INDEX IF NOT EXISTS idx_metadata_create_time ON media_metadata(create_time);
+    \\CREATE INDEX IF NOT EXISTS idx_metadata_format ON media_metadata(format);
+    \\
+    \\CREATE TRIGGER IF NOT EXISTS cleanup_orphan_metadata
+    \\AFTER DELETE ON media_paths
+    \\BEGIN
+    \\    DELETE FROM media_metadata
+    \\    WHERE id = OLD.metadata_id
+    \\      AND NOT EXISTS (SELECT 1 FROM media_paths WHERE metadata_id = OLD.metadata_id);
+    \\END;
+    \\
+    \\CREATE TRIGGER IF NOT EXISTS cleanup_orphan_metadata_update
+    \\AFTER UPDATE OF metadata_id ON media_paths
+    \\BEGIN
+    \\    DELETE FROM media_metadata
+    \\    WHERE id = OLD.metadata_id
+    \\      AND NOT EXISTS (SELECT 1 FROM media_paths WHERE metadata_id = OLD.metadata_id);
+    \\END;
+    \\
+    \\-- Migrate legacy data
+    \\INSERT OR IGNORE INTO media_metadata (
+    \\    file_hash, format, width, height, orientation, create_time, 
+    \\    camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail
+    \\)
+    \\SELECT 
+    \\    (size || '_' || mtime || '_' || COALESCE(format, '') || '_' || COALESCE(width, 0) || '_' || COALESCE(height, 0)),
+    \\    format, width, height, orientation, create_time, 
+    \\    camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail
+    \\FROM media;
+    \\
+    \\INSERT OR IGNORE INTO media_paths (path, size, mtime, metadata_id)
+    \\SELECT m.path, m.size, m.mtime, mm.id
+    \\FROM media m
+    \\JOIN media_metadata mm ON mm.file_hash = (m.size || '_' || m.mtime || '_' || COALESCE(m.format, '') || '_' || COALESCE(m.width, 0) || '_' || COALESCE(m.height, 0));
+    \\
+    \\DROP TABLE media;
+};
+
 /// Manager wrapping SQLite database connection and prepared statements.
 pub const Db = struct {
     allocator: std.mem.Allocator,
     db_path: []const u8,
     handle: ?*c.sqlite3,
     query_stmt: ?*c.sqlite3_stmt = null,
-    insert_stmt: ?*c.sqlite3_stmt = null,
     rwlock: std.Io.RwLock = std.Io.RwLock.init,
     stats_cache: ?DbStats = null,
     stats_cache_expires_ns: i96 = 0,
@@ -192,81 +309,67 @@ pub const Db = struct {
         }
         errdefer _ = c.sqlite3_close(handle);
 
-        // Enable WAL mode and busy timeout for concurrent read/write and to prevent SQLITE_BUSY
+        // Enable WAL mode, busy timeout, and foreign keys
         _ = c.sqlite3_exec(handle, "PRAGMA journal_mode=WAL;", null, null, null);
         _ = c.sqlite3_exec(handle, "PRAGMA busy_timeout=5000;", null, null, null);
+        _ = c.sqlite3_exec(handle, "PRAGMA foreign_keys=ON;", null, null, null);
 
-        const create_table_sql =
-            \\CREATE TABLE IF NOT EXISTS media (
-            \\    path TEXT PRIMARY KEY,
-            \\    size INTEGER,
-            \\    mtime INTEGER,
-            \\    format TEXT,
-            \\    width INTEGER,
-            \\    height INTEGER,
-            \\    orientation INTEGER,
-            \\    create_time TEXT,
-            \\    camera_make TEXT,
-            \\    camera_model TEXT,
-            \\    gps_latitude REAL,
-            \\    gps_longitude REAL,
-            \\    duration_sec REAL,
-            \\    has_thumbnail INTEGER DEFAULT 0
-            \\);
-        ;
-        var err_msg: [*c]u8 = null;
-        const exec_rc = c.sqlite3_exec(handle, create_table_sql, null, null, &err_msg);
-        if (exec_rc != c.SQLITE_OK) {
-            if (err_msg) |msg| {
-                std.debug.print("SQL error: {s}\n", .{msg});
-                c.sqlite3_free(msg);
+        // Programmatic sequential migrations under exclusive lock
+        _ = c.sqlite3_exec(handle, "BEGIN IMMEDIATE TRANSACTION;", null, null, null);
+        var current_version = getDbUserVersion(handle.?) catch |err| {
+            _ = c.sqlite3_exec(handle, "ROLLBACK;", null, null, null);
+            return err;
+        };
+
+        const target_version = migrations.len;
+        if (current_version < target_version) {
+            if (!@import("builtin").is_test) {
+                std.debug.print("Upgrading database schema from version {d} to {d}...\n", .{ current_version, target_version });
             }
-            return error.DatabaseSchemaError;
-        }
-
-        // Alter table to add column has_thumbnail if it doesn't exist
-        _ = c.sqlite3_exec(handle, "ALTER TABLE media ADD COLUMN has_thumbnail INTEGER DEFAULT 0;", null, null, null);
-
-        const create_indices_sql =
-            \\CREATE INDEX IF NOT EXISTS idx_media_size ON media(size);
-            \\CREATE INDEX IF NOT EXISTS idx_media_create_time ON media(create_time);
-            \\CREATE INDEX IF NOT EXISTS idx_media_format ON media(format);
-        ;
-        err_msg = null;
-        const indices_rc = c.sqlite3_exec(handle, create_indices_sql, null, null, &err_msg);
-        if (indices_rc != c.SQLITE_OK) {
-            if (err_msg) |msg| {
-                std.debug.print("SQL error creating indices: {s}\n", .{msg});
-                c.sqlite3_free(msg);
+            while (current_version < target_version) {
+                const migration_sql = migrations[@intCast(current_version)];
+                var err_msg: [*c]u8 = null;
+                const exec_rc = c.sqlite3_exec(handle, migration_sql.ptr, null, null, &err_msg);
+                if (exec_rc != c.SQLITE_OK) {
+                    if (err_msg) |msg| {
+                        std.debug.print("Migration error at version {d}: {s}\n", .{ current_version + 1, msg });
+                        c.sqlite3_free(msg);
+                    }
+                    _ = c.sqlite3_exec(handle, "ROLLBACK;", null, null, null);
+                    return error.DatabaseSchemaError;
+                }
+                current_version += 1;
+                setDbUserVersion(handle.?, current_version) catch |err| {
+                    _ = c.sqlite3_exec(handle, "ROLLBACK;", null, null, null);
+                    return err;
+                };
             }
-            return error.DatabaseSchemaError;
         }
+        _ = c.sqlite3_exec(handle, "COMMIT TRANSACTION;", null, null, null);
 
         var query_stmt: ?*c.sqlite3_stmt = null;
-        const query_sql = "SELECT size, mtime, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail FROM media WHERE path = ?;";
+        const query_sql =
+            \\SELECT p.size, p.mtime, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.file_hash
+            \\FROM media_paths p
+            \\JOIN media_metadata m ON p.metadata_id = m.id
+            \\WHERE p.path = ?;
+        ;
         if (c.sqlite3_prepare_v2(handle, query_sql, -1, &query_stmt, null) != c.SQLITE_OK) {
             std.debug.print("Failed to prepare cache query: {s}\n", .{c.sqlite3_errmsg(handle)});
             return error.DatabasePrepareError;
         }
-        errdefer _ = c.sqlite3_finalize(query_stmt);
-
-        var insert_stmt: ?*c.sqlite3_stmt = null;
-        const insert_sql = "INSERT OR REPLACE INTO media (path, size, mtime, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
-        if (c.sqlite3_prepare_v2(handle, insert_sql, -1, &insert_stmt, null) != c.SQLITE_OK) {
-            std.debug.print("Failed to prepare insert query: {s}\n", .{c.sqlite3_errmsg(handle)});
-            _ = c.sqlite3_finalize(query_stmt);
-            return error.DatabasePrepareError;
-        }
 
         const dup_path = try allocator.dupe(u8, db_path);
-        errdefer allocator.free(dup_path);
+        errdefer {
+            allocator.free(dup_path);
+            _ = c.sqlite3_finalize(query_stmt);
+        }
 
         return Db{
             .allocator = allocator,
             .db_path = dup_path,
             .handle = handle,
             .query_stmt = query_stmt,
-            .insert_stmt = insert_stmt,
             .stats_cache_arena = std.heap.ArenaAllocator.init(allocator),
             .paged_stmt_cache_arena = std.heap.ArenaAllocator.init(allocator),
         };
@@ -390,10 +493,8 @@ pub const Db = struct {
         self.paged_stmt_cache_arena.deinit();
         self.stats_cache_arena.deinit();
         if (self.query_stmt) |stmt| _ = c.sqlite3_finalize(stmt);
-        if (self.insert_stmt) |stmt| _ = c.sqlite3_finalize(stmt);
         if (self.handle) |h| _ = c.sqlite3_close(h);
         self.query_stmt = null;
-        self.insert_stmt = null;
         self.handle = null;
     }
 
@@ -488,6 +589,11 @@ pub const Db = struct {
                 if (c.sqlite3_column_type(stmt, 12) != c.SQLITE_NULL) {
                     json_out.has_thumbnail = c.sqlite3_column_int(stmt, 12) != 0;
                 }
+                if (c.sqlite3_column_type(stmt, 13) != c.SQLITE_NULL) {
+                    const raw = c.sqlite3_column_text(stmt, 13);
+                    const len = c.sqlite3_column_bytes(stmt, 13);
+                    json_out.file_hash = try allocator.dupe(u8, raw[0..@intCast(len)]);
+                }
 
                 return .{ .hit = true, .json_out = json_out };
             }
@@ -496,92 +602,216 @@ pub const Db = struct {
         return .{ .hit = false };
     }
 
+    /// Retrieve a media metadata and path record by its content hash.
+    pub fn queryMetadataByHash(
+        self: *Db,
+        allocator: std.mem.Allocator,
+        path: []const u8,
+        file_hash: []const u8,
+    ) !?DbRecord {
+        if (self.handle == null) return error.DatabaseNotOpen;
+        const sql =
+            \\SELECT format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail
+            \\FROM media_metadata
+            \\WHERE file_hash = ?;
+        ;
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK) {
+            return error.DatabasePrepareError;
+        }
+        defer _ = c.sqlite3_finalize(stmt);
+
+        _ = c.sqlite3_bind_text(stmt, 1, file_hash.ptr, @intCast(file_hash.len), null);
+
+        if (c.sqlite3_step(stmt) == c.SQLITE_ROW) {
+            var json_out = DbRecord{
+                .path = path,
+                .size = 0,
+                .format = undefined,
+                .file_hash = try allocator.dupe(u8, file_hash),
+            };
+            errdefer json_out.deinit(allocator);
+
+            const fmt_raw = c.sqlite3_column_text(stmt, 0);
+            if (fmt_raw) |raw| {
+                const fmt_len = c.sqlite3_column_bytes(stmt, 0);
+                json_out.format = try allocator.dupe(u8, raw[0..@intCast(fmt_len)]);
+            } else {
+                json_out.format = try allocator.dupe(u8, "unknown");
+            }
+            errdefer allocator.free(json_out.format);
+
+            if (c.sqlite3_column_type(stmt, 1) != c.SQLITE_NULL) {
+                json_out.width = @intCast(c.sqlite3_column_int(stmt, 1));
+            }
+            if (c.sqlite3_column_type(stmt, 2) != c.SQLITE_NULL) {
+                json_out.height = @intCast(c.sqlite3_column_int(stmt, 2));
+            }
+            if (c.sqlite3_column_type(stmt, 3) != c.SQLITE_NULL) {
+                json_out.orientation = @intCast(c.sqlite3_column_int(stmt, 3));
+            }
+            if (c.sqlite3_column_type(stmt, 4) != c.SQLITE_NULL) {
+                const raw = c.sqlite3_column_text(stmt, 4);
+                const len = c.sqlite3_column_bytes(stmt, 4);
+                json_out.create_time = try allocator.dupe(u8, raw[0..@intCast(len)]);
+            }
+            if (c.sqlite3_column_type(stmt, 5) != c.SQLITE_NULL) {
+                const raw = c.sqlite3_column_text(stmt, 5);
+                const len = c.sqlite3_column_bytes(stmt, 5);
+                json_out.camera_make = try allocator.dupe(u8, raw[0..@intCast(len)]);
+            }
+            if (c.sqlite3_column_type(stmt, 6) != c.SQLITE_NULL) {
+                const raw = c.sqlite3_column_text(stmt, 6);
+                const len = c.sqlite3_column_bytes(stmt, 6);
+                json_out.camera_model = try allocator.dupe(u8, raw[0..@intCast(len)]);
+            }
+            if (c.sqlite3_column_type(stmt, 7) != c.SQLITE_NULL) {
+                json_out.gps_latitude = c.sqlite3_column_double(stmt, 7);
+            }
+            if (c.sqlite3_column_type(stmt, 8) != c.SQLITE_NULL) {
+                json_out.gps_longitude = c.sqlite3_column_double(stmt, 8);
+            }
+            if (c.sqlite3_column_type(stmt, 9) != c.SQLITE_NULL) {
+                json_out.duration_sec = c.sqlite3_column_double(stmt, 9);
+            }
+            if (c.sqlite3_column_type(stmt, 10) != c.SQLITE_NULL) {
+                json_out.has_thumbnail = c.sqlite3_column_int(stmt, 10) != 0;
+            }
+
+            return json_out;
+        }
+
+        return null;
+    }
+
     /// Insert or replace a media catalog entry.
     pub fn insertMedia(
         self: *Db,
         json_out: *const DbRecord,
         mtime: i64,
     ) !void {
-        if (self.handle == null or self.insert_stmt == null) return;
-        const stmt = self.insert_stmt.?;
+        if (self.handle == null) return error.DatabaseNotOpen;
 
-        _ = c.sqlite3_reset(stmt);
-        _ = c.sqlite3_clear_bindings(stmt);
-        defer _ = c.sqlite3_reset(stmt);
+        // 1. Generate fallback file hash signature if not provided
+        var hash_buf: [256]u8 = undefined;
+        const file_hash = if (json_out.file_hash) |fh| fh else try std.fmt.bufPrint(&hash_buf, "{d}_{d}_{s}_{d}_{d}", .{
+            json_out.size,
+            mtime,
+            json_out.format,
+            json_out.width orelse 0,
+            json_out.height orelse 0,
+        });
 
-        _ = c.sqlite3_bind_text(stmt, 1, json_out.path.ptr, @intCast(json_out.path.len), null);
-        _ = c.sqlite3_bind_int64(stmt, 2, @intCast(json_out.size));
-        _ = c.sqlite3_bind_int64(stmt, 3, mtime);
-        _ = c.sqlite3_bind_text(stmt, 4, json_out.format.ptr, @intCast(json_out.format.len), null);
+        // 2. Prepare/Insert into media_metadata
+        const insert_meta_sql =
+            \\INSERT INTO media_metadata (file_hash, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail)
+            \\VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        ;
+        var insert_meta_stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, insert_meta_sql, -1, &insert_meta_stmt, null) != c.SQLITE_OK) {
+            return error.DatabasePrepareError;
+        }
+        defer _ = c.sqlite3_finalize(insert_meta_stmt);
+
+        _ = c.sqlite3_bind_text(insert_meta_stmt, 1, file_hash.ptr, @intCast(file_hash.len), null);
+        _ = c.sqlite3_bind_text(insert_meta_stmt, 2, json_out.format.ptr, @intCast(json_out.format.len), null);
 
         if (json_out.width) |w| {
-            _ = c.sqlite3_bind_int(stmt, 5, @intCast(w));
+            _ = c.sqlite3_bind_int(insert_meta_stmt, 3, @intCast(w));
         } else {
-            _ = c.sqlite3_bind_null(stmt, 5);
+            _ = c.sqlite3_bind_null(insert_meta_stmt, 3);
         }
-
         if (json_out.height) |h| {
-            _ = c.sqlite3_bind_int(stmt, 6, @intCast(h));
+            _ = c.sqlite3_bind_int(insert_meta_stmt, 4, @intCast(h));
         } else {
-            _ = c.sqlite3_bind_null(stmt, 6);
+            _ = c.sqlite3_bind_null(insert_meta_stmt, 4);
         }
-
         if (json_out.orientation) |o| {
-            _ = c.sqlite3_bind_int(stmt, 7, @intCast(o));
+            _ = c.sqlite3_bind_int(insert_meta_stmt, 5, @intCast(o));
         } else {
-            _ = c.sqlite3_bind_null(stmt, 7);
+            _ = c.sqlite3_bind_null(insert_meta_stmt, 5);
         }
-
         if (json_out.create_time) |ct| {
-            _ = c.sqlite3_bind_text(stmt, 8, ct.ptr, @intCast(ct.len), null);
+            _ = c.sqlite3_bind_text(insert_meta_stmt, 6, ct.ptr, @intCast(ct.len), null);
         } else {
-            _ = c.sqlite3_bind_null(stmt, 8);
+            _ = c.sqlite3_bind_null(insert_meta_stmt, 6);
         }
-
         if (json_out.camera_make) |cm| {
-            _ = c.sqlite3_bind_text(stmt, 9, cm.ptr, @intCast(cm.len), null);
+            _ = c.sqlite3_bind_text(insert_meta_stmt, 7, cm.ptr, @intCast(cm.len), null);
         } else {
-            _ = c.sqlite3_bind_null(stmt, 9);
+            _ = c.sqlite3_bind_null(insert_meta_stmt, 7);
         }
-
         if (json_out.camera_model) |cm| {
-            _ = c.sqlite3_bind_text(stmt, 10, cm.ptr, @intCast(cm.len), null);
+            _ = c.sqlite3_bind_text(insert_meta_stmt, 8, cm.ptr, @intCast(cm.len), null);
         } else {
-            _ = c.sqlite3_bind_null(stmt, 10);
+            _ = c.sqlite3_bind_null(insert_meta_stmt, 8);
         }
-
         if (json_out.gps_latitude) |lat| {
-            _ = c.sqlite3_bind_double(stmt, 11, lat);
+            _ = c.sqlite3_bind_double(insert_meta_stmt, 9, lat);
         } else {
-            _ = c.sqlite3_bind_null(stmt, 11);
+            _ = c.sqlite3_bind_null(insert_meta_stmt, 9);
         }
-
         if (json_out.gps_longitude) |lon| {
-            _ = c.sqlite3_bind_double(stmt, 12, lon);
+            _ = c.sqlite3_bind_double(insert_meta_stmt, 10, lon);
         } else {
-            _ = c.sqlite3_bind_null(stmt, 12);
+            _ = c.sqlite3_bind_null(insert_meta_stmt, 10);
         }
-
         if (json_out.duration_sec) |dur| {
-            _ = c.sqlite3_bind_double(stmt, 13, dur);
+            _ = c.sqlite3_bind_double(insert_meta_stmt, 11, dur);
         } else {
-            _ = c.sqlite3_bind_null(stmt, 13);
+            _ = c.sqlite3_bind_null(insert_meta_stmt, 11);
+        }
+        _ = c.sqlite3_bind_int(insert_meta_stmt, 12, if (json_out.has_thumbnail) 1 else 0);
+
+        var metadata_id: i64 = 0;
+        const step_rc = c.sqlite3_step(insert_meta_stmt);
+        if (step_rc == c.SQLITE_DONE) {
+            metadata_id = c.sqlite3_last_insert_rowid(self.handle);
+        } else if (step_rc == c.SQLITE_CONSTRAINT or step_rc == c.SQLITE_CONSTRAINT_UNIQUE) {
+            // Hash collision or exists. Retrieve its metadata_id
+            const select_id_sql = "SELECT id FROM media_metadata WHERE file_hash = ?;";
+            var select_id_stmt: ?*c.sqlite3_stmt = null;
+            if (c.sqlite3_prepare_v2(self.handle, select_id_sql, -1, &select_id_stmt, null) != c.SQLITE_OK) {
+                return error.DatabasePrepareError;
+            }
+            defer _ = c.sqlite3_finalize(select_id_stmt);
+            _ = c.sqlite3_bind_text(select_id_stmt, 1, file_hash.ptr, @intCast(file_hash.len), null);
+            if (c.sqlite3_step(select_id_stmt) == c.SQLITE_ROW) {
+                metadata_id = c.sqlite3_column_int64(select_id_stmt, 0);
+            } else {
+                return error.DatabaseExecuteError;
+            }
+        } else {
+            std.debug.print("Failed to insert media metadata: {s} (code: {d})\n", .{ c.sqlite3_errmsg(self.handle), step_rc });
+            return error.DatabaseExecuteError;
         }
 
-        _ = c.sqlite3_bind_int(stmt, 14, if (json_out.has_thumbnail) 1 else 0);
-
-        const rc = c.sqlite3_step(stmt);
-        if (rc != c.SQLITE_DONE) {
-            std.debug.print("Failed to insert media row: {s}\n", .{c.sqlite3_errmsg(self.handle)});
-        } else {
-            self.invalidateStatsCache();
+        // 3. Insert or replace into media_paths
+        const insert_path_sql = "INSERT OR REPLACE INTO media_paths (path, size, mtime, metadata_id) VALUES (?, ?, ?, ?);";
+        var insert_path_stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, insert_path_sql, -1, &insert_path_stmt, null) != c.SQLITE_OK) {
+            return error.DatabasePrepareError;
         }
+        defer _ = c.sqlite3_finalize(insert_path_stmt);
+
+        _ = c.sqlite3_bind_text(insert_path_stmt, 1, json_out.path.ptr, @intCast(json_out.path.len), null);
+        _ = c.sqlite3_bind_int64(insert_path_stmt, 2, @intCast(json_out.size));
+        _ = c.sqlite3_bind_int64(insert_path_stmt, 3, mtime);
+        _ = c.sqlite3_bind_int64(insert_path_stmt, 4, metadata_id);
+
+        const path_step_rc = c.sqlite3_step(insert_path_stmt);
+        if (path_step_rc != c.SQLITE_DONE) {
+            std.debug.print("Failed to insert media path: {s} (code: {d})\n", .{ c.sqlite3_errmsg(self.handle), path_step_rc });
+            return error.DatabaseExecuteError;
+        }
+
+        self.invalidateStatsCache();
     }
 
     /// Update the has_thumbnail flag for a given media record.
     pub fn updateHasThumbnail(self: *Db, path: []const u8, has_thumbnail: bool) !void {
         if (self.handle == null) return error.DatabaseNotOpen;
-        const sql = "UPDATE media SET has_thumbnail = ? WHERE path = ?;";
+        const sql = "UPDATE media_metadata SET has_thumbnail = ? WHERE id = (SELECT metadata_id FROM media_paths WHERE path = ?);";
         var stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK) {
             return error.DatabasePrepareError;
@@ -600,7 +830,11 @@ pub const Db = struct {
     pub fn getAllRecords(self: *Db, allocator: std.mem.Allocator) ![]DbRecord {
         if (self.handle == null) return error.DatabaseNotOpen;
 
-        const select_sql = "SELECT path, size, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail FROM media;";
+        const select_sql =
+            \\SELECT p.path, p.size, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.file_hash
+            \\FROM media_paths p
+            \\JOIN media_metadata m ON p.metadata_id = m.id;
+        ;
         var stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, select_sql, -1, &stmt, null) != c.SQLITE_OK) {
             std.debug.print("Failed to prepare select query: {s}\n", .{c.sqlite3_errmsg(self.handle)});
@@ -678,6 +912,11 @@ pub const Db = struct {
             if (c.sqlite3_column_type(stmt, 12) != c.SQLITE_NULL) {
                 record.has_thumbnail = c.sqlite3_column_int(stmt, 12) != 0;
             }
+            if (c.sqlite3_column_type(stmt, 13) != c.SQLITE_NULL) {
+                const raw = c.sqlite3_column_text(stmt, 13);
+                const len = c.sqlite3_column_bytes(stmt, 13);
+                record.file_hash = try allocator.dupe(u8, raw[0..@intCast(len)]);
+            }
 
             try list.append(allocator, record);
         }
@@ -711,26 +950,27 @@ pub const Db = struct {
 
         const overall_sql =
             "SELECT " ++
-            "COUNT(*), " ++
-            "COALESCE(SUM(size), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " AND size < 1048576 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " AND size >= 1048576 AND size < 5242880 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " AND size >= 5242880 AND size < 10485760 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " AND size >= 10485760 AND size < 26214400 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_image_pred ++ " AND size >= 26214400 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND size < 10485760 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND size >= 10485760 AND size < 104857600 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND size >= 104857600 AND size < 524288000 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND size >= 524288000 AND size < 2147483648 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND size >= 2147483648 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND duration_sec < 10 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND duration_sec >= 10 AND duration_sec < 60 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND duration_sec >= 60 AND duration_sec < 300 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND duration_sec >= 300 AND duration_sec < 900 THEN 1 ELSE 0 END), 0), " ++
-            "COALESCE(SUM(CASE WHEN " ++ is_video_pred ++ " AND duration_sec >= 900 THEN 1 ELSE 0 END), 0) " ++
-            "FROM media;";
+            "COUNT(p.path), " ++
+            "COALESCE(SUM(p.size), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " AND p.size < 1048576 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " AND p.size >= 1048576 AND p.size < 5242880 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " AND p.size >= 5242880 AND p.size < 10485760 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " AND p.size >= 10485760 AND p.size < 26214400 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " AND p.size >= 26214400 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " AND p.size < 10485760 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " AND p.size >= 10485760 AND p.size < 104857600 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " AND p.size >= 104857600 AND p.size < 524288000 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " AND p.size >= 524288000 AND p.size < 2147483648 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " AND p.size >= 2147483648 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " AND m.duration_sec < 10 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " AND m.duration_sec >= 10 AND m.duration_sec < 60 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " AND m.duration_sec >= 60 AND m.duration_sec < 300 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " AND m.duration_sec >= 300 AND m.duration_sec < 900 THEN 1 ELSE 0 END), 0), " ++
+            "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " AND m.duration_sec >= 900 THEN 1 ELSE 0 END), 0) " ++
+            "FROM media_paths p " ++
+            "JOIN media_metadata m ON p.metadata_id = m.id;";
         var overall_stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, overall_sql, -1, &overall_stmt, null) == c.SQLITE_OK) {
             defer _ = c.sqlite3_finalize(overall_stmt);
@@ -759,11 +999,11 @@ pub const Db = struct {
 
         // 2. Image and video format counts in one round-trip.
         const formats_sql =
-            "SELECT 'image' AS kind, COALESCE(format, 'unknown') AS format, COUNT(*) " ++
-            "FROM media WHERE " ++ is_image_pred ++ " GROUP BY format " ++
+            "SELECT 'image' AS kind, COALESCE(m.format, 'unknown') AS format, COUNT(*) " ++
+            "FROM media_paths p JOIN media_metadata m ON p.metadata_id = m.id WHERE " ++ is_image_pred_m ++ " GROUP BY m.format " ++
             "UNION ALL " ++
-            "SELECT 'video' AS kind, COALESCE(format, 'unknown') AS format, COUNT(*) " ++
-            "FROM media WHERE " ++ is_video_pred ++ " GROUP BY format;";
+            "SELECT 'video' AS kind, COALESCE(m.format, 'unknown') AS format, COUNT(*) " ++
+            "FROM media_paths p JOIN media_metadata m ON p.metadata_id = m.id WHERE " ++ is_video_pred_m ++ " GROUP BY m.format;";
         var img_formats: std.ArrayList(DbStats.FormatCount) = .empty;
         errdefer {
             for (img_formats.items) |item| allocator.free(item.format);
@@ -798,10 +1038,10 @@ pub const Db = struct {
 
         // 3. Cameras (top 5)
         const cameras_sql =
-            "SELECT COALESCE(camera_make, ''), COALESCE(camera_model, ''), COUNT(*) " ++
-            "FROM media WHERE " ++ is_image_pred ++ " " ++
-            "AND (camera_make IS NOT NULL OR camera_model IS NOT NULL) " ++
-            "GROUP BY camera_make, camera_model " ++
+            "SELECT COALESCE(m.camera_make, ''), COALESCE(m.camera_model, ''), COUNT(*) " ++
+            "FROM media_paths p JOIN media_metadata m ON p.metadata_id = m.id WHERE " ++ is_image_pred_m ++ " " ++
+            "AND (m.camera_make IS NOT NULL OR m.camera_model IS NOT NULL) " ++
+            "GROUP BY m.camera_make, m.camera_model " ++
             "ORDER BY COUNT(*) DESC LIMIT 5;";
         var cameras: std.ArrayList(DbStats.CameraCount) = .empty;
         errdefer {
@@ -849,7 +1089,7 @@ pub const Db = struct {
 
     /// SQL expression that normalizes EXIF "YYYY:MM:DD ..." to "YYYY-MM-DD ...".
     const normalized_create_time_expr =
-        "REPLACE(SUBSTR(create_time, 1, 10), ':', '-') || SUBSTR(create_time, 11)";
+        "REPLACE(SUBSTR(m.create_time, 1, 10), ':', '-') || SUBSTR(m.create_time, 11)";
 
     /// Retrieve a page of filtered, searched, and sorted media catalog entries.
     pub fn getRecordsPaged(
@@ -876,42 +1116,42 @@ pub const Db = struct {
         var aw = std.Io.Writer.Allocating.fromArrayList(allocator, &query_buf);
         const writer = &aw.writer;
 
-        try writer.writeAll("FROM media WHERE 1=1");
+        try writer.writeAll("FROM media_paths p JOIN media_metadata m ON p.metadata_id = m.id WHERE 1=1");
 
         var next_param: c_int = 1;
 
         if (search) |_| {
             try writer.print(
-                " AND (path LIKE ?{d} OR camera_make LIKE ?{d} OR camera_model LIKE ?{d} OR format LIKE ?{d})",
+                " AND (p.path LIKE ?{d} OR m.camera_make LIKE ?{d} OR m.camera_model LIKE ?{d} OR m.format LIKE ?{d})",
                 .{ next_param, next_param, next_param, next_param },
             );
             next_param += 1;
         }
         if (format_filter) |_| {
-            try writer.print(" AND format = ?{d}", .{next_param});
+            try writer.print(" AND m.format = ?{d}", .{next_param});
             next_param += 1;
         }
         if (type_filter) |t| {
             if (std.mem.eql(u8, t, "image")) {
-                try writer.writeAll(" AND (duration_sec IS NULL AND format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))");
+                try writer.writeAll(" AND (m.duration_sec IS NULL AND m.format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))");
             } else if (std.mem.eql(u8, t, "video")) {
-                try writer.writeAll(" AND (duration_sec IS NOT NULL OR format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))");
+                try writer.writeAll(" AND (m.duration_sec IS NOT NULL OR m.format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))");
             }
         }
         if (date_from) |_| {
-            try writer.print(" AND create_time IS NOT NULL AND " ++ normalized_create_time_expr ++ " >= ?{d}", .{next_param});
+            try writer.print(" AND m.create_time IS NOT NULL AND " ++ normalized_create_time_expr ++ " >= ?{d}", .{next_param});
             next_param += 1;
         }
         if (date_to) |_| {
-            try writer.print(" AND create_time IS NOT NULL AND " ++ normalized_create_time_expr ++ " <= ?{d}", .{next_param});
+            try writer.print(" AND m.create_time IS NOT NULL AND " ++ normalized_create_time_expr ++ " <= ?{d}", .{next_param});
             next_param += 1;
         }
         if (size_min) |_| {
-            try writer.print(" AND size >= ?{d}", .{next_param});
+            try writer.print(" AND p.size >= ?{d}", .{next_param});
             next_param += 1;
         }
         if (size_max) |_| {
-            try writer.print(" AND size <= ?{d}", .{next_param});
+            try writer.print(" AND p.size <= ?{d}", .{next_param});
             next_param += 1;
         }
 
@@ -1018,12 +1258,12 @@ pub const Db = struct {
         var select_buf: std.ArrayList(u8) = .empty;
         defer select_buf.deinit(allocator);
         var select_aw = std.Io.Writer.Allocating.fromArrayList(allocator, &select_buf);
-        try select_aw.writer.writeAll("SELECT path, size, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail ");
+        try select_aw.writer.writeAll("SELECT p.path, p.size, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.file_hash ");
         try select_aw.writer.writeAll(base_where);
 
         // Sorting
         var valid_sort: []const u8 = "path";
-        var sort_expr: []const u8 = "path";
+        var sort_expr: []const u8 = "p.path";
         const allowed_sort = [_][]const u8{ "path", "size", "format", "width", "height", "duration_sec", "camera_model", "create_time" };
         if (sort_by) |sb| {
             for (allowed_sort) |allowed| {
@@ -1033,11 +1273,24 @@ pub const Db = struct {
                 }
             }
         }
-        if (std.mem.eql(u8, valid_sort, "create_time")) {
+        if (std.mem.eql(u8, valid_sort, "path")) {
+            sort_expr = "p.path";
+        } else if (std.mem.eql(u8, valid_sort, "size")) {
+            sort_expr = "p.size";
+        } else if (std.mem.eql(u8, valid_sort, "format")) {
+            sort_expr = "m.format";
+        } else if (std.mem.eql(u8, valid_sort, "width")) {
+            sort_expr = "m.width";
+        } else if (std.mem.eql(u8, valid_sort, "height")) {
+            sort_expr = "m.height";
+        } else if (std.mem.eql(u8, valid_sort, "duration_sec")) {
+            sort_expr = "m.duration_sec";
+        } else if (std.mem.eql(u8, valid_sort, "camera_model")) {
+            sort_expr = "m.camera_model";
+        } else if (std.mem.eql(u8, valid_sort, "create_time")) {
             sort_expr = normalized_create_time_expr;
-        } else {
-            sort_expr = valid_sort;
         }
+
         var valid_order: []const u8 = "ASC";
         if (sort_order) |so| {
             if (std.ascii.eqlIgnoreCase(so, "desc")) {
@@ -1140,6 +1393,11 @@ pub const Db = struct {
             }
             if (c.sqlite3_column_type(select_stmt, 12) != c.SQLITE_NULL) {
                 record.has_thumbnail = c.sqlite3_column_int(select_stmt, 12) != 0;
+            }
+            if (c.sqlite3_column_type(select_stmt, 13) != c.SQLITE_NULL) {
+                const raw = c.sqlite3_column_text(select_stmt, 13);
+                const len = c.sqlite3_column_bytes(select_stmt, 13);
+                record.file_hash = try allocator.dupe(u8, raw[0..@intCast(len)]);
             }
 
             try list.append(allocator, record);
@@ -1272,7 +1530,7 @@ fn queryIndexCount(db: *Db, index_name: []const u8) !u32 {
 
 fn countRows(db: *Db) !u32 {
     const handle = db.handle orelse return error.DatabaseNotOpen;
-    const sql = "SELECT COUNT(*) FROM media;";
+    const sql = "SELECT COUNT(*) FROM media_paths;";
     var stmt: ?*c.sqlite3_stmt = null;
     if (c.sqlite3_prepare_v2(handle, sql, -1, &stmt, null) != c.SQLITE_OK) return error.DatabasePrepareError;
     defer _ = c.sqlite3_finalize(stmt);
@@ -1882,9 +2140,10 @@ test "init creates expected indices (T20)" {
     var database = try Db.init(allocator, path);
     defer database.deinit();
 
-    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_media_size"));
-    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_media_create_time"));
-    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_media_format"));
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_paths_metadata_id"));
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_paths_size"));
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metadata_create_time"));
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metadata_format"));
 }
 
 test "last 7 days window with June-only fixture returns zero rows" {
@@ -2000,5 +2259,108 @@ test "updateHasThumbnail updates correctly" {
         };
         try std.testing.expect(hit.hit);
         try std.testing.expect(!hit.json_out.has_thumbnail);
+    }
+}
+
+test "database relational migration moves legacy data" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/migration_legacy.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    // 1. Manually construct version 1 schema & insert legacy records
+    {
+        var handle: ?*c.sqlite3 = null;
+        const path_c = try allocator.dupeZ(u8, path);
+        defer allocator.free(path_c);
+        const rc = c.sqlite3_open(path_c, &handle);
+        try std.testing.expectEqual(c.SQLITE_OK, rc);
+        defer _ = c.sqlite3_close(handle);
+
+        const version1_sql = migrations[0];
+        var err_msg: [*c]u8 = null;
+        try std.testing.expectEqual(c.SQLITE_OK, c.sqlite3_exec(handle, version1_sql.ptr, null, null, &err_msg));
+        try std.testing.expectEqual(c.SQLITE_OK, c.sqlite3_exec(handle, "PRAGMA user_version = 1;", null, null, null));
+
+        // Insert legacy data
+        const insert_sql = "INSERT INTO media (path, size, mtime, format, width, height) VALUES ('/legacy.jpg', 12345, 98765, 'jpeg', 800, 600);";
+        try std.testing.expectEqual(c.SQLITE_OK, c.sqlite3_exec(handle, insert_sql, null, null, null));
+    }
+
+    // 2. Open via Db.init, which should automatically migrate version 1 to target version (version 2)
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    // 3. Verify it migrated and data is queryable
+    const cache_res = try database.queryCache(allocator, "/legacy.jpg", 12345, 98765);
+    defer if (cache_res.hit) {
+        cache_res.json_out.deinit(allocator);
+        allocator.free(cache_res.json_out.format);
+    };
+    try std.testing.expect(cache_res.hit);
+    try std.testing.expectEqualStrings("jpeg", cache_res.json_out.format);
+    try std.testing.expectEqual(@as(?u32, 800), cache_res.json_out.width);
+    try std.testing.expectEqual(@as(?u32, 600), cache_res.json_out.height);
+}
+
+test "orphan metadata is cleaned up by triggers on delete or update" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/trigger_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    // Insert two duplicate files (same content hash, different paths)
+    const rec1 = DbRecord{
+        .path = "/photos/1.jpg",
+        .size = 100,
+        .format = "jpeg",
+        .file_hash = "abc",
+    };
+    const rec2 = DbRecord{
+        .path = "/photos/2.jpg",
+        .size = 100,
+        .format = "jpeg",
+        .file_hash = "abc",
+    };
+
+    try database.insertMedia(&rec1, 10);
+    try database.insertMedia(&rec2, 10);
+
+    // Verify metadata row count is 1
+    {
+        var stmt: ?*c.sqlite3_stmt = null;
+        _ = c.sqlite3_prepare_v2(database.handle, "SELECT COUNT(*) FROM media_metadata;", -1, &stmt, null);
+        defer _ = c.sqlite3_finalize(stmt);
+        try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(stmt));
+        try std.testing.expectEqual(@as(i32, 1), c.sqlite3_column_int(stmt, 0));
+    }
+
+    // Delete one path, metadata should NOT be deleted (still referenced by path 2)
+    _ = c.sqlite3_exec(database.handle, "DELETE FROM media_paths WHERE path = '/photos/1.jpg';", null, null, null);
+    {
+        var stmt: ?*c.sqlite3_stmt = null;
+        _ = c.sqlite3_prepare_v2(database.handle, "SELECT COUNT(*) FROM media_metadata;", -1, &stmt, null);
+        defer _ = c.sqlite3_finalize(stmt);
+        try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(stmt));
+        try std.testing.expectEqual(@as(i32, 1), c.sqlite3_column_int(stmt, 0));
+    }
+
+    // Delete second path, metadata should be deleted (orphan cleanup trigger)
+    _ = c.sqlite3_exec(database.handle, "DELETE FROM media_paths WHERE path = '/photos/2.jpg';", null, null, null);
+    {
+        var stmt: ?*c.sqlite3_stmt = null;
+        _ = c.sqlite3_prepare_v2(database.handle, "SELECT COUNT(*) FROM media_metadata;", -1, &stmt, null);
+        defer _ = c.sqlite3_finalize(stmt);
+        try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(stmt));
+        try std.testing.expectEqual(@as(i32, 0), c.sqlite3_column_int(stmt, 0));
     }
 }

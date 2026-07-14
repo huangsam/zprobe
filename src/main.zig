@@ -13,6 +13,7 @@ const image_meta = root.image_meta;
 const video_meta = root.video_meta;
 const test_utils = @import("core/test_utils.zig");
 const db = root.db;
+const hashing = root.hashing;
 
 /// Helper to initialize a buffered file writer targeting stdout.
 ///
@@ -300,49 +301,82 @@ const worker = struct {
         }
 
         if (!cache_hit) {
-            var has_thumb = false;
-            if (is_video) {
-                var res = video_meta.getVideoMetadata(arena_allocator, entry.path, c_ctx.io) catch |err| {
-                    c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
-                    defer c_ctx.stdout_mutex.unlock(c_ctx.io);
-                    c_ctx.out.flush() catch {};
-                    std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
-                    return;
-                };
-                if (c_ctx.thumb_dir) |thumb_dir| {
-                    if (c_ctx.has_ffmpeg) {
-                        if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                        defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                        has_thumb = generateFfmpegThumbnail(c_ctx.io, arena_allocator, entry.path, thumb_dir, true) catch false;
+            var file_hash: ?[]const u8 = null;
+            var hash_hit = false;
+
+            if (hashing.computeFastHash(c_ctx.io, arena_allocator, entry.path)) |hash| {
+                file_hash = hash;
+                if (c_ctx.db) |d| {
+                    d.lockRead(c_ctx.io);
+                    const hash_res = d.queryMetadataByHash(arena_allocator, entry.path, hash) catch null;
+                    d.unlockRead(c_ctx.io);
+
+                    if (hash_res) |res| {
+                        hash_hit = true;
+                        json_out = res;
+                        json_out.size = fsize; // ensure size is correct
+
+                        d.lockWrite(c_ctx.io);
+                        d.insertMedia(&json_out, mtime) catch |err| {
+                            std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
+                        };
+                        d.unlockWrite(c_ctx.io);
+                        cache_hit = true;
                     }
                 }
-                json_out = try populateJsonFromVideo(arena_allocator, &res, entry.path, fsize, has_thumb);
-            } else {
-                var res = image_meta.parseFile(arena_allocator, entry.path, c_ctx.io) catch |err| {
-                    c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
-                    defer c_ctx.stdout_mutex.unlock(c_ctx.io);
-                    c_ctx.out.flush() catch {};
-                    std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
-                    return;
-                };
-                if (c_ctx.thumb_dir) |thumb_dir| {
-                    if (res.thumbnail_data) |thumb_bytes| {
-                        has_thumb = saveThumbnailBytes(c_ctx.io, arena_allocator, entry.path, thumb_dir, thumb_bytes) catch false;
-                    } else if (c_ctx.has_ffmpeg) {
-                        if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                        defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                        has_thumb = generateFfmpegThumbnail(c_ctx.io, arena_allocator, entry.path, thumb_dir, false) catch false;
-                    }
-                }
-                json_out = try populateJsonFromImage(arena_allocator, &res, entry.path, fsize, has_thumb);
+            } else |err| {
+                std.debug.print("Warning: failed to compute fast hash for '{s}': {s}\n", .{ entry.path, @errorName(err) });
             }
 
-            if (c_ctx.db) |d| {
-                d.lockWrite(c_ctx.io);
-                d.insertMedia(&json_out, mtime) catch |err| {
-                    std.debug.print("Warning: failed to insert media to DB: {s}\n", .{@errorName(err)});
-                };
-                d.unlockWrite(c_ctx.io);
+            if (!hash_hit) {
+                var has_thumb = false;
+                if (is_video) {
+                    var res = video_meta.getVideoMetadata(arena_allocator, entry.path, c_ctx.io) catch |err| {
+                        c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+                        defer c_ctx.stdout_mutex.unlock(c_ctx.io);
+                        c_ctx.out.flush() catch {};
+                        std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
+                        return;
+                    };
+                    if (c_ctx.thumb_dir) |thumb_dir| {
+                        if (c_ctx.has_ffmpeg) {
+                            if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                            defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                            has_thumb = generateFfmpegThumbnail(c_ctx.io, arena_allocator, entry.path, thumb_dir, true) catch false;
+                        }
+                    }
+                    json_out = try populateJsonFromVideo(arena_allocator, &res, entry.path, fsize, has_thumb);
+                } else {
+                    var res = image_meta.parseFile(arena_allocator, entry.path, c_ctx.io) catch |err| {
+                        c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+                        defer c_ctx.stdout_mutex.unlock(c_ctx.io);
+                        c_ctx.out.flush() catch {};
+                        std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
+                        return;
+                    };
+                    if (c_ctx.thumb_dir) |thumb_dir| {
+                        if (res.thumbnail_data) |thumb_bytes| {
+                            has_thumb = saveThumbnailBytes(c_ctx.io, arena_allocator, entry.path, thumb_dir, thumb_bytes) catch false;
+                        } else if (c_ctx.has_ffmpeg) {
+                            if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                            defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                            has_thumb = generateFfmpegThumbnail(c_ctx.io, arena_allocator, entry.path, thumb_dir, false) catch false;
+                        }
+                    }
+                    json_out = try populateJsonFromImage(arena_allocator, &res, entry.path, fsize, has_thumb);
+                }
+
+                if (file_hash) |fh| {
+                    json_out.file_hash = try arena_allocator.dupe(u8, fh);
+                }
+
+                if (c_ctx.db) |d| {
+                    d.lockWrite(c_ctx.io);
+                    d.insertMedia(&json_out, mtime) catch |err| {
+                        std.debug.print("Warning: failed to insert media to DB: {s}\n", .{@errorName(err)});
+                    };
+                    d.unlockWrite(c_ctx.io);
+                }
             }
         }
 

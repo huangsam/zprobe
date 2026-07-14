@@ -18,6 +18,7 @@ playground/
 scratch/
 test_media/
 media/
+*.log
 
 # Databases & SQLite sidecar files
 *.db
