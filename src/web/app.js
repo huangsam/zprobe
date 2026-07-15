@@ -986,13 +986,18 @@ function populateStats() {
       el.classList.remove("error-state");
     }
   });
-  document.getElementById("stat-total-files").textContent =
-    statsData.total_files;
+  document.getElementById("stat-total-files").textContent = formatCount(
+    statsData.total_files,
+  );
   document.getElementById("stat-total-size").textContent = formatBytes(
     statsData.total_size,
   );
-  document.getElementById("stat-images").textContent = statsData.num_images;
-  document.getElementById("stat-videos").textContent = statsData.num_videos;
+  document.getElementById("stat-images").textContent = formatCount(
+    statsData.num_images,
+  );
+  document.getElementById("stat-videos").textContent = formatCount(
+    statsData.num_videos,
+  );
 
   const summary = document.getElementById("stats-live-summary");
   if (summary) {
