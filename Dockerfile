@@ -26,6 +26,9 @@ RUN zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSafe
 # Stage 2: Create a minimal, secure runtime container
 FROM alpine:latest
 
+# Install full, unrestricted ffmpeg package for thumbnail generation
+RUN apk add --no-cache ffmpeg
+
 # Create a non-root user for security
 RUN addgroup -S nonroot && adduser -S nonroot -G nonroot
 
@@ -33,7 +36,8 @@ RUN addgroup -S nonroot && adduser -S nonroot -G nonroot
 WORKDIR /app
 RUN mkdir -p /app/data && chown -R nonroot:nonroot /app
 
-# Copy the statically compiled zprobe-server binary from the builder
+# Copy the statically compiled zprobe and zprobe-server binaries from the builder
+COPY --from=builder /src/zig-out/bin/zprobe /usr/local/bin/zprobe
 COPY --from=builder /src/zig-out/bin/zprobe-server /usr/local/bin/zprobe-server
 
 # Use non-root user
