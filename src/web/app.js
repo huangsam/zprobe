@@ -10,6 +10,7 @@ let activeDatePreset = null;
 let activeSizePresetMb = null;
 let drawerReturnFocus = null;
 let modalReturnFocus = null;
+let modalSessionId = 0;
 
 const FILTER_DEBOUNCE_MS = 500;
 
@@ -1285,20 +1286,50 @@ function resizeActiveCharts() {
 async function toggleModal(show) {
   const modal = document.getElementById("insights-modal");
   if (show) {
+    if (modal.classList.contains("open")) return;
     modal.classList.add("open");
     modal.setAttribute("aria-hidden", "false");
+
+    modalSessionId++;
+    const currentSession = modalSessionId;
+
     try {
       await loadChartJs();
+      if (
+        modalSessionId !== currentSession ||
+        !modal.classList.contains("open")
+      ) {
+        return;
+      }
       switchModalTab(activeModalTab); // recreates charts at current size
     } catch (err) {
       console.error("Failed to load Chart.js:", err);
+      if (
+        modalSessionId !== currentSession ||
+        !modal.classList.contains("open")
+      ) {
+        return;
+      }
     }
+
+    // Clean up event listeners first to ensure we never double-register
+    document.removeEventListener("keydown", handleModalKeydown);
+    window.removeEventListener("click", handleModalBackdropClick);
+
     document.addEventListener("keydown", handleModalKeydown);
     window.addEventListener("click", handleModalBackdropClick);
+
     requestAnimationFrame(() => {
-      document.getElementById("close-modal-btn")?.focus();
+      if (
+        modalSessionId === currentSession &&
+        modal.classList.contains("open")
+      ) {
+        document.getElementById("close-modal-btn")?.focus();
+      }
     });
   } else {
+    if (!modal.classList.contains("open")) return;
+    modalSessionId++; // Invalidate any ongoing loading session
     modal.classList.remove("open");
     modal.setAttribute("aria-hidden", "true");
     destroyAllCharts(); // stop observers before modal is hidden
