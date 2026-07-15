@@ -81,7 +81,7 @@ pub fn build(b: *std.Build) void {
     });
     sqlite_lib.root_module.addCSourceFile(.{
         .file = b.path("deps/sqlite/sqlite3.c"),
-        .flags = &.{ "-std=c99", "-DSQLITE_DQS=0" },
+        .flags = &.{ "-std=c99", "-DSQLITE_DQS=0", "-DSQLITE_THREADSAFE=1" },
     });
     sqlite_lib.root_module.addIncludePath(b.path("deps/sqlite"));
     sqlite_lib.root_module.linkSystemLibrary("c", .{});
@@ -154,7 +154,7 @@ pub fn build(b: *std.Build) void {
         });
         variant_sqlite.root_module.addCSourceFile(.{
             .file = b.path("deps/sqlite/sqlite3.c"),
-            .flags = &.{ "-std=c99", "-DSQLITE_DQS=0" },
+            .flags = &.{ "-std=c99", "-DSQLITE_DQS=0", "-DSQLITE_THREADSAFE=1" },
         });
         variant_sqlite.root_module.addIncludePath(b.path("deps/sqlite"));
         variant_sqlite.root_module.linkSystemLibrary("c", .{});
