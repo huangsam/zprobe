@@ -29,7 +29,7 @@ fn testDb(allocator: std.mem.Allocator) !TestDb {
     var database = try Db.init(allocator, path);
     errdefer database.deinit();
 
-    try seedFixture(&database);
+    try seedFixture(&database, io);
 
     return .{
         .db = database,
@@ -38,43 +38,43 @@ fn testDb(allocator: std.mem.Allocator) !TestDb {
     };
 }
 
-fn seedRecord(db: *Db, record: DbRecord, mtime: i64) !void {
-    try db.insertMedia(&record, mtime);
+fn seedRecord(db: *Db, io: std.Io, record: DbRecord, mtime: i64) !void {
+    try db.insertMedia(io, &record, mtime);
 }
 
-fn seedFixture(db: *Db) !void {
-    try seedRecord(db, .{
+fn seedFixture(db: *Db, io: std.Io) !void {
+    try seedRecord(db, io, .{
         .path = "/photos/a.jpg",
         .size = 500_000,
         .format = "jpeg",
         .create_time = "2026:06:27 10:15:30",
     }, 1);
-    try seedRecord(db, .{
+    try seedRecord(db, io, .{
         .path = "/photos/b.jpg",
         .size = 2_000_000,
         .format = "jpeg",
         .create_time = "2026-06-14 12:00:00",
     }, 2);
-    try seedRecord(db, .{
+    try seedRecord(db, io, .{
         .path = "/photos/c.png",
         .size = 50_000,
         .format = "png",
     }, 3);
-    try seedRecord(db, .{
+    try seedRecord(db, io, .{
         .path = "/videos/d.mp4",
         .size = 1_500_000_000,
         .format = "mp4",
         .create_time = "2024-08-04 21:00:57",
         .duration_sec = 22.6,
     }, 4);
-    try seedRecord(db, .{
+    try seedRecord(db, io, .{
         .path = "/videos/e.mov",
         .size = 24_000_000,
         .format = "mov",
         .create_time = "2022-07-31 23:52:28",
         .duration_sec = 6.6,
     }, 5);
-    try seedRecord(db, .{
+    try seedRecord(db, io, .{
         .path = "/photos/f.tiff",
         .size = 800_000,
         .format = "tiff",
@@ -600,7 +600,7 @@ test "insertMedia and queryCache hit and miss (T17)" {
         .width = 100,
         .height = 200,
     };
-    try seedRecord(&database, record, 999);
+    try seedRecord(&database, io, record, 999);
 
     const hit = try database.queryCache(allocator, record.path, record.size, 999);
     defer if (hit.hit) hit.json_out.deinit(allocator);
@@ -628,12 +628,12 @@ test "insertMedia upsert replaces row (T18)" {
     defer database.deinit();
 
     const file_path = "/photos/upsert.jpg";
-    try seedRecord(&database, .{
+    try seedRecord(&database, io, .{
         .path = file_path,
         .size = 100,
         .format = "jpeg",
     }, 1);
-    try seedRecord(&database, .{
+    try seedRecord(&database, io, .{
         .path = file_path,
         .size = 200,
         .format = "jpeg",
@@ -781,7 +781,7 @@ test "insertMedia and queryCache with has_thumbnail" {
         .format = "jpeg",
         .has_thumbnail = true,
     };
-    try seedRecord(&database, record, 123);
+    try seedRecord(&database, io, record, 123);
 
     const hit = try database.queryCache(allocator, record.path, record.size, 123);
     defer if (hit.hit) {
@@ -829,7 +829,7 @@ test "updateHasThumbnail updates correctly" {
         .format = "jpeg",
         .has_thumbnail = true,
     };
-    try seedRecord(&database, record, 123);
+    try seedRecord(&database, io, record, 123);
 
     {
         const hit = try database.queryCache(allocator, record.path, record.size, 123);
@@ -924,8 +924,8 @@ test "orphan metadata is cleaned up by triggers on delete or update" {
         .file_hash = "abc",
     };
 
-    try database.insertMedia(&rec1, 10);
-    try database.insertMedia(&rec2, 10);
+    try database.insertMedia(io, &rec1, 10);
+    try database.insertMedia(io, &rec2, 10);
 
     // Verify metadata row count is 1
     {

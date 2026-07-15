@@ -11,7 +11,9 @@ const stats_cache_ttl_ns = types.stats_cache_ttl_ns;
 const is_image_pred_m = types.is_image_pred_m;
 const is_video_pred_m = types.is_video_pred_m;
 
-pub fn invalidateStatsCache(self: *Db) void {
+pub fn invalidateStatsCache(self: *Db, io: std.Io) void {
+    self.stats_mutex.lockUncancelable(io);
+    defer self.stats_mutex.unlock(io);
     self.stats_cache = null;
     self.stats_cache_expires_ns = 0;
     self.stats_cache_arena.deinit();
@@ -271,6 +273,7 @@ pub fn queryMetadataByHash(
 /// Insert or replace a media catalog entry.
 pub fn insertMedia(
     self: *Db,
+    io: std.Io,
     json_out: *const DbRecord,
     mtime: i64,
 ) !void {
@@ -389,7 +392,7 @@ pub fn insertMedia(
         return error.DatabaseExecuteError;
     }
 
-    self.invalidateStatsCache();
+    self.invalidateStatsCache(io);
 }
 
 /// Update the has_thumbnail flag for a given media record.
@@ -412,7 +415,7 @@ pub fn updateHasThumbnail(self: *Db, path: []const u8, has_thumbnail: bool) !voi
 }
 
 /// Delete a path from the database (triggers will clean up associated metadata).
-pub fn deletePath(self: *Db, path: []const u8) !void {
+pub fn deletePath(self: *Db, io: std.Io, path: []const u8) !void {
     if (self.handle == null) return error.DatabaseNotOpen;
     const sql = "DELETE FROM media_paths WHERE path = ?;";
     var stmt: ?*c.sqlite3_stmt = null;
@@ -427,13 +430,13 @@ pub fn deletePath(self: *Db, path: []const u8) !void {
     if (rc != c.SQLITE_DONE) {
         return error.DatabaseExecuteError;
     }
-    self.invalidateStatsCache();
+    self.invalidateStatsCache(io);
 }
 
 /// Prune any cache entries starting with one of target_dirs that are not present in active_paths.
 /// Deletes are batched using a single re-used prepared statement under the caller's transaction,
 /// with a single stats-cache invalidation at the end.
-pub fn pruneStalePaths(self: *Db, target_dirs: [][]const u8, active_paths: *const std.StringHashMap(void)) !u32 {
+pub fn pruneStalePaths(self: *Db, io: std.Io, target_dirs: [][]const u8, active_paths: *const std.StringHashMap(void)) !u32 {
     if (self.handle == null) return error.DatabaseNotOpen;
 
     const select_sql = "SELECT path FROM media_paths;";
@@ -499,7 +502,7 @@ pub fn pruneStalePaths(self: *Db, target_dirs: [][]const u8, active_paths: *cons
         pruned_count += 1;
     }
 
-    if (pruned_count > 0) self.invalidateStatsCache();
+    if (pruned_count > 0) self.invalidateStatsCache(io);
 
     return pruned_count;
 }

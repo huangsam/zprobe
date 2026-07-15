@@ -317,7 +317,7 @@ const worker = struct {
                         json_out.size = fsize; // ensure size is correct
 
                         d.lockWrite(c_ctx.io);
-                        d.insertMedia(&json_out, mtime) catch |err| {
+                        d.insertMedia(c_ctx.io, &json_out, mtime) catch |err| {
                             std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
                         };
                         d.unlockWrite(c_ctx.io);
@@ -372,7 +372,7 @@ const worker = struct {
 
                 if (c_ctx.db) |d| {
                     d.lockWrite(c_ctx.io);
-                    d.insertMedia(&json_out, mtime) catch |err| {
+                    d.insertMedia(c_ctx.io, &json_out, mtime) catch |err| {
                         std.debug.print("Warning: failed to insert media to DB: {s}\n", .{@errorName(err)});
                     };
                     d.unlockWrite(c_ctx.io);
@@ -691,7 +691,7 @@ pub fn main(init: std.process.Init) !void {
             try active_paths.put(entry.path, {});
         }
 
-        const pruned_count = try d.pruneStalePaths(prunable_dirs.items, &active_paths);
+        const pruned_count = try d.pruneStalePaths(io, prunable_dirs.items, &active_paths);
         if (pruned_count > 0 and !json_mode) {
             std.debug.print("Pruned {d} stale cache entries\n", .{pruned_count});
         }
@@ -699,7 +699,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Commit transaction
     if (db_ptr) |d| {
-        d.commitTransaction();
+        d.commitTransaction(io);
     }
 
     try out.flush();
@@ -931,7 +931,7 @@ test "sqlite db caching integration test" {
         .width = 640,
         .height = 480,
     };
-    try database.insertMedia(&updated_record, new_mtime);
+    try database.insertMedia(io, &updated_record, new_mtime);
 
     // Reset loop index & success counter
     file_index.store(0, .monotonic);
@@ -1079,8 +1079,8 @@ test "Db.pruneStalePaths pruning logic" {
         .format = "mp4",
     };
 
-    try database.insertMedia(&rec1, 10);
-    try database.insertMedia(&rec2, 20);
+    try database.insertMedia(io, &rec1, 10);
+    try database.insertMedia(io, &rec2, 20);
 
     // Build active paths containing only a.jpg
     var active_paths = std.StringHashMap(void).init(allocator);
@@ -1095,7 +1095,7 @@ test "Db.pruneStalePaths pruning logic" {
 
     // Prune: b.mp4 is in /videos (which is in target_dirs) but not in active_paths. a.jpg is in active_paths.
     // So b.mp4 should be pruned, and a.jpg should remain.
-    const pruned_count = try database.pruneStalePaths(target_dirs.items, &active_paths);
+    const pruned_count = try database.pruneStalePaths(io, target_dirs.items, &active_paths);
     try std.testing.expectEqual(@as(u32, 1), pruned_count);
 
     // Verify b.mp4 is deleted, a.jpg remains
@@ -1128,8 +1128,8 @@ test "Db.pruneStalePaths skips directories excluded by the guardrail" {
 
     const rec1 = db.DbRecord{ .path = "/photos/a.jpg", .size = 100, .format = "jpeg" };
     const rec2 = db.DbRecord{ .path = "/videos/b.mp4", .size = 200, .format = "mp4" };
-    try database.insertMedia(&rec1, 10);
-    try database.insertMedia(&rec2, 20);
+    try database.insertMedia(io, &rec1, 10);
+    try database.insertMedia(io, &rec2, 20);
 
     // Simulate a degraded scan: /videos returned zero entries this run, so the
     // guardrail leaves it out of the prunable list.
@@ -1143,7 +1143,7 @@ test "Db.pruneStalePaths skips directories excluded by the guardrail" {
 
     // b.mp4 is absent from active_paths but lives under the excluded /videos directory, so it
     // must survive the pruning pass. Nothing under /photos is stale, so nothing should be pruned.
-    const pruned_count = try database.pruneStalePaths(prunable_dirs.items, &active_paths);
+    const pruned_count = try database.pruneStalePaths(io, prunable_dirs.items, &active_paths);
     try std.testing.expectEqual(@as(u32, 0), pruned_count);
 
     const hit_b = try database.queryCache(allocator, "/videos/b.mp4", 200, 20);
@@ -1177,14 +1177,14 @@ test "main CLI scan: degraded scan disables pruning" {
     const healthy_img = try std.fs.path.join(allocator, &.{ tmp_ctx.abs_path, "photo.jpg" });
     defer allocator.free(healthy_img);
     const rec1 = db.DbRecord{ .path = healthy_img, .size = 100, .format = "jpeg" };
-    try database.insertMedia(&rec1, 10);
+    try database.insertMedia(io, &rec1, 10);
 
     const unreadable_subdir = try std.fs.path.join(allocator, &.{ tmp_ctx.abs_path, "unreadable" });
     defer allocator.free(unreadable_subdir);
     const stale_img = try std.fs.path.join(allocator, &.{ unreadable_subdir, "stale.jpg" });
     defer allocator.free(stale_img);
     const rec2 = db.DbRecord{ .path = stale_img, .size = 200, .format = "jpeg" };
-    try database.insertMedia(&rec2, 20);
+    try database.insertMedia(io, &rec2, 20);
 
     const f1 = try std.Io.Dir.createFile(temp_dir, io, "photo.jpg", .{});
     std.Io.File.close(f1, io);
@@ -1227,7 +1227,7 @@ test "main CLI scan: degraded scan disables pruning" {
         try active_paths.put(entry.path, {});
     }
 
-    const pruned_count = try database.pruneStalePaths(prunable_dirs.items, &active_paths);
+    const pruned_count = try database.pruneStalePaths(io, prunable_dirs.items, &active_paths);
     try std.testing.expectEqual(@as(u32, 0), pruned_count);
 
     const hit_healthy = try database.queryCache(allocator, healthy_img, 100, 10);
@@ -1274,9 +1274,9 @@ test "Db.pruneStalePaths trailing slash and absolute paths" {
         .format = "mp4",
     };
 
-    try database.insertMedia(&rec1, 10);
-    try database.insertMedia(&rec2, 20);
-    try database.insertMedia(&rec3, 30);
+    try database.insertMedia(io, &rec1, 10);
+    try database.insertMedia(io, &rec2, 20);
+    try database.insertMedia(io, &rec3, 30);
 
     // Active paths: none are active (we want to see what is pruned)
     var active_paths = std.StringHashMap(void).init(allocator);
@@ -1291,7 +1291,7 @@ test "Db.pruneStalePaths trailing slash and absolute paths" {
     try target_dirs.append(allocator, "/photos/");
     try target_dirs.append(allocator, "/videos");
 
-    const pruned_count = try database.pruneStalePaths(target_dirs.items, &active_paths);
+    const pruned_count = try database.pruneStalePaths(io, target_dirs.items, &active_paths);
     // Should prune /photos/a.jpg and /videos/c.mp4, but NOT /photos_backup/b.jpg
     try std.testing.expectEqual(@as(u32, 2), pruned_count);
 
