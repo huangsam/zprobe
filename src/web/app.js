@@ -843,6 +843,25 @@ async function fetchStats() {
     updateFormatFilterOptions();
   } catch (err) {
     console.error("Failed to load catalog stats:", err);
+    statsData = null;
+    const metricIds = [
+      "stat-total-files",
+      "stat-total-size",
+      "stat-images",
+      "stat-videos",
+    ];
+    metricIds.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.textContent = "Error";
+        el.classList.add("error-state");
+      }
+    });
+    const summary = document.getElementById("stats-live-summary");
+    if (summary) {
+      summary.textContent = "Failed to load catalog stats";
+    }
+    updateFormatFilterOptions();
   }
 }
 
@@ -945,6 +964,18 @@ async function fetchMedia({
 // Calculate and display metrics
 function populateStats() {
   if (!statsData) return;
+  const metricIds = [
+    "stat-total-files",
+    "stat-total-size",
+    "stat-images",
+    "stat-videos",
+  ];
+  metricIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.remove("error-state");
+    }
+  });
   document.getElementById("stat-total-files").textContent =
     statsData.total_files;
   document.getElementById("stat-total-size").textContent = formatBytes(
@@ -961,17 +992,24 @@ function populateStats() {
 
 // Populate format filter options dynamically based on selected type
 function updateFormatFilterOptions() {
-  if (!statsData) return;
-  const formats = new Set();
+  const select = document.getElementById("filter-format");
+  if (!select) return;
+
   const typeFilter = document.getElementById("filter-type").value;
-  const includeImages = typeFilter === "" || typeFilter === "image";
-  const includeVideos = typeFilter === "" || typeFilter === "video";
   const allLabel =
     typeFilter === "image"
       ? "All Image Formats"
       : typeFilter === "video"
         ? "All Video Formats"
         : "All Formats";
+
+  if (!statsData) {
+    select.innerHTML = `<option value="">${allLabel}</option>`;
+    return;
+  }
+  const formats = new Set();
+  const includeImages = typeFilter === "" || typeFilter === "image";
+  const includeVideos = typeFilter === "" || typeFilter === "video";
 
   if (includeImages && statsData.image_formats) {
     statsData.image_formats.forEach((f) => {
@@ -985,7 +1023,6 @@ function updateFormatFilterOptions() {
   }
 
   const sortedFormats = Array.from(formats).sort();
-  const select = document.getElementById("filter-format");
   const currentVal = select.value;
 
   select.innerHTML = `<option value="">${allLabel}</option>`;
@@ -1398,7 +1435,36 @@ function toggleChartPlaceholder(wrapperId, hasData, message) {
 
 // Render Image-Specific Statistics
 function renderImageCharts() {
-  if (!statsData) return;
+  if (!statsData) {
+    toggleChartPlaceholder(
+      "wrapper-img-formats",
+      false,
+      "Failed to load catalog statistics",
+    );
+    toggleChartPlaceholder(
+      "wrapper-img-sizes",
+      false,
+      "Failed to load catalog statistics",
+    );
+    toggleChartPlaceholder(
+      "wrapper-img-cameras",
+      false,
+      "Failed to load catalog statistics",
+    );
+    if (imgFormatChart) {
+      imgFormatChart.destroy();
+      imgFormatChart = null;
+    }
+    if (imgSizeChart) {
+      imgSizeChart.destroy();
+      imgSizeChart = null;
+    }
+    if (imgCameraChart) {
+      imgCameraChart.destroy();
+      imgCameraChart = null;
+    }
+    return;
+  }
   const hasImages = statsData.num_images > 0;
   toggleChartPlaceholder(
     "wrapper-img-formats",
@@ -1552,7 +1618,36 @@ function renderImageCharts() {
 
 // Render Video-Specific Statistics
 function renderVideoCharts() {
-  if (!statsData) return;
+  if (!statsData) {
+    toggleChartPlaceholder(
+      "wrapper-vid-formats",
+      false,
+      "Failed to load catalog statistics",
+    );
+    toggleChartPlaceholder(
+      "wrapper-vid-sizes",
+      false,
+      "Failed to load catalog statistics",
+    );
+    toggleChartPlaceholder(
+      "wrapper-vid-durations",
+      false,
+      "Failed to load catalog statistics",
+    );
+    if (vidFormatChart) {
+      vidFormatChart.destroy();
+      vidFormatChart = null;
+    }
+    if (vidSizeChart) {
+      vidSizeChart.destroy();
+      vidSizeChart = null;
+    }
+    if (vidDurationChart) {
+      vidDurationChart.destroy();
+      vidDurationChart = null;
+    }
+    return;
+  }
   const hasVideos = statsData.num_videos > 0;
   toggleChartPlaceholder(
     "wrapper-vid-formats",
