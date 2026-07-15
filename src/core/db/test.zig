@@ -990,3 +990,13 @@ test "database migration from version 2 to 3" {
     try std.testing.expectEqual(@as(u32, 0), try queryIndexCount(&database, "idx_metadata_create_time"));
     try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metadata_ctime_norm"));
 }
+
+test "Db.pathExists checks if a path is in database" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    try std.testing.expectEqual(true, try fixture.db.pathExists("/photos/a.jpg"));
+    try std.testing.expectEqual(true, try fixture.db.pathExists("/photos/c.png"));
+    try std.testing.expectEqual(false, try fixture.db.pathExists("/nonexistent/file.png"));
+}

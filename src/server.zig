@@ -526,6 +526,98 @@ fn handleRequest(
                 .{ .name = "Cache-Control", .value = "public, max-age=86400" },
             },
         });
+    } else if (std.mem.eql(u8, base_path, "/api/file")) {
+        var query_path: ?[]const u8 = null;
+        var query_it = std.mem.splitScalar(u8, query_string, '&');
+        while (query_it.next()) |param| {
+            if (param.len == 0) continue;
+            const eq_idx = std.mem.indexOfScalar(u8, param, '=') orelse continue;
+            const key = param[0..eq_idx];
+            const val = param[eq_idx + 1 ..];
+            if (std.mem.eql(u8, key, "path")) {
+                query_path = val;
+            }
+        }
+
+        if (query_path == null) {
+            try request.respond("Bad Request: missing 'path' parameter", .{
+                .status = .bad_request,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        }
+
+        const decoded_path = urlDecode(allocator, query_path.?);
+        defer if (decoded_path.ptr != query_path.?.ptr) allocator.free(decoded_path);
+
+        // Security check: path must exist in database
+        const is_valid = blk: {
+            database.lockRead(io);
+            defer database.unlockRead(io);
+            break :blk database.pathExists(decoded_path) catch false;
+        };
+
+        if (!is_valid) {
+            try request.respond("Forbidden: The requested file path is not indexed. Only files cataloged by the crawler are accessible.", .{
+                .status = .forbidden,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        }
+
+        // Open and stream file
+        const file = std.Io.Dir.openFileAbsolute(io, decoded_path, .{ .mode = .read_only }) catch |err| {
+            std.debug.print("Failed to open file '{s}': {}\n", .{ decoded_path, err });
+            try request.respond("Not Found: The file does not exist on the NAS disk. Please run the crawler with --prune to update the catalog.", .{
+                .status = .not_found,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        };
+        defer std.Io.File.close(file, io);
+
+        const st = std.Io.File.stat(file, io) catch {
+            try request.respond("Internal Server Error: Failed to retrieve file size metadata from disk.", .{
+                .status = .internal_server_error,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        };
+
+        const file_name = std.fs.path.basename(decoded_path);
+        const disposition_val = try std.fmt.allocPrint(allocator, "attachment; filename=\"{s}\"", .{file_name});
+        defer allocator.free(disposition_val);
+
+        var stream_buf: [4096]u8 = undefined;
+        var stream = try request.respondStreaming(&stream_buf, .{
+            .content_length = st.size,
+            .respond_options = .{
+                .status = .ok,
+                .keep_alive = false,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "application/octet-stream" },
+                    .{ .name = "Content-Disposition", .value = disposition_val },
+                },
+            },
+        });
+
+        var chunk_buf: [65536]u8 = undefined;
+        var offset: u64 = 0;
+        while (offset < st.size) {
+            const bytes_read = try std.Io.File.readPositionalAll(file, io, &chunk_buf, offset);
+            if (bytes_read == 0) break;
+            try stream.writer.writeAll(chunk_buf[0..bytes_read]);
+            offset += bytes_read;
+        }
+        try stream.end();
     } else if (std.mem.eql(u8, base_path, "/api/media")) {
         const params = parseMediaQueryParams(query_string);
 

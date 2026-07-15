@@ -53,6 +53,7 @@ pub const Db = struct {
     pub const getStats = query.getStats;
     pub const getStatsCached = query.getStatsCached;
     pub const getRecordsPaged = query.getRecordsPaged;
+    pub const pathExists = query.pathExists;
 
     // Package-internal helpers (not part of public API)
     pub const invalidateStatsCache = query.invalidateStatsCache;

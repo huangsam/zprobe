@@ -1007,3 +1007,23 @@ pub fn getRecordsPaged(
         .records = try list.toOwnedSlice(allocator),
     };
 }
+
+/// Verify if a path exists in the database.
+pub fn pathExists(self: *Db, path: []const u8) !bool {
+    if (self.handle == null) return error.DatabaseNotOpen;
+    const sql = "SELECT 1 FROM media_paths WHERE path = ? LIMIT 1;";
+    var stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK) {
+        return error.DatabasePrepareError;
+    }
+    defer _ = c.sqlite3_finalize(stmt);
+
+    if (c.sqlite3_bind_text(stmt, 1, path.ptr, @intCast(path.len), null) != c.SQLITE_OK) {
+        return error.DatabaseBindError;
+    }
+
+    if (c.sqlite3_step(stmt) == c.SQLITE_ROW) {
+        return true;
+    }
+    return false;
+}

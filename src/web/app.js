@@ -1213,6 +1213,14 @@ function showDetails(row, triggerEl) {
               </div>
               <div class="detail-row"><span class="label">Size:</span><span class="value">${escapeHtml(formatBytes(row.size))} (${escapeHtml(String(row.size))} bytes)</span></div>
               <div class="detail-row"><span class="label">Format:</span><span class="value">${escapeHtml((row.format || "").toUpperCase())}</span></div>
+              <div class="detail-row">
+                  <span class="label">Download:</span>
+                  <span class="value">
+                      <a href="/api/file?path=${encodeURIComponent(row.path)}" download="${escapeHtml(fileBase)}" target="_blank" class="map-link">
+                          Download Original <i data-lucide="download" class="inline-icon" aria-hidden="true"></i>
+                      </a>
+                  </span>
+              </div>
           </div>
       `;
 
