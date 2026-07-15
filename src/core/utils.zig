@@ -63,7 +63,7 @@ pub fn getThumbnailPath(allocator: std.mem.Allocator, thumb_dir: []const u8, ori
     const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
     var filename_buf: [68]u8 = undefined;
     const filename = try std.fmt.bufPrint(&filename_buf, "{s}.jpg", .{&hex_hash});
-    return try std.fs.path.join(allocator, &.{ thumb_dir, filename });
+    return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ thumb_dir, filename });
 }
 
 test "computeWorkerCount boundaries" {
