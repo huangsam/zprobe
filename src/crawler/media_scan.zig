@@ -39,7 +39,7 @@ pub const skipDirectories = [_][]const u8{
 };
 
 /// Check whether a directory should be skipped based on its name.
-pub fn shouldSkipDirectory(name: []const u8) bool {
+pub fn isSkippedDirectory(name: []const u8) bool {
     for (skipDirectories) |skip| {
         if (std.mem.eql(u8, name, skip)) return true;
     }
@@ -115,7 +115,7 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
         } orelse break;
 
         if (entry.kind == .directory) {
-            if (shouldSkipDirectory(entry.basename)) continue;
+            if (isSkippedDirectory(entry.basename)) continue;
             walker.enter(io, entry) catch |err| {
                 std.debug.print("Warning: failed to enter directory '{s}': {s}\n", .{ entry.path, @errorName(err) });
             };
@@ -202,14 +202,14 @@ test "isMediaExtension: extremely long extension does not panic" {
 }
 
 test "isSkippedDirectory: known skip directories" {
-    try std.testing.expect(shouldSkipDirectory("@eaDir"));
-    try std.testing.expect(shouldSkipDirectory(".zprobe_thumbnails"));
+    try std.testing.expect(isSkippedDirectory("@eaDir"));
+    try std.testing.expect(isSkippedDirectory(".zprobe_thumbnails"));
 }
 
 test "isSkippedDirectory: process normal directories" {
-    try std.testing.expect(!shouldSkipDirectory("photos"));
-    try std.testing.expect(!shouldSkipDirectory("videos"));
-    try std.testing.expect(!shouldSkipDirectory("documents"));
+    try std.testing.expect(!isSkippedDirectory("photos"));
+    try std.testing.expect(!isSkippedDirectory("videos"));
+    try std.testing.expect(!isSkippedDirectory("documents"));
 }
 
 test "scan: skips thumbnails inside @eaDir" {
