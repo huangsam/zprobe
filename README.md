@@ -29,8 +29,8 @@ zprobe --db /path/to/cache.db /path/to/photo
 # Scan and prune stale database entries for deleted files in the target directories
 zprobe --db /path/to/cache.db --prune /path/to/photo
 
-# Start the dashboard web server
-zprobe-server --port 8080 --db /path/to/cache.db
+# Start the dashboard web server (with optional basic authentication)
+ZPROBE_AUTH_USER=admin ZPROBE_AUTH_PASS=password zprobe-server --port 8080 --db /path/to/cache.db
 
 # Show CLI options and supported formats
 zprobe --help

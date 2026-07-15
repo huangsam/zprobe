@@ -66,6 +66,17 @@ Launch the server by specifying a port and your cache database:
 
 Open `http://localhost:8080` in your web browser to access the dashboard.
 
+### Basic Authentication (Optional)
+
+To secure the server for remote access or deployment, you can configure HTTP Basic Authentication by setting the `ZPROBE_AUTH_USER` and `ZPROBE_AUTH_PASS` environment variables before starting `zprobe-server`:
+
+```bash
+# Run with basic authentication
+ZPROBE_AUTH_USER=admin ZPROBE_AUTH_PASS=secretpassword ./zig-out/bin/zprobe-server --port 8080 --db /path/to/cache.db
+```
+
+If these environment variables are not set, the server runs in "authless" mode, allowing access without credentials.
+
 ### Concurrent Live Scans (WAL Mode)
 
 The server and cache database are configured with SQLite's **Write-Ahead Logging (WAL)** mode. This allows you to run live directory scans via the CLI while the server is active without locking the database:
@@ -101,10 +112,12 @@ Alternatively, you can run `zprobe-server` inside a lightweight container:
    ```bash
    docker build -t zprobe-server .
    ```
-2. Start the container, mounting the directory hosting your cache database:
+2. Start the container, mounting the directory hosting your cache database (optionally passing basic auth environment variables):
    ```bash
    docker run -d \
      -p 8085:8085 \
+     -e ZPROBE_AUTH_USER=admin \
+     -e ZPROBE_AUTH_PASS=secretpassword \
      -v /volume1/homes/sunbunbun/Tools:/app/data \
      --name zprobe-server \
      zprobe-server
