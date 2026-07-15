@@ -458,7 +458,10 @@ pub fn pruneStalePaths(self: *Db, target_dirs: [][]const u8, active_paths: *cons
         var in_scanned_dir = false;
         for (target_dirs) |dir| {
             if (std.mem.startsWith(u8, path, dir)) {
-                if (path.len == dir.len or path[dir.len] == '/' or path[dir.len] == '\\') {
+                if (dir.len > 0 and (dir[dir.len - 1] == '/' or dir[dir.len - 1] == '\\')) {
+                    in_scanned_dir = true;
+                    break;
+                } else if (path.len == dir.len or path[dir.len] == '/' or path[dir.len] == '\\') {
                     in_scanned_dir = true;
                     break;
                 }

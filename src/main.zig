@@ -582,7 +582,12 @@ pub fn main(init: std.process.Init) !void {
     // for pruning: a directory that yielded nothing (unmounted, inaccessible, etc.)
     // must not have its cache entries deleted, because that would be a false positive.
     var prunable_dirs: std.ArrayList([]const u8) = .empty;
-    defer prunable_dirs.deinit(allocator);
+    defer {
+        for (prunable_dirs.items) |d| {
+            allocator.free(d);
+        }
+        prunable_dirs.deinit(allocator);
+    }
 
     const cwd = std.Io.Dir.cwd();
     for (target_dirs.items) |dir_path| {
@@ -605,7 +610,10 @@ pub fn main(init: std.process.Init) !void {
             dir_list.deinit(allocator);
         }
 
-        if (dir_list.items.len > 0) try prunable_dirs.append(allocator, dir_path);
+        if (dir_list.items.len > 0) {
+            const dup = try allocator.dupe(u8, abs_dir);
+            try prunable_dirs.append(allocator, dup);
+        }
 
         try all_entries.appendSlice(allocator, dir_list.items);
         dir_list.deinit(allocator);
@@ -1140,4 +1148,71 @@ test "Db.pruneStalePaths skips directories excluded by the guardrail" {
         allocator.free(hit_b.json_out.format);
     };
     try std.testing.expect(hit_b.hit);
+}
+
+test "Db.pruneStalePaths trailing slash and absolute paths" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/prune_slash_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try db.Db.init(allocator, path);
+    defer database.deinit();
+
+    // Insert paths simulating absolute/relative and trailing slashes
+    const rec1 = db.DbRecord{
+        .path = "/photos/a.jpg",
+        .size = 100,
+        .format = "jpeg",
+    };
+    const rec2 = db.DbRecord{
+        .path = "/photos_backup/b.jpg",
+        .size = 200,
+        .format = "jpeg",
+    };
+    const rec3 = db.DbRecord{
+        .path = "/videos/c.mp4",
+        .size = 300,
+        .format = "mp4",
+    };
+
+    try database.insertMedia(&rec1, 10);
+    try database.insertMedia(&rec2, 20);
+    try database.insertMedia(&rec3, 30);
+
+    // Active paths: none are active (we want to see what is pruned)
+    var active_paths = std.StringHashMap(void).init(allocator);
+    defer active_paths.deinit();
+
+    // Target dirs:
+    // 1. "/photos/" (trailing slash) - should prune /photos/a.jpg
+    // 2. "/photos" (no trailing slash but prefix of "/photos_backup") - should NOT prune /photos_backup/b.jpg
+    // 3. "/videos" (no trailing slash) - should prune /videos/c.mp4
+    var target_dirs: std.ArrayList([]const u8) = .empty;
+    defer target_dirs.deinit(allocator);
+    try target_dirs.append(allocator, "/photos/");
+    try target_dirs.append(allocator, "/videos");
+
+    const pruned_count = try database.pruneStalePaths(target_dirs.items, &active_paths);
+    // Should prune /photos/a.jpg and /videos/c.mp4, but NOT /photos_backup/b.jpg
+    try std.testing.expectEqual(@as(u32, 2), pruned_count);
+
+    // Verify /photos/a.jpg is deleted
+    const hit_a = try database.queryCache(allocator, "/photos/a.jpg", 100, 10);
+    try std.testing.expect(!hit_a.hit);
+
+    // Verify /photos_backup/b.jpg remains
+    const hit_b = try database.queryCache(allocator, "/photos_backup/b.jpg", 200, 20);
+    defer if (hit_b.hit) {
+        hit_b.json_out.deinit(allocator);
+        allocator.free(hit_b.json_out.format);
+    };
+    try std.testing.expect(hit_b.hit);
+
+    // Verify /videos/c.mp4 is deleted
+    const hit_c = try database.queryCache(allocator, "/videos/c.mp4", 300, 30);
+    try std.testing.expect(!hit_c.hit);
 }
