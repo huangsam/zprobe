@@ -935,6 +935,16 @@ async function fetchMedia({
     mediaData = payload.records;
     totalRecords = payload.total;
 
+    const totalPages = Math.ceil(totalRecords / pageSize) || 1;
+    if (currentPage > totalPages) {
+      currentPage = totalPages;
+      return fetchMedia({
+        refetchStats: false,
+        showSkeleton,
+        showRefreshSpinner,
+      });
+    }
+
     renderTable();
     updatePaginationControls();
     updateActiveFilterChips();
@@ -1058,7 +1068,9 @@ function renderTable() {
     tr.dataset.rowIndex = String(index);
 
     const dims =
-      row.width && row.height ? `${row.width} &times; ${row.height}` : "—";
+      row.width && row.height
+        ? `${escapeHtml(String(row.width))} &times; ${escapeHtml(String(row.height))}`
+        : "—";
     const fileBase = row.path.split("/").pop();
     const dirPath = row.path.substring(0, row.path.lastIndexOf("/"));
 
@@ -1071,7 +1083,7 @@ function renderTable() {
     let thumbHtml = "";
     if (row.has_thumbnail) {
       const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
-      thumbHtml = `<img src="${url}" class="row-thumbnail" alt="Thumbnail" loading="lazy" />`;
+      thumbHtml = `<img src="${escapeHtml(url)}" class="row-thumbnail" alt="Thumbnail" loading="lazy" />`;
     } else if (isVideo) {
       thumbHtml = `<i data-lucide="video" class="type-icon video-icon"></i>`;
     } else {
@@ -1097,7 +1109,12 @@ function renderTable() {
           `;
     tbody.appendChild(tr);
   });
-  lucide.createIcons({ root: tbody });
+  if (
+    typeof lucide !== "undefined" &&
+    typeof lucide.createIcons === "function"
+  ) {
+    lucide.createIcons({ root: tbody });
+  }
 }
 
 // Update UI pagination buttons and info labels
@@ -1149,7 +1166,7 @@ function showDetails(row, triggerEl) {
     const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
     html += `
           <div class="drawer-preview-container">
-              <img src="${url}" class="drawer-preview-image" alt="Thumbnail Preview" />
+              <img src="${escapeHtml(url)}" class="drawer-preview-image" alt="Thumbnail Preview" />
           </div>
     `;
   }
@@ -1175,7 +1192,7 @@ function showDetails(row, triggerEl) {
                       </button>
                   </span>
               </div>
-              <div class="detail-row"><span class="label">Size:</span><span class="value">${formatBytes(row.size)} (${row.size} bytes)</span></div>
+              <div class="detail-row"><span class="label">Size:</span><span class="value">${escapeHtml(formatBytes(row.size))} (${escapeHtml(String(row.size))} bytes)</span></div>
               <div class="detail-row"><span class="label">Format:</span><span class="value">${escapeHtml((row.format || "").toUpperCase())}</span></div>
           </div>
       `;
@@ -1184,10 +1201,10 @@ function showDetails(row, triggerEl) {
     html += `
               <div class="detail-section">
                   <h4>Dimensions</h4>
-                  <div class="detail-row"><span class="label">Width:</span><span class="value">${row.width} px</span></div>
-                  <div class="detail-row"><span class="label">Height:</span><span class="value">${row.height} px</span></div>
-                  <div class="detail-row"><span class="label">Aspect Ratio:</span><span class="value">${calculateAspectRatio(row.width, row.height)}</span></div>
-                  ${row.orientation ? `<div class="detail-row"><span class="label">Orientation:</span><span class="value">${ORIENTATION_LABELS[row.orientation] ?? `EXIF ${row.orientation}`}</span></div>` : ""}
+                  <div class="detail-row"><span class="label">Width:</span><span class="value">${escapeHtml(String(row.width))} px</span></div>
+                  <div class="detail-row"><span class="label">Height:</span><span class="value">${escapeHtml(String(row.height))} px</span></div>
+                  <div class="detail-row"><span class="label">Aspect Ratio:</span><span class="value">${escapeHtml(calculateAspectRatio(row.width, row.height))}</span></div>
+                  ${row.orientation ? `<div class="detail-row"><span class="label">Orientation:</span><span class="value">${escapeHtml(ORIENTATION_LABELS[row.orientation] ?? `EXIF ${row.orientation}`)}</span></div>` : ""}
               </div>
           `;
   }
@@ -1196,7 +1213,7 @@ function showDetails(row, triggerEl) {
     html += `
               <div class="detail-section">
                   <h4>Video Properties</h4>
-                  <div class="detail-row"><span class="label">Duration:</span><span class="value">${formatDuration(row.duration_sec)}</span></div>
+                  <div class="detail-row"><span class="label">Duration:</span><span class="value">${escapeHtml(formatDuration(row.duration_sec))}</span></div>
               </div>
           `;
   }
@@ -1221,7 +1238,7 @@ function showDetails(row, triggerEl) {
                   <div class="detail-row">
                       <span class="label">Coordinates:</span>
                       <span class="value-with-action">
-                          <span class="value">${gpsCoords}</span>
+                          <span class="value">${escapeHtml(gpsCoords)}</span>
                           <button class="copy-btn" onclick="copyValue(this)" aria-label="Copy coordinates">
                               <i data-lucide="copy" aria-hidden="true"></i>
                           </button>
@@ -1230,7 +1247,7 @@ function showDetails(row, triggerEl) {
                   <div class="detail-row">
                       <span class="label">Map Link:</span>
                       <span class="value">
-                          <a href="${mapsUrl}" target="_blank" class="map-link">
+                          <a href="${escapeHtml(mapsUrl)}" target="_blank" class="map-link">
                               View on Google Maps <i data-lucide="external-link" class="inline-icon" aria-hidden="true"></i>
                           </a>
                       </span>
@@ -1243,7 +1260,12 @@ function showDetails(row, triggerEl) {
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
   document.getElementById("drawer-backdrop").classList.add("visible");
-  lucide.createIcons({ root: drawer });
+  if (
+    typeof lucide !== "undefined" &&
+    typeof lucide.createIcons === "function"
+  ) {
+    lucide.createIcons({ root: drawer });
+  }
   document.addEventListener("keydown", handleDrawerKeydown);
   requestAnimationFrame(() => {
     document.getElementById("close-drawer-btn")?.focus();
@@ -2003,7 +2025,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Initialize Lucide Icons for static elements
-  lucide.createIcons();
+  if (
+    typeof lucide !== "undefined" &&
+    typeof lucide.createIcons === "function"
+  ) {
+    lucide.createIcons();
+  }
 
   updateDatePresetActiveState();
   updateSizePresetActiveState();
