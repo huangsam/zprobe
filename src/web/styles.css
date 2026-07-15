@@ -955,9 +955,9 @@ td:nth-child(4) {
 }
 
 /* Table states */
-.loading-state,
-.error-state,
-.empty-state {
+td.loading-state,
+td.error-state,
+td.empty-state {
   text-align: center;
   padding: 5rem 2rem;
   color: var(--text-secondary);
@@ -1014,7 +1014,8 @@ tr.empty-state-row:hover td {
   background: transparent;
 }
 
-.error-state {
+td.error-state,
+.metric-info p.error-state {
   color: var(--danger);
 }
 
