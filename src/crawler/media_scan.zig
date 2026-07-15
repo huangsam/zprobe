@@ -212,6 +212,12 @@ test "isSkippedDirectory: process normal directories" {
     try std.testing.expect(!isSkippedDirectory("documents"));
 }
 
+test "isSkippedDirectory: partial and empty names are not skipped" {
+    try std.testing.expect(!isSkippedDirectory("eaDir"));
+    try std.testing.expect(!isSkippedDirectory("@eaDir/nested"));
+    try std.testing.expect(!isSkippedDirectory(""));
+}
+
 test "scan: skips thumbnails inside @eaDir" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
