@@ -813,14 +813,15 @@ pub fn getRecordsPaged(
     const bindFilters = struct {
         fn apply(
             stmt: *c.sqlite3_stmt,
+            start_idx: c_int,
             s_like: ?[]const u8,
             fmt: ?[]const u8,
             d_from: ?[]const u8,
             d_to: ?[]const u8,
             s_min: ?u64,
             s_max: ?u64,
-        ) void {
-            var idx: c_int = 1;
+        ) c_int {
+            var idx: c_int = start_idx;
             if (s_like) |sl| {
                 _ = c.sqlite3_bind_text(stmt, idx, sl.ptr, @intCast(sl.len), null);
                 idx += 1;
@@ -843,7 +844,9 @@ pub fn getRecordsPaged(
             }
             if (s_max) |sx| {
                 _ = c.sqlite3_bind_int64(stmt, idx, @intCast(sx));
+                idx += 1;
             }
+            return idx;
         }
     }.apply;
 
@@ -867,8 +870,9 @@ pub fn getRecordsPaged(
     const count_stmt = count_stmt_raw.?;
     defer _ = c.sqlite3_finalize(count_stmt_raw);
 
-    bindFilters(
+    _ = bindFilters(
         count_stmt,
+        1,
         search_like,
         format_filter,
         date_from_bound,
@@ -939,8 +943,9 @@ pub fn getRecordsPaged(
     const select_stmt = select_stmt_raw.?;
     defer _ = c.sqlite3_finalize(select_stmt_raw);
 
-    bindFilters(
+    _ = bindFilters(
         select_stmt,
+        1,
         search_like,
         format_filter,
         date_from_bound,
