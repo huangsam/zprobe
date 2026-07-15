@@ -31,6 +31,21 @@ pub const videoExtensions = [_][]const u8{
     ".mp4", ".m4v", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv",
 };
 
+/// Directory names to skip during traversal. These hold derived thumbnails or
+/// deleted-file copies rather than original media.
+pub const skipDirectories = [_][]const u8{
+    "@eaDir",
+    ".zprobe_thumbnails",
+};
+
+/// Check whether a directory should be skipped based on its name.
+pub fn shouldSkipDirectory(name: []const u8) bool {
+    for (skipDirectories) |skip| {
+        if (std.mem.eql(u8, name, skip)) return true;
+    }
+    return false;
+}
+
 /// Check whether the given extension identifies a media file.
 ///
 /// This does not allocate any heap memory. It performs case conversion on
@@ -100,6 +115,7 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
         } orelse break;
 
         if (entry.kind == .directory) {
+            if (shouldSkipDirectory(entry.basename)) continue;
             walker.enter(io, entry) catch |err| {
                 std.debug.print("Warning: failed to enter directory '{s}': {s}\n", .{ entry.path, @errorName(err) });
             };
@@ -183,6 +199,43 @@ test "isMediaExtension: empty string returns false" {
 
 test "isMediaExtension: extremely long extension does not panic" {
     try std.testing.expect(!isMediaExtension(".extremelylongextensionnamethatshouldnotcausepanic"));
+}
+
+test "isSkippedDirectory: known skip directories" {
+    try std.testing.expect(shouldSkipDirectory("@eaDir"));
+    try std.testing.expect(shouldSkipDirectory(".zprobe_thumbnails"));
+}
+
+test "isSkippedDirectory: process normal directories" {
+    try std.testing.expect(!shouldSkipDirectory("photos"));
+    try std.testing.expect(!shouldSkipDirectory("videos"));
+    try std.testing.expect(!shouldSkipDirectory("documents"));
+}
+
+test "scan: skips thumbnails inside @eaDir" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    // A real image at the root
+    const real = try std.Io.Dir.createFile(temp_dir, io, "photo.jpg", .{});
+    std.Io.File.close(real, io);
+
+    try std.Io.Dir.createDirPath(temp_dir, io, "@eaDir");
+    const thumb = try std.Io.Dir.createFile(temp_dir, io, "@eaDir/SYNOFILE_THUMB_XL.jpg", .{});
+    std.Io.File.close(thumb, io);
+
+    var list = try scan(temp_ctx.abs_path, io, allocator);
+    defer {
+        for (list.items) |entry| allocator.free(entry.path);
+        list.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), list.items.len);
+    try std.testing.expect(std.mem.endsWith(u8, list.items[0].path, "photo.jpg"));
 }
 
 test "concurrent scan and mock processing" {
