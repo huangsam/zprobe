@@ -47,10 +47,6 @@ fn formatOrientation(orient: u16) []const u8 {
     };
 }
 
-pub fn computeWorkerCount(cpu_count: usize) usize {
-    return @min(@max(cpu_count * 4, 8), 16);
-}
-
 /// Helper to convert ImageMetadata to DbRecord, allocating strings in the process.
 fn populateJsonFromImage(
     allocator: std.mem.Allocator,
@@ -171,13 +167,7 @@ fn checkFFmpeg(io: std.Io) bool {
 }
 
 fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8, is_video: bool) !bool {
-    var hash_bytes: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
-    const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
-
-    const thumb_path = try std.fs.path.join(allocator, &.{ thumb_dir, &hex_hash });
-    defer allocator.free(thumb_path);
-    const thumb_path_jpg = try std.fmt.allocPrint(allocator, "{s}.jpg", .{thumb_path});
+    const thumb_path_jpg = try root.utils.getThumbnailPath(allocator, thumb_dir, original_path);
     defer allocator.free(thumb_path_jpg);
 
     var argv: std.ArrayList([]const u8) = .empty;
@@ -208,13 +198,7 @@ fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, original_pa
 }
 
 fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8, bytes: []const u8) !bool {
-    var hash_bytes: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
-    const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
-
-    const thumb_path = try std.fs.path.join(allocator, &.{ thumb_dir, &hex_hash });
-    defer allocator.free(thumb_path);
-    const thumb_path_jpg = try std.fmt.allocPrint(allocator, "{s}.jpg", .{thumb_path});
+    const thumb_path_jpg = try root.utils.getThumbnailPath(allocator, thumb_dir, original_path);
     defer allocator.free(thumb_path_jpg);
 
     const file = std.Io.Dir.createFileAbsolute(io, thumb_path_jpg, .{}) catch return false;
@@ -224,13 +208,7 @@ fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, original_path: [
 }
 
 fn checkThumbnailExists(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8) bool {
-    var hash_bytes: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
-    const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
-
-    const thumb_path = std.fs.path.join(allocator, &.{ thumb_dir, &hex_hash }) catch return false;
-    defer allocator.free(thumb_path);
-    const thumb_path_jpg = std.fmt.allocPrint(allocator, "{s}.jpg", .{thumb_path}) catch return false;
+    const thumb_path_jpg = root.utils.getThumbnailPath(allocator, thumb_dir, original_path) catch return false;
     defer allocator.free(thumb_path_jpg);
 
     const file = std.Io.Dir.openFileAbsolute(io, thumb_path_jpg, .{ .mode = .read_only }) catch return false;
@@ -252,140 +230,89 @@ const worker = struct {
         }
     }
 
-    fn processFile(c_ctx: WorkerContext, entry: media_scan.ScanEntry, is_video: bool) !void {
-        const file = std.Io.Dir.openFileAbsolute(c_ctx.io, entry.path, .{ .mode = .read_only }) catch |err| {
-            c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
-            defer c_ctx.stdout_mutex.unlock(c_ctx.io);
-            c_ctx.out.flush() catch {};
-            std.debug.print("Warning: failed to open '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            return;
+    fn queryCacheRecord(c_ctx: WorkerContext, path: []const u8, size: u64, mtime: i64, allocator: std.mem.Allocator) ?db.DbRecord {
+        const d = c_ctx.db orelse return null;
+        d.lockRead(c_ctx.io);
+        defer d.unlockRead(c_ctx.io);
+        const cache_res = d.queryCache(allocator, path, size, mtime) catch |err| {
+            std.debug.print("Warning: cache query failed: {s}\n", .{@errorName(err)});
+            return null;
         };
-        defer std.Io.File.close(file, c_ctx.io);
 
-        const st = std.Io.File.stat(file, c_ctx.io) catch |err| {
-            c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
-            defer c_ctx.stdout_mutex.unlock(c_ctx.io);
-            c_ctx.out.flush() catch {};
-            std.debug.print("Warning: failed to get stat of '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            return;
-        };
-        const fsize = st.size;
-        const mtime = @as(i64, @intCast(st.mtime.nanoseconds));
+        if (cache_res.hit) {
+            if (c_ctx.rebuild_thumbnails and c_ctx.thumb_dir != null) {
+                if (!checkThumbnailExists(c_ctx.io, allocator, path, c_ctx.thumb_dir.?)) {
+                    return null;
+                }
+            }
+            return cache_res.json_out;
+        }
+        return null;
+    }
 
-        var arena = std.heap.ArenaAllocator.init(c_ctx.allocator);
-        defer arena.deinit();
-        const arena_allocator = arena.allocator();
-
-        var cache_hit = false;
-        var json_out: db.DbRecord = undefined;
-
-        if (c_ctx.db) |d| {
-            const cache_res = blk: {
-                d.lockRead(c_ctx.io);
-                defer d.unlockRead(c_ctx.io);
-                break :blk d.queryCache(arena_allocator, entry.path, fsize, mtime) catch |err| {
-                    std.debug.print("Warning: cache query failed: {s}\n", .{@errorName(err)});
-                    break :blk db.CacheResult{ .hit = false };
-                };
+    fn queryHashRecord(c_ctx: WorkerContext, path: []const u8, size: u64, mtime: i64, file_hash: []const u8, allocator: std.mem.Allocator) ?db.DbRecord {
+        const d = c_ctx.db orelse return null;
+        d.lockRead(c_ctx.io);
+        defer d.unlockRead(c_ctx.io);
+        var record = d.queryMetadataByHash(allocator, path, file_hash) catch return null;
+        if (record) |*rec| {
+            rec.size = size;
+            // Insert duplicate media path to DB since we matched by hash but not path
+            d.lockWrite(c_ctx.io);
+            defer d.unlockWrite(c_ctx.io);
+            d.insertMedia(c_ctx.io, rec, mtime) catch |err| {
+                std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
             };
+            return rec.*;
+        }
+        return null;
+    }
 
-            if (cache_res.hit) {
-                cache_hit = true;
-                json_out = cache_res.json_out;
+    fn parseMediaFile(c_ctx: WorkerContext, path: []const u8, size: u64, is_video: bool, file_hash: ?[]const u8, allocator: std.mem.Allocator) !db.DbRecord {
+        var has_thumb = false;
+        var record: db.DbRecord = undefined;
 
-                if (c_ctx.rebuild_thumbnails and c_ctx.thumb_dir != null) {
-                    const has_thumb_file = checkThumbnailExists(c_ctx.io, arena_allocator, entry.path, c_ctx.thumb_dir.?);
-                    if (!has_thumb_file) {
-                        cache_hit = false;
-                    }
+        if (is_video) {
+            var res = try video_meta.getVideoMetadata(allocator, path, c_ctx.io);
+            if (c_ctx.thumb_dir) |thumb_dir| {
+                if (c_ctx.has_ffmpeg) {
+                    if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                    defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                    has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, path, thumb_dir, true) catch false;
                 }
             }
+            record = try populateJsonFromVideo(allocator, &res, path, size, has_thumb);
+        } else {
+            var res = try image_meta.parseFile(allocator, path, c_ctx.io);
+            if (c_ctx.thumb_dir) |thumb_dir| {
+                if (res.thumbnail_data) |thumb_bytes| {
+                    has_thumb = saveThumbnailBytes(c_ctx.io, allocator, path, thumb_dir, thumb_bytes) catch false;
+                } else if (c_ctx.has_ffmpeg) {
+                    if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                    defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                    has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, path, thumb_dir, false) catch false;
+                }
+            }
+            record = try populateJsonFromImage(allocator, &res, path, size, has_thumb);
         }
 
-        if (!cache_hit) {
-            var file_hash: ?[]const u8 = null;
-            var hash_hit = false;
-
-            if (hashing.computeFastHash(c_ctx.io, arena_allocator, entry.path)) |hash| {
-                file_hash = hash;
-                if (c_ctx.db) |d| {
-                    const hash_res = blk: {
-                        d.lockRead(c_ctx.io);
-                        defer d.unlockRead(c_ctx.io);
-                        break :blk d.queryMetadataByHash(arena_allocator, entry.path, hash) catch null;
-                    };
-
-                    if (hash_res) |res| {
-                        hash_hit = true;
-                        json_out = res;
-                        json_out.size = fsize; // ensure size is correct
-
-                        {
-                            d.lockWrite(c_ctx.io);
-                            defer d.unlockWrite(c_ctx.io);
-                            d.insertMedia(c_ctx.io, &json_out, mtime) catch |err| {
-                                std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
-                            };
-                        }
-                        cache_hit = true;
-                    }
-                }
-            } else |err| {
-                std.debug.print("Warning: failed to compute fast hash for '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            }
-
-            if (!hash_hit) {
-                var has_thumb = false;
-                if (is_video) {
-                    var res = video_meta.getVideoMetadata(arena_allocator, entry.path, c_ctx.io) catch |err| {
-                        c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
-                        defer c_ctx.stdout_mutex.unlock(c_ctx.io);
-                        c_ctx.out.flush() catch {};
-                        std.debug.print("Warning: failed to parse video '{s}': {s}\n", .{ entry.path, @errorName(err) });
-                        return;
-                    };
-                    if (c_ctx.thumb_dir) |thumb_dir| {
-                        if (c_ctx.has_ffmpeg) {
-                            if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                            defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                            has_thumb = generateFfmpegThumbnail(c_ctx.io, arena_allocator, entry.path, thumb_dir, true) catch false;
-                        }
-                    }
-                    json_out = try populateJsonFromVideo(arena_allocator, &res, entry.path, fsize, has_thumb);
-                } else {
-                    var res = image_meta.parseFile(arena_allocator, entry.path, c_ctx.io) catch |err| {
-                        c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
-                        defer c_ctx.stdout_mutex.unlock(c_ctx.io);
-                        c_ctx.out.flush() catch {};
-                        std.debug.print("Warning: failed to parse image '{s}': {s}\n", .{ entry.path, @errorName(err) });
-                        return;
-                    };
-                    if (c_ctx.thumb_dir) |thumb_dir| {
-                        if (res.thumbnail_data) |thumb_bytes| {
-                            has_thumb = saveThumbnailBytes(c_ctx.io, arena_allocator, entry.path, thumb_dir, thumb_bytes) catch false;
-                        } else if (c_ctx.has_ffmpeg) {
-                            if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                            defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                            has_thumb = generateFfmpegThumbnail(c_ctx.io, arena_allocator, entry.path, thumb_dir, false) catch false;
-                        }
-                    }
-                    json_out = try populateJsonFromImage(arena_allocator, &res, entry.path, fsize, has_thumb);
-                }
-
-                if (file_hash) |fh| {
-                    json_out.file_hash = try arena_allocator.dupe(u8, fh);
-                }
-
-                if (c_ctx.db) |d| {
-                    d.lockWrite(c_ctx.io);
-                    defer d.unlockWrite(c_ctx.io);
-                    d.insertMedia(c_ctx.io, &json_out, mtime) catch |err| {
-                        std.debug.print("Warning: failed to insert media to DB: {s}\n", .{@errorName(err)});
-                    };
-                }
-            }
+        if (file_hash) |fh| {
+            record.file_hash = try allocator.dupe(u8, fh);
         }
 
+        return record;
+    }
+
+    fn saveRecordToDb(c_ctx: WorkerContext, record: *const db.DbRecord, mtime: i64) void {
+        const d = c_ctx.db orelse return;
+        d.lockWrite(c_ctx.io);
+        defer d.unlockWrite(c_ctx.io);
+        d.insertMedia(c_ctx.io, record, mtime) catch |err| {
+            std.debug.print("Warning: failed to insert media to DB: {s}\n", .{@errorName(err)});
+        };
+    }
+
+    fn printMetadataRecord(c_ctx: WorkerContext, json_out: db.DbRecord, fsize: u64) !void {
         c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
         defer c_ctx.stdout_mutex.unlock(c_ctx.io);
 
@@ -397,7 +324,7 @@ const worker = struct {
             try std.json.fmt(json_out, .{}).format(interface);
             try interface.print("\n", .{});
         } else {
-            try interface.print("   {s} ({d} bytes)\n", .{ entry.path, fsize });
+            try interface.print("   {s} ({d} bytes)\n", .{ json_out.path, fsize });
             try interface.print("    Format: {s}\n", .{json_out.format});
             try interface.print("    Dimensions: {d} x {d}\n", .{ json_out.width.?, json_out.height.? });
             if (json_out.orientation) |orient| {
@@ -426,6 +353,69 @@ const worker = struct {
             }
             try interface.print("\n", .{});
         }
+    }
+
+    fn processFile(c_ctx: WorkerContext, entry: media_scan.ScanEntry, is_video: bool) !void {
+        const file = std.Io.Dir.openFileAbsolute(c_ctx.io, entry.path, .{ .mode = .read_only }) catch |err| {
+            c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+            defer c_ctx.stdout_mutex.unlock(c_ctx.io);
+            c_ctx.out.flush() catch {};
+            std.debug.print("Warning: failed to open '{s}': {s}\n", .{ entry.path, @errorName(err) });
+            return;
+        };
+        defer std.Io.File.close(file, c_ctx.io);
+
+        const st = std.Io.File.stat(file, c_ctx.io) catch |err| {
+            c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+            defer c_ctx.stdout_mutex.unlock(c_ctx.io);
+            c_ctx.out.flush() catch {};
+            std.debug.print("Warning: failed to get stat of '{s}': {s}\n", .{ entry.path, @errorName(err) });
+            return;
+        };
+        const fsize = st.size;
+        const mtime = @as(i64, @intCast(st.mtime.nanoseconds));
+
+        var arena = std.heap.ArenaAllocator.init(c_ctx.allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
+
+        // 1. Try DB path cache query
+        if (queryCacheRecord(c_ctx, entry.path, fsize, mtime, arena_allocator)) |record| {
+            try printMetadataRecord(c_ctx, record, fsize);
+            return;
+        }
+
+        // 2. Compute fast hash
+        var file_hash: ?[]const u8 = null;
+        if (hashing.computeFastHash(c_ctx.io, arena_allocator, entry.path)) |hash| {
+            file_hash = hash;
+        } else |err| {
+            std.debug.print("Warning: failed to compute fast hash for '{s}': {s}\n", .{ entry.path, @errorName(err) });
+        }
+
+        // 3. Try DB hash query (to reuse metadata from duplicates)
+        if (file_hash) |hash| {
+            if (queryHashRecord(c_ctx, entry.path, fsize, mtime, hash, arena_allocator)) |record| {
+                try printMetadataRecord(c_ctx, record, fsize);
+                return;
+            }
+        }
+
+        // 4. Parse the file manually and generate thumbnails
+        const record = parseMediaFile(c_ctx, entry.path, fsize, is_video, file_hash, arena_allocator) catch |err| {
+            c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+            defer c_ctx.stdout_mutex.unlock(c_ctx.io);
+            c_ctx.out.flush() catch {};
+            const media_type = if (is_video) "video" else "image";
+            std.debug.print("Warning: failed to parse {s} '{s}': {s}\n", .{ media_type, entry.path, @errorName(err) });
+            return;
+        };
+
+        // 5. Store new record in DB
+        saveRecordToDb(c_ctx, &record, mtime);
+
+        // 6. Print record metadata
+        try printMetadataRecord(c_ctx, record, fsize);
     }
 };
 
@@ -645,7 +635,7 @@ pub fn main(init: std.process.Init) !void {
     var success_count = std.atomic.Value(usize).init(0);
 
     const cpu_count = std.Thread.getCpuCount() catch 4;
-    const num_workers = if (concurrency_override) |override| override else computeWorkerCount(cpu_count);
+    const num_workers = if (concurrency_override) |override| override else root.utils.computeWorkerCount(cpu_count);
 
     const threads = try allocator.alloc(std.Thread, num_workers);
     defer allocator.free(threads);
@@ -806,15 +796,6 @@ test "concurrent file processing integration test" {
 
     // Verify all 50 files were parsed successfully
     try std.testing.expectEqual(@as(usize, 50), success_count.load(.monotonic));
-}
-
-test "computeWorkerCount boundaries" {
-    try std.testing.expectEqual(@as(usize, 8), computeWorkerCount(1));
-    try std.testing.expectEqual(@as(usize, 8), computeWorkerCount(2));
-    try std.testing.expectEqual(@as(usize, 12), computeWorkerCount(3));
-    try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(4));
-    try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(8));
-    try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(16));
 }
 
 test "isVideoExtension boundaries" {

@@ -39,6 +39,9 @@ pub const db = @import("core/db.zig");
 /// Fast content hashing interface.
 pub const hashing = @import("core/hashing.zig");
 
+/// Utility functions.
+pub const utils = @import("core/utils.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = @import("main.zig");

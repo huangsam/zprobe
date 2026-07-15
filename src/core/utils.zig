@@ -50,3 +50,37 @@ test "normalizeDateTime converts EXIF colons to dashes" {
     defer allocator.free(already);
     try std.testing.expectEqualStrings("2024-08-04 21:00:57", already);
 }
+
+/// Determine concurrency pool size clamped between 8 and 16 based on core count.
+pub fn computeWorkerCount(cpu_count: usize) usize {
+    return @min(@max(cpu_count * 4, 8), 16);
+}
+
+/// Derive the unique absolute thumbnail path from the original path and the thumbnails directory.
+pub fn getThumbnailPath(allocator: std.mem.Allocator, thumb_dir: []const u8, original_path: []const u8) ![]const u8 {
+    var hash_bytes: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
+    const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
+    var filename_buf: [68]u8 = undefined;
+    const filename = try std.fmt.bufPrint(&filename_buf, "{s}.jpg", .{&hex_hash});
+    return try std.fs.path.join(allocator, &.{ thumb_dir, filename });
+}
+
+test "computeWorkerCount boundaries" {
+    try std.testing.expectEqual(@as(usize, 8), computeWorkerCount(1));
+    try std.testing.expectEqual(@as(usize, 8), computeWorkerCount(2));
+    try std.testing.expectEqual(@as(usize, 12), computeWorkerCount(3));
+    try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(4));
+    try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(8));
+    try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(16));
+}
+
+test "getThumbnailPath derivation" {
+    const allocator = std.testing.allocator;
+    const thumb_dir = "/tmp/thumbs";
+    const original_path = "/path/to/media.png";
+    const path = try getThumbnailPath(allocator, thumb_dir, original_path);
+    defer allocator.free(path);
+
+    try std.testing.expectEqualStrings("/tmp/thumbs/29b626657cf45e36a163312ad9f9af664135c75efa79f87d238c4a52b9ba9585.jpg", path);
+}

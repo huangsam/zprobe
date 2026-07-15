@@ -12,10 +12,6 @@ const font_outfit_600 = @embedFile("web/fonts/outfit-600.woff2");
 const font_pj_400 = @embedFile("web/fonts/plus-jakarta-400.woff2");
 const font_pj_600 = @embedFile("web/fonts/plus-jakarta-600.woff2");
 
-fn computeWorkerCount(cpu_count: usize) usize {
-    return @min(@max(cpu_count * 4, 8), 16);
-}
-
 const ConnectionPool = struct {
     mutex: std.Io.Mutex = std.Io.Mutex.init,
     cond: std.Io.Condition = std.Io.Condition.init,
@@ -157,7 +153,7 @@ pub fn main(init: std.process.Init) !void {
     defer pool.queue.deinit(allocator);
 
     const cpu_count = std.Thread.getCpuCount() catch 4;
-    const num_workers = computeWorkerCount(cpu_count);
+    const num_workers = zprobe.utils.computeWorkerCount(cpu_count);
 
     const threads = try allocator.alloc(std.Thread, num_workers);
     defer allocator.free(threads);
@@ -473,13 +469,7 @@ fn handleRequest(
         const thumb_dir = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
         defer allocator.free(thumb_dir);
 
-        var hash_bytes: [32]u8 = undefined;
-        std.crypto.hash.sha2.Sha256.hash(decoded_path, &hash_bytes, .{});
-        const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
-        const thumb_file_name = try std.fmt.allocPrint(allocator, "{s}.jpg", .{hex_hash});
-        defer allocator.free(thumb_file_name);
-
-        const thumb_abs_path = try std.fs.path.join(allocator, &.{ thumb_dir, thumb_file_name });
+        const thumb_abs_path = try zprobe.utils.getThumbnailPath(allocator, thumb_dir, decoded_path);
         defer allocator.free(thumb_abs_path);
 
         const file = std.Io.Dir.openFileAbsolute(io, thumb_abs_path, .{ .mode = .read_only }) catch |err| {

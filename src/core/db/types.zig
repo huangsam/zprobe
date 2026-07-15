@@ -86,8 +86,9 @@ pub const DbStats = struct {
     }
 };
 
-pub const is_image_pred_m = "(m.duration_sec IS NULL AND m.format NOT IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
-pub const is_video_pred_m = "(m.duration_sec IS NOT NULL OR m.format IN ('mp4', 'webm', 'mkv', 'mov', 'avi'))";
+pub const video_formats_sql = "'mp4', 'webm', 'mkv', 'mov', 'avi'";
+pub const is_image_pred_m = "(m.duration_sec IS NULL AND m.format NOT IN (" ++ video_formats_sql ++ "))";
+pub const is_video_pred_m = "(m.duration_sec IS NOT NULL OR m.format IN (" ++ video_formats_sql ++ "))";
 
 /// Stats cache TTL — short enough to reflect crawler writes, long enough to absorb dashboard polling.
 pub const stats_cache_ttl_ns: i96 = 2 * std.time.ns_per_s;
