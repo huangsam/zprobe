@@ -280,12 +280,14 @@ const worker = struct {
         var json_out: db.DbRecord = undefined;
 
         if (c_ctx.db) |d| {
-            d.lockRead(c_ctx.io);
-            const cache_res = d.queryCache(arena_allocator, entry.path, fsize, mtime) catch |err| blk: {
-                std.debug.print("Warning: cache query failed: {s}\n", .{@errorName(err)});
-                break :blk db.CacheResult{ .hit = false };
+            const cache_res = blk: {
+                d.lockRead(c_ctx.io);
+                defer d.unlockRead(c_ctx.io);
+                break :blk d.queryCache(arena_allocator, entry.path, fsize, mtime) catch |err| {
+                    std.debug.print("Warning: cache query failed: {s}\n", .{@errorName(err)});
+                    break :blk db.CacheResult{ .hit = false };
+                };
             };
-            d.unlockRead(c_ctx.io);
 
             if (cache_res.hit) {
                 cache_hit = true;
@@ -307,20 +309,24 @@ const worker = struct {
             if (hashing.computeFastHash(c_ctx.io, arena_allocator, entry.path)) |hash| {
                 file_hash = hash;
                 if (c_ctx.db) |d| {
-                    d.lockRead(c_ctx.io);
-                    const hash_res = d.queryMetadataByHash(arena_allocator, entry.path, hash) catch null;
-                    d.unlockRead(c_ctx.io);
+                    const hash_res = blk: {
+                        d.lockRead(c_ctx.io);
+                        defer d.unlockRead(c_ctx.io);
+                        break :blk d.queryMetadataByHash(arena_allocator, entry.path, hash) catch null;
+                    };
 
                     if (hash_res) |res| {
                         hash_hit = true;
                         json_out = res;
                         json_out.size = fsize; // ensure size is correct
 
-                        d.lockWrite(c_ctx.io);
-                        d.insertMedia(c_ctx.io, &json_out, mtime) catch |err| {
-                            std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
-                        };
-                        d.unlockWrite(c_ctx.io);
+                        {
+                            d.lockWrite(c_ctx.io);
+                            defer d.unlockWrite(c_ctx.io);
+                            d.insertMedia(c_ctx.io, &json_out, mtime) catch |err| {
+                                std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
+                            };
+                        }
                         cache_hit = true;
                     }
                 }
@@ -372,10 +378,10 @@ const worker = struct {
 
                 if (c_ctx.db) |d| {
                     d.lockWrite(c_ctx.io);
+                    defer d.unlockWrite(c_ctx.io);
                     d.insertMedia(c_ctx.io, &json_out, mtime) catch |err| {
                         std.debug.print("Warning: failed to insert media to DB: {s}\n", .{@errorName(err)});
                     };
-                    d.unlockWrite(c_ctx.io);
                 }
             }
         }
