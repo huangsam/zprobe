@@ -602,21 +602,25 @@ pub fn main(init: std.process.Init) !void {
             std.debug.print("Scanning: {s}\n", .{dir_path});
         }
 
-        var dir_list = try media_scan.scan(abs_dir, io, allocator);
+        var scan_res = try media_scan.scan(abs_dir, io, allocator);
         errdefer {
-            for (dir_list.items) |entry| {
+            for (scan_res.entries.items) |entry| {
                 allocator.free(entry.path);
             }
-            dir_list.deinit(allocator);
+            scan_res.entries.deinit(allocator);
         }
 
-        if (dir_list.items.len > 0) {
+        if (scan_res.degraded and !json_mode) {
+            std.debug.print("Warning: Scan of '{s}' was degraded due to errors; pruning will be skipped for this directory.\n", .{dir_path});
+        }
+
+        if (!scan_res.degraded and scan_res.entries.items.len > 0) {
             const dup = try allocator.dupe(u8, abs_dir);
             try prunable_dirs.append(allocator, dup);
         }
 
-        try all_entries.appendSlice(allocator, dir_list.items);
-        dir_list.deinit(allocator);
+        try all_entries.appendSlice(allocator, scan_res.entries.items);
+        scan_res.entries.deinit(allocator);
     }
 
     if (!json_mode) {
@@ -735,15 +739,15 @@ test "concurrent file processing integration test" {
     }
 
     // Scan
-    var list = try media_scan.scan(temp_ctx.abs_path, io, allocator);
+    var scan_res = try media_scan.scan(temp_ctx.abs_path, io, allocator);
     defer {
-        for (list.items) |entry| {
+        for (scan_res.entries.items) |entry| {
             allocator.free(entry.path);
         }
-        list.deinit(allocator);
+        scan_res.entries.deinit(allocator);
     }
 
-    try std.testing.expectEqual(@as(usize, 50), list.items.len);
+    try std.testing.expectEqual(@as(usize, 50), scan_res.entries.items.len);
 
     // Spawn workers
     var file_index = std.atomic.Value(usize).init(0);
@@ -765,7 +769,7 @@ test "concurrent file processing integration test" {
         .io = io,
         .out = &f_writer,
         .json_mode = false,
-        .entries = list.items,
+        .entries = scan_res.entries.items,
         .file_index = &file_index,
         .stdout_mutex = &stdout_mutex,
         .success_count = &success_count,
@@ -845,14 +849,14 @@ test "sqlite db caching integration test" {
     defer database.deinit();
 
     // Scan
-    var list = try media_scan.scan(temp_ctx.abs_path, io, allocator);
+    var scan_res = try media_scan.scan(temp_ctx.abs_path, io, allocator);
     defer {
-        for (list.items) |entry| {
+        for (scan_res.entries.items) |entry| {
             allocator.free(entry.path);
         }
-        list.deinit(allocator);
+        scan_res.entries.deinit(allocator);
     }
-    try std.testing.expectEqual(@as(usize, 1), list.items.len);
+    try std.testing.expectEqual(@as(usize, 1), scan_res.entries.items.len);
 
     const out_filename = "test_output.txt";
     const out_file = try std.Io.Dir.createFile(temp_dir, io, out_filename, .{});
@@ -873,7 +877,7 @@ test "sqlite db caching integration test" {
         .io = io,
         .out = &f_writer,
         .json_mode = false,
-        .entries = list.items,
+        .entries = scan_res.entries.items,
         .file_index = &file_index,
         .stdout_mutex = &stdout_mutex,
         .success_count = &success_count,
@@ -883,7 +887,7 @@ test "sqlite db caching integration test" {
     };
 
     // First Run (should parse & cache)
-    worker.processFile(worker_ctx, list.items[0], false) catch |err| {
+    worker.processFile(worker_ctx, scan_res.entries.items[0], false) catch |err| {
         std.debug.print("First run processFile failed: {s}\n", .{@errorName(err)});
         return err;
     };
@@ -934,7 +938,7 @@ test "sqlite db caching integration test" {
     success_count.store(0, .monotonic);
 
     // Second Run (should cache hit and NOT fail on the corrupted PNG!)
-    worker.processFile(worker_ctx, list.items[0], false) catch |err| {
+    worker.processFile(worker_ctx, scan_res.entries.items[0], false) catch |err| {
         std.debug.print("Second run processFile failed: {s}\n", .{@errorName(err)});
         return err;
     };
@@ -1148,6 +1152,97 @@ test "Db.pruneStalePaths skips directories excluded by the guardrail" {
         allocator.free(hit_b.json_out.format);
     };
     try std.testing.expect(hit_b.hit);
+}
+
+extern fn chmod(path: [*:0]const u8, mode: u32) c_int;
+
+test "main CLI scan: degraded scan disables pruning" {
+    if (comptime @import("builtin").os.tag == .windows) return;
+
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const temp_dir = tmp_ctx.tmp.dir;
+
+    const db_filename = "degraded_prune_test.db";
+    const full_db_path = try std.fs.path.join(allocator, &.{ tmp_ctx.abs_path, db_filename });
+    defer allocator.free(full_db_path);
+    defer std.Io.Dir.deleteFile(temp_dir, io, db_filename) catch {};
+
+    var database = try db.Db.init(allocator, full_db_path);
+    defer database.deinit();
+
+    const healthy_img = try std.fs.path.join(allocator, &.{ tmp_ctx.abs_path, "photo.jpg" });
+    defer allocator.free(healthy_img);
+    const rec1 = db.DbRecord{ .path = healthy_img, .size = 100, .format = "jpeg" };
+    try database.insertMedia(&rec1, 10);
+
+    const unreadable_subdir = try std.fs.path.join(allocator, &.{ tmp_ctx.abs_path, "unreadable" });
+    defer allocator.free(unreadable_subdir);
+    const stale_img = try std.fs.path.join(allocator, &.{ unreadable_subdir, "stale.jpg" });
+    defer allocator.free(stale_img);
+    const rec2 = db.DbRecord{ .path = stale_img, .size = 200, .format = "jpeg" };
+    try database.insertMedia(&rec2, 20);
+
+    const f1 = try std.Io.Dir.createFile(temp_dir, io, "photo.jpg", .{});
+    std.Io.File.close(f1, io);
+
+    try std.Io.Dir.createDirPath(temp_dir, io, "unreadable");
+    const f2 = try std.Io.Dir.createFile(temp_dir, io, "unreadable/stale.jpg", .{});
+    std.Io.File.close(f2, io);
+
+    const unreadable_path_z = try allocator.dupeZ(u8, unreadable_subdir);
+    defer allocator.free(unreadable_path_z);
+
+    const res = chmod(unreadable_path_z.ptr, 0);
+    try std.testing.expectEqual(@as(c_int, 0), res);
+    defer {
+        _ = chmod(unreadable_path_z.ptr, 0o755);
+    }
+
+    var scan_res = try media_scan.scan(tmp_ctx.abs_path, io, allocator);
+    defer {
+        for (scan_res.entries.items) |entry| allocator.free(entry.path);
+        scan_res.entries.deinit(allocator);
+    }
+
+    try std.testing.expect(scan_res.degraded);
+
+    var prunable_dirs: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (prunable_dirs.items) |d| allocator.free(d);
+        prunable_dirs.deinit(allocator);
+    }
+
+    if (!scan_res.degraded and scan_res.entries.items.len > 0) {
+        const dup = try allocator.dupe(u8, tmp_ctx.abs_path);
+        try prunable_dirs.append(allocator, dup);
+    }
+
+    var active_paths = std.StringHashMap(void).init(allocator);
+    defer active_paths.deinit();
+    for (scan_res.entries.items) |entry| {
+        try active_paths.put(entry.path, {});
+    }
+
+    const pruned_count = try database.pruneStalePaths(prunable_dirs.items, &active_paths);
+    try std.testing.expectEqual(@as(u32, 0), pruned_count);
+
+    const hit_healthy = try database.queryCache(allocator, healthy_img, 100, 10);
+    defer if (hit_healthy.hit) {
+        hit_healthy.json_out.deinit(allocator);
+        allocator.free(hit_healthy.json_out.format);
+    };
+    try std.testing.expect(hit_healthy.hit);
+
+    const hit_stale = try database.queryCache(allocator, stale_img, 200, 20);
+    defer if (hit_stale.hit) {
+        hit_stale.json_out.deinit(allocator);
+        allocator.free(hit_stale.json_out.format);
+    };
+    try std.testing.expect(hit_stale.hit);
 }
 
 test "Db.pruneStalePaths trailing slash and absolute paths" {

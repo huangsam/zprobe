@@ -87,12 +87,20 @@ pub fn getExtension(path: []const u8) []const u8 {
 /// Recursively walk a directory tree and collect entries whose extensions
 /// match known image or video formats.
 ///
+pub const ScanResult = struct {
+    entries: std.ArrayList(ScanEntry),
+    degraded: bool,
+};
+
+/// Recursively walk a directory tree and collect entries whose extensions
+/// match known image or video formats.
+///
 /// ### Memory Allocation & Ownership:
-/// - Allocates a `std.ArrayList(ScanEntry)` using the provided `allocator`.
+/// - Allocates a `std.ArrayList(ScanEntry)` using the provided `allocator` inside the `ScanResult`.
 /// - Allocates paths for each successfully matched file.
 /// - If a scan fails midway, the function leverages `errdefer` to release all
 ///   internally allocated resources, preventing leaks.
-pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !std.ArrayList(ScanEntry) {
+pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !ScanResult {
     var list: std.ArrayList(ScanEntry) = .empty;
     errdefer {
         for (list.items) |entry| {
@@ -108,12 +116,19 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
     var walker = try Dir.walkSelectively(root_dir, allocator);
     defer walker.deinit();
 
+    var degraded = false;
+
     while (true) {
-        const entry = (try walker.next(io)) orelse break;
+        const entry = walker.next(io) catch {
+            degraded = true;
+            continue;
+        } orelse break;
 
         if (entry.kind == .directory) {
             if (isSkippedDirectory(entry.basename)) continue;
-            try walker.enter(io, entry);
+            walker.enter(io, entry) catch {
+                degraded = true;
+            };
             continue;
         }
 
@@ -133,7 +148,10 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
         });
     }
 
-    return list;
+    return .{
+        .entries = list,
+        .degraded = degraded,
+    };
 }
 
 test "getExtension: simple filename" {
@@ -229,14 +247,15 @@ test "scan: skips thumbnails inside @eaDir" {
     const thumb = try std.Io.Dir.createFile(temp_dir, io, "@eaDir/SYNOFILE_THUMB_XL.jpg", .{});
     std.Io.File.close(thumb, io);
 
-    var list = try scan(temp_ctx.abs_path, io, allocator);
+    var scan_res = try scan(temp_ctx.abs_path, io, allocator);
     defer {
-        for (list.items) |entry| allocator.free(entry.path);
-        list.deinit(allocator);
+        for (scan_res.entries.items) |entry| allocator.free(entry.path);
+        scan_res.entries.deinit(allocator);
     }
 
-    try std.testing.expectEqual(@as(usize, 1), list.items.len);
-    try std.testing.expect(std.mem.endsWith(u8, list.items[0].path, "photo.jpg"));
+    try std.testing.expectEqual(@as(usize, 1), scan_res.entries.items.len);
+    try std.testing.expect(std.mem.endsWith(u8, scan_res.entries.items[0].path, "photo.jpg"));
+    try std.testing.expect(!scan_res.degraded);
 }
 
 test "concurrent scan and mock processing" {
@@ -257,15 +276,16 @@ test "concurrent scan and mock processing" {
     defer std.Io.Dir.deleteFile(temp_dir, io, "image2.jpg") catch {};
 
     // Scan
-    var list = try scan(temp_ctx.abs_path, io, allocator);
+    var scan_res = try scan(temp_ctx.abs_path, io, allocator);
     defer {
-        for (list.items) |entry| {
+        for (scan_res.entries.items) |entry| {
             allocator.free(entry.path);
         }
-        list.deinit(allocator);
+        scan_res.entries.deinit(allocator);
     }
 
-    try std.testing.expectEqual(@as(usize, 2), list.items.len);
+    try std.testing.expectEqual(@as(usize, 2), scan_res.entries.items.len);
+    try std.testing.expect(!scan_res.degraded);
 
     // Concurrent mock process
     var index = std.atomic.Value(usize).init(0);
@@ -288,7 +308,7 @@ test "concurrent scan and mock processing" {
     };
 
     const test_ctx = Context{
-        .entries = list.items,
+        .entries = scan_res.entries.items,
         .index = &index,
         .success = &success,
     };
@@ -304,7 +324,7 @@ test "concurrent scan and mock processing" {
 
 extern fn chmod(path: [*:0]const u8, mode: u32) c_int;
 
-test "scan: propagates directory walking errors" {
+test "scan: flags degraded scans on walking errors" {
     if (comptime @import("builtin").os.tag == .windows) return;
 
     const allocator = std.testing.allocator;
@@ -329,13 +349,11 @@ test "scan: propagates directory walking errors" {
         _ = chmod(unreadable_path_z.ptr, 0o755);
     }
 
-    const result = scan(temp_ctx.abs_path, io, allocator);
-    if (result) |list| {
-        var mutable_list = list;
-        for (mutable_list.items) |entry| allocator.free(entry.path);
-        mutable_list.deinit(allocator);
-        return error.ExpectedScanFailure;
-    } else |err| {
-        try std.testing.expectEqual(error.AccessDenied, err);
+    var scan_res = try scan(temp_ctx.abs_path, io, allocator);
+    defer {
+        for (scan_res.entries.items) |entry| allocator.free(entry.path);
+        scan_res.entries.deinit(allocator);
     }
+
+    try std.testing.expect(scan_res.degraded);
 }
