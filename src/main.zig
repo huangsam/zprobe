@@ -578,6 +578,12 @@ pub fn main(init: std.process.Init) !void {
         all_entries.deinit(allocator);
     }
 
+    // Directories whose scan returned at least one entry. Only these are eligible
+    // for pruning: a directory that yielded nothing (unmounted, inaccessible, etc.)
+    // must not have its cache entries deleted, because that would be a false positive.
+    var prunable_dirs: std.ArrayList([]const u8) = .empty;
+    defer prunable_dirs.deinit(allocator);
+
     const cwd = std.Io.Dir.cwd();
     for (target_dirs.items) |dir_path| {
         const abs_dir = cwd.realPathFileAlloc(io, dir_path, allocator) catch |err| {
@@ -598,6 +604,8 @@ pub fn main(init: std.process.Init) !void {
             }
             dir_list.deinit(allocator);
         }
+
+        if (dir_list.items.len > 0) try prunable_dirs.append(allocator, dir_path);
 
         try all_entries.appendSlice(allocator, dir_list.items);
         dir_list.deinit(allocator);
@@ -661,8 +669,9 @@ pub fn main(init: std.process.Init) !void {
     }
     spawned_count = 0;
 
-    // Run pruning pass if requested
-    if (prune_mode and db_ptr != null) {
+    // Run pruning pass if requested. Only prune within directories that produced
+    // entries this run, so a degraded scan cannot wipe its cached entries.
+    if (prune_mode and db_ptr != null and prunable_dirs.items.len > 0) {
         const d = db_ptr.?;
         var active_paths = std.StringHashMap(void).init(allocator);
         defer active_paths.deinit();
@@ -670,7 +679,7 @@ pub fn main(init: std.process.Init) !void {
             try active_paths.put(entry.path, {});
         }
 
-        const pruned_count = try d.pruneStalePaths(target_dirs.items, &active_paths);
+        const pruned_count = try d.pruneStalePaths(prunable_dirs.items, &active_paths);
         if (pruned_count > 0 and !json_mode) {
             std.debug.print("Pruned {d} stale cache entries\n", .{pruned_count});
         }
@@ -1091,4 +1100,44 @@ test "Db.pruneStalePaths pruning logic" {
         allocator.free(hit_b.json_out.format);
     };
     try std.testing.expect(!hit_b.hit);
+}
+
+test "Db.pruneStalePaths skips directories excluded by the guardrail" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/prune_guardrail_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try db.Db.init(allocator, path);
+    defer database.deinit();
+
+    const rec1 = db.DbRecord{ .path = "/photos/a.jpg", .size = 100, .format = "jpeg" };
+    const rec2 = db.DbRecord{ .path = "/videos/b.mp4", .size = 200, .format = "mp4" };
+    try database.insertMedia(&rec1, 10);
+    try database.insertMedia(&rec2, 20);
+
+    // Simulate a degraded scan: /videos returned zero entries this run, so the
+    // guardrail leaves it out of the prunable list.
+    var active_paths = std.StringHashMap(void).init(allocator);
+    defer active_paths.deinit();
+    try active_paths.put("/photos/a.jpg", {});
+
+    var prunable_dirs: std.ArrayList([]const u8) = .empty;
+    defer prunable_dirs.deinit(allocator);
+    try prunable_dirs.append(allocator, "/photos");
+
+    // b.mp4 is absent from active_paths but lives under the excluded /videos directory, so it
+    // must survive the pruning pass. Nothing under /photos is stale, so nothing should be pruned.
+    const pruned_count = try database.pruneStalePaths(prunable_dirs.items, &active_paths);
+    try std.testing.expectEqual(@as(u32, 0), pruned_count);
+
+    const hit_b = try database.queryCache(allocator, "/videos/b.mp4", 200, 20);
+    defer if (hit_b.hit) {
+        hit_b.json_out.deinit(allocator);
+        allocator.free(hit_b.json_out.format);
+    };
+    try std.testing.expect(hit_b.hit);
 }
