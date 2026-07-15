@@ -431,6 +431,8 @@ pub fn deletePath(self: *Db, path: []const u8) !void {
 }
 
 /// Prune any cache entries starting with one of target_dirs that are not present in active_paths.
+/// Deletes are batched using a single re-used prepared statement under the caller's transaction,
+/// with a single stats-cache invalidation at the end.
 pub fn pruneStalePaths(self: *Db, target_dirs: [][]const u8, active_paths: *const std.StringHashMap(void)) !u32 {
     if (self.handle == null) return error.DatabaseNotOpen;
 
@@ -471,13 +473,30 @@ pub fn pruneStalePaths(self: *Db, target_dirs: [][]const u8, active_paths: *cons
         }
     }
 
-    var pruned_count: u32 = 0;
-    if (to_delete.items.len > 0) {
-        for (to_delete.items) |p| {
-            try self.deletePath(p);
-            pruned_count += 1;
-        }
+    if (to_delete.items.len == 0) return 0;
+
+    // Prepare a single DELETE statement, reuse it per path, and invalidate
+    // the stats cache once at the end rather than once per deletePath() call.
+    const delete_sql = "DELETE FROM media_paths WHERE path = ?;";
+    var delete_stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, delete_sql, -1, &delete_stmt, null) != c.SQLITE_OK) {
+        return error.DatabasePrepareError;
     }
+    defer _ = c.sqlite3_finalize(delete_stmt);
+
+    var pruned_count: u32 = 0;
+    for (to_delete.items) |p| {
+        _ = c.sqlite3_reset(delete_stmt);
+        _ = c.sqlite3_bind_text(delete_stmt, 1, p.ptr, @intCast(p.len), null);
+        const rc = c.sqlite3_step(delete_stmt);
+        if (rc != c.SQLITE_DONE) {
+            std.debug.print("Warning: failed to prune stale path '{s}' (code: {d})\n", .{ p, rc });
+            continue;
+        }
+        pruned_count += 1;
+    }
+
+    if (pruned_count > 0) self.invalidateStatsCache();
 
     return pruned_count;
 }
