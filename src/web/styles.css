@@ -269,6 +269,7 @@ body {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1.75rem;
+  contain: layout paint;
 }
 
 @media (max-width: 1200px) {
@@ -326,6 +327,12 @@ body {
   }
 }
 
+.metric-info {
+  min-width: 0;
+  overflow: hidden;
+  contain: layout paint;
+}
+
 .metric-info h3 {
   font-size: 0.75rem;
   font-weight: 600;
@@ -333,6 +340,9 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .metric-info p {
@@ -341,6 +351,9 @@ body {
   font-size: clamp(1.1rem, 2vw, 1.2rem);
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Unified Filter Bar */
@@ -742,6 +755,7 @@ select.select-sm {
 /* Media Table / File Station look */
 .catalog-section {
   overflow: hidden;
+  contain: layout paint;
 }
 
 .table-container {
