@@ -385,3 +385,125 @@ test "parseTiff nested IFD1 thumbnail offset extraction" {
     try std.testing.expectEqual(@as(usize, 4), meta.thumbnail_data.?.len);
     try std.testing.expectEqualSlices(u8, &.{ 0xff, 0xd8, 0xff, 0xd9 }, meta.thumbnail_data.?);
 }
+
+test "parseTiff: Big Endian format" {
+    const allocator = std.testing.allocator;
+
+    var buf = [_]u8{0} ** 40;
+    // Big Endian Header: MM, 42, IFD offset = 8
+    buf[0] = 'M';
+    buf[1] = 'M';
+    buf[2] = 0;
+    buf[3] = 42;
+    buf[4] = 0;
+    buf[5] = 0;
+    buf[6] = 0;
+    buf[7] = 8;
+
+    // IFD starting at offset 8: 1 entry
+    buf[8] = 0;
+    buf[9] = 1;
+
+    // Entry 1: Tag 0x0112 (Orientation), Type 3 (u16), count 1, value 6
+    buf[10] = 0x01;
+    buf[11] = 0x12;
+    buf[12] = 0;
+    buf[13] = 3;
+    buf[14] = 0;
+    buf[15] = 0;
+    buf[16] = 0;
+    buf[17] = 1;
+    buf[18] = 0;
+    buf[19] = 6; // Value = 6
+
+    var meta = ImageMetadata{
+        .format = "tiff",
+        .width = 100,
+        .height = 100,
+    };
+    defer meta.deinit(allocator);
+
+    try parseTiff(allocator, &buf, &meta);
+
+    try std.testing.expectEqual(@as(?u16, 6), meta.orientation);
+}
+
+test "parseTiff: circular IFD loops / recursion limit" {
+    const allocator = std.testing.allocator;
+
+    var buf = [_]u8{0} ** 30;
+    // Little Endian Header
+    buf[0] = 'I';
+    buf[1] = 'I';
+    buf[2] = 42;
+    buf[4] = 8; // IFD offset = 8
+
+    // IFD at offset 8: 1 entry
+    buf[8] = 1;
+
+    // Tag 0x8769 (ExifOffset), type 4 (u32), count 1, value offset = 8 (loop back!)
+    buf[10] = 0x69;
+    buf[11] = 0x87;
+    buf[12] = 4;
+    buf[14] = 1;
+    buf[18] = 8; // Pointer to start of this IFD
+
+    var meta = ImageMetadata{
+        .format = "tiff",
+        .width = 100,
+        .height = 100,
+    };
+    defer meta.deinit(allocator);
+
+    // This should terminate successfully without stack overflow
+    try parseTiff(allocator, &buf, &meta);
+}
+
+test "parseTiff: invalid tag structures" {
+    const allocator = std.testing.allocator;
+
+    var buf = [_]u8{0} ** 50;
+    buf[0] = 'I';
+    buf[1] = 'I';
+    buf[2] = 42;
+    buf[4] = 8; // IFD offset = 8
+
+    // IFD at offset 8: 3 entries
+    buf[8] = 3;
+
+    // Entry 1: invalid type id = 99 (size 0)
+    buf[10] = 0x12;
+    buf[11] = 0x01;
+    buf[12] = 99; // Bad type
+    buf[14] = 1;
+
+    // Entry 2: ExifOffset pointing to out of bounds
+    buf[22] = 0x69;
+    buf[23] = 0x87;
+    buf[24] = 4;
+    buf[26] = 1;
+    buf[30] = 0xe7; // 999 offset LSB
+    buf[31] = 0x03; // 999 offset MSB
+    buf[32] = 0x00;
+    buf[33] = 0x00;
+
+    // Entry 3: Make with count 1000 but offset points to out of bounds
+    buf[34] = 0x0f;
+    buf[35] = 0x01;
+    buf[36] = 2; // ASCII
+    buf[38] = 0xe8; // 1000 count LSB
+    buf[39] = 0x03; // 1000 count MSB
+    buf[42] = 200; // Bad offset
+
+    var meta = ImageMetadata{
+        .format = "tiff",
+        .width = 100,
+        .height = 100,
+    };
+    defer meta.deinit(allocator);
+
+    // Should successfully ignore the invalid tags and complete
+    try parseTiff(allocator, &buf, &meta);
+
+    try std.testing.expect(meta.camera_make == null);
+}

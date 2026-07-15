@@ -133,3 +133,154 @@ pub fn parseJpegFile(allocator: std.mem.Allocator, reader: *std.Io.Reader, meta:
         try reader.discardAll(segment_len - 2);
     }
 }
+
+test "parseJpegFile: streaming metadata extraction" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const test_utils = @import("../../core/test_utils.zig");
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    const filename = "test_valid.jpg";
+    const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+    defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+    var buf = [_]u8{0} ** 200;
+    // 1. SOI
+    @memcpy(buf[0..2], &jpegMagic);
+
+    // 2. APP1 Exif Segment (Marker = FF E1, Size = 100, Payload header = "Exif\0\0")
+    buf[2] = 0xff;
+    buf[3] = 0xe1;
+    buf[4] = 0x00;
+    buf[5] = 100; // segment_len
+    @memcpy(buf[6..12], "Exif\x00\x00");
+
+    // TIFF Payload inside APP1 chunk starting at absolute offset 12
+    const tiff_start = 12;
+    buf[tiff_start + 0] = 'I';
+    buf[tiff_start + 1] = 'I';
+    buf[tiff_start + 2] = 42;
+    buf[tiff_start + 4] = 8; // IFD offset
+
+    // IFD at tiff_start + 8 (absolute 20)
+    buf[tiff_start + 8] = 1; // 1 entry
+    buf[tiff_start + 10] = 0x0f; // Make
+    buf[tiff_start + 11] = 0x01;
+    buf[tiff_start + 12] = 2; // type ASCII
+    buf[tiff_start + 14] = 9; // count = 9
+    buf[tiff_start + 18] = 50; // value offset (50 relative to tiff_start, absolute 62)
+
+    // String "JPEGExif\x00" at absolute 62
+    @memcpy(buf[tiff_start + 50 .. tiff_start + 59], "JPEGExif\x00");
+
+    // 3. Skip marker APP12 (Marker = FF EC, Size = 10) at absolute 102
+    buf[102] = 0xff;
+    buf[103] = 0xec;
+    buf[104] = 0x00;
+    buf[105] = 10;
+
+    // 4. SOF0 Segment (Marker = FF C0, Size = 11, height = 240, width = 320) at absolute 112
+    buf[112] = 0xff;
+    buf[113] = 0xc0;
+    buf[114] = 0x00;
+    buf[115] = 11;
+    buf[116] = 8; // Precision
+    buf[117] = 0; // height MSB
+    buf[118] = 240; // height LSB
+    buf[119] = 1; // width MSB
+    buf[120] = 64; // width LSB (256 + 64 = 320)
+
+    try std.Io.File.writePositionalAll(file, io, buf[0..125], 0);
+    std.Io.File.close(file, io);
+
+    var meta = ImageMetadata{
+        .format = "jpeg",
+        .width = 0,
+        .height = 0,
+    };
+    defer meta.deinit(allocator);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    var read_buf: [1024]u8 = undefined;
+    var f_reader = std.Io.File.reader(check_file, io, &read_buf);
+    const reader = &f_reader.interface;
+
+    const dims = try parseJpegFile(allocator, reader, &meta);
+
+    try std.testing.expectEqual(@as(u16, 320), dims.width);
+    try std.testing.expectEqual(@as(u16, 240), dims.height);
+    try std.testing.expectEqualStrings("JPEGExif", meta.camera_make.?);
+}
+
+test "parseJpegFile: error handling on bad segments" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const test_utils = @import("../../core/test_utils.zig");
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    // 1. Invalid segment length (< 2)
+    {
+        const filename = "test_invalid_len.jpg";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        var buf = [_]u8{0} ** 8;
+        @memcpy(buf[0..2], &jpegMagic);
+        buf[2] = 0xff;
+        buf[3] = 0xe0; // APP0
+        buf[4] = 0x00;
+        buf[5] = 0x01; // length = 1 (invalid, must be >= 2)
+
+        try std.Io.File.writePositionalAll(file, io, &buf, 0);
+        std.Io.File.close(file, io);
+
+        var meta = ImageMetadata{ .format = "jpeg", .width = 0, .height = 0 };
+        defer meta.deinit(allocator);
+
+        const check_file = try std.Io.Dir.openFile(temp_dir, io, filename, .{ .mode = .read_only });
+        defer std.Io.File.close(check_file, io);
+
+        var read_buf: [1024]u8 = undefined;
+        var f_reader = std.Io.File.reader(check_file, io, &read_buf);
+        const reader = &f_reader.interface;
+
+        try std.testing.expectError(error.InvalidJpeg, parseJpegFile(allocator, reader, &meta));
+    }
+
+    // 2. Truncated segment (length claims 50, file terminates early)
+    {
+        const filename = "test_trunc_segment.jpg";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        var buf = [_]u8{0} ** 10;
+        @memcpy(buf[0..2], &jpegMagic);
+        buf[2] = 0xff;
+        buf[3] = 0xe0; // APP0
+        buf[4] = 0x00;
+        buf[5] = 50; // length = 50 but file is only 10 bytes
+
+        try std.Io.File.writePositionalAll(file, io, &buf, 0);
+        std.Io.File.close(file, io);
+
+        var meta = ImageMetadata{ .format = "jpeg", .width = 0, .height = 0 };
+        defer meta.deinit(allocator);
+
+        const check_file = try std.Io.Dir.openFile(temp_dir, io, filename, .{ .mode = .read_only });
+        defer std.Io.File.close(check_file, io);
+
+        var read_buf: [1024]u8 = undefined;
+        var f_reader = std.Io.File.reader(check_file, io, &read_buf);
+        const reader = &f_reader.interface;
+
+        try std.testing.expectError(error.EndOfStream, parseJpegFile(allocator, reader, &meta));
+    }
+}

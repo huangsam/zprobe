@@ -14,3 +14,23 @@ pub fn parseGif(header: []const u8) !struct { width: u16, height: u16 } {
 
     return .{ .width = w, .height = h };
 }
+
+test "parseGif: boundary and zero checks" {
+    var header = [_]u8{0} ** 10;
+    @memcpy(header[0..4], &gifMagic);
+
+    // width = 0, height = 0
+    const dims = try parseGif(&header);
+    try std.testing.expectEqual(@as(u16, 0), dims.width);
+    try std.testing.expectEqual(@as(u16, 0), dims.height);
+
+    // width = 65535, height = 65535
+    header[6] = 0xff;
+    header[7] = 0xff;
+    header[8] = 0xff;
+    header[9] = 0xff;
+
+    const dims_large = try parseGif(&header);
+    try std.testing.expectEqual(@as(u16, 65535), dims_large.width);
+    try std.testing.expectEqual(@as(u16, 65535), dims_large.height);
+}

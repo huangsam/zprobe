@@ -123,3 +123,216 @@ pub fn parseWebpFile(allocator: std.mem.Allocator, file: anytype, io: anytype, m
 
     if (!dims_found) return error.WebpNoDimensions;
 }
+
+test "parseWebpFile: VP8X extended WebP with EXIF" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const test_utils = @import("../../core/test_utils.zig");
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    const filename = "test_vp8x_exif.webp";
+    const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+    defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+    var buf = [_]u8{0} ** 80;
+    // 1. RIFF + WEBP Header
+    @memcpy(buf[0..4], &webpRiffMagic);
+    // Size = 71 (excluding RIFF and Size = 71 - 8 = 63)
+    buf[4] = 63;
+    @memcpy(buf[8..12], &webpWebpMagic);
+
+    // 2. VP8X Chunk (size = 10, tag = "VP8X")
+    @memcpy(buf[12..16], "VP8X");
+    buf[16] = 10;
+    buf[20] = 0x08; // Has EXIF flag
+    // Width = 1000 - 1 = 999 (0x03e7)
+    buf[24] = 0xe7;
+    buf[25] = 0x03;
+    // Height = 800 - 1 = 799 (0x031f)
+    buf[27] = 0x1f;
+    buf[28] = 0x03;
+
+    // 3. EXIF Chunk (size = 33, tag = "EXIF")
+    // Offset = 12 + 8 (VP8X header) + 10 (VP8X payload) = 30
+    @memcpy(buf[30..34], "EXIF");
+    buf[34] = 33;
+
+    // tiff payload inside EXIF chunk at offset 38
+    const tiff_offset = 38;
+    buf[tiff_offset + 0] = 'I';
+    buf[tiff_offset + 1] = 'I';
+    buf[tiff_offset + 2] = 42;
+    buf[tiff_offset + 4] = 8; // IFD offset
+
+    // IFD at tiff_offset + 8
+    buf[tiff_offset + 8] = 1; // 1 entry
+    buf[tiff_offset + 10] = 0x0f; // Make
+    buf[tiff_offset + 11] = 0x01;
+    buf[tiff_offset + 12] = 2; // type ASCII
+    buf[tiff_offset + 14] = 9; // count = 9
+    buf[tiff_offset + 18] = 24; // value offset (24 relative to tiff_offset)
+
+    // String "WEBPExif\x00" at tiff_offset + 24
+    @memcpy(buf[tiff_offset + 24 .. tiff_offset + 33], "WEBPExif\x00");
+
+    try std.Io.File.writePositionalAll(file, io, buf[0..72], 0);
+    std.Io.File.close(file, io);
+
+    var meta = ImageMetadata{
+        .format = "webp",
+        .width = 0,
+        .height = 0,
+    };
+    defer meta.deinit(allocator);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    try parseWebpFile(allocator, check_file, io, &meta);
+
+    try std.testing.expectEqual(@as(u32, 1000), meta.width);
+    try std.testing.expectEqual(@as(u32, 800), meta.height);
+    try std.testing.expectEqualStrings("WEBPExif", meta.camera_make.?);
+}
+
+test "parseWebpFile: VP8L lossless WebP" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const test_utils = @import("../../core/test_utils.zig");
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    const filename = "test_vp8l.webp";
+    const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+    defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+    var buf = [_]u8{0} ** 26;
+    @memcpy(buf[0..4], &webpRiffMagic);
+    buf[4] = 18; // Size
+    @memcpy(buf[8..12], &webpWebpMagic);
+
+    @memcpy(buf[12..16], "VP8L");
+    buf[16] = 5; // Chunk size
+    @memcpy(buf[20..25], "\x2f\xe7\xc3\xc7\x00"); // 1000x800 packed dims
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+    std.Io.File.close(file, io);
+
+    var meta = ImageMetadata{
+        .format = "webp",
+        .width = 0,
+        .height = 0,
+    };
+    defer meta.deinit(allocator);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    try parseWebpFile(allocator, check_file, io, &meta);
+
+    try std.testing.expectEqual(@as(u32, 1000), meta.width);
+    try std.testing.expectEqual(@as(u32, 800), meta.height);
+}
+
+test "parseWebpFile: VP8 lossy WebP" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const test_utils = @import("../../core/test_utils.zig");
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    const filename = "test_vp8.webp";
+    const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+    defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+    var buf = [_]u8{0} ** 30;
+    @memcpy(buf[0..4], &webpRiffMagic);
+    buf[4] = 22; // Size
+    @memcpy(buf[8..12], &webpWebpMagic);
+
+    @memcpy(buf[12..16], "VP8 ");
+    buf[16] = 10; // Chunk size
+    @memcpy(buf[20..30], "\x00\x00\x00\x9d\x01\x2a\xe8\x03\x20\x03"); // 1000x800 packed dims
+
+    try std.Io.File.writePositionalAll(file, io, &buf, 0);
+    std.Io.File.close(file, io);
+
+    var meta = ImageMetadata{
+        .format = "webp",
+        .width = 0,
+        .height = 0,
+    };
+    defer meta.deinit(allocator);
+
+    const check_file = try std.Io.Dir.openFile(temp_dir, io, filename, .{ .mode = .read_only });
+    defer std.Io.File.close(check_file, io);
+
+    try parseWebpFile(allocator, check_file, io, &meta);
+
+    try std.testing.expectEqual(@as(u32, 1000), meta.width);
+    try std.testing.expectEqual(@as(u32, 800), meta.height);
+}
+
+test "parseWebpFile: invalid and error paths" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const test_utils = @import("../../core/test_utils.zig");
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    // 1. Invalid WebP signature
+    {
+        const filename = "test_invalid_sig.webp";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        var buf = [_]u8{0} ** 12;
+        @memcpy(buf[0..4], "RIFF");
+        @memcpy(buf[8..12], "XXXX"); // Bad format
+
+        try std.Io.File.writePositionalAll(file, io, &buf, 0);
+        std.Io.File.close(file, io);
+
+        var meta = ImageMetadata{ .format = "webp", .width = 0, .height = 0 };
+        defer meta.deinit(allocator);
+
+        const check_file = try std.Io.Dir.openFile(temp_dir, io, filename, .{ .mode = .read_only });
+        defer std.Io.File.close(check_file, io);
+
+        try std.testing.expectError(error.NotWebp, parseWebpFile(allocator, check_file, io, &meta));
+    }
+
+    // 2. Missing dimensions chunks
+    {
+        const filename = "test_no_dims.webp";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        var buf = [_]u8{0} ** 20;
+        @memcpy(buf[0..4], &webpRiffMagic);
+        buf[4] = 12;
+        @memcpy(buf[8..12], &webpWebpMagic);
+        @memcpy(buf[12..16], "EXIF");
+        buf[16] = 0; // Empty EXIF chunk
+
+        try std.Io.File.writePositionalAll(file, io, &buf, 0);
+        std.Io.File.close(file, io);
+
+        var meta = ImageMetadata{ .format = "webp", .width = 0, .height = 0 };
+        defer meta.deinit(allocator);
+
+        const check_file = try std.Io.Dir.openFile(temp_dir, io, filename, .{ .mode = .read_only });
+        defer std.Io.File.close(check_file, io);
+
+        try std.testing.expectError(error.WebpNoDimensions, parseWebpFile(allocator, check_file, io, &meta));
+    }
+}

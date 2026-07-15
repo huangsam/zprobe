@@ -745,3 +745,254 @@ test "parse bmp header: height i32.min" {
     try std.testing.expectEqual(@as(u32, 100), dims.width);
     try std.testing.expectEqual(@as(u32, 2147483648), dims.height);
 }
+
+test "parseFile: routing for standard image formats" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    // 1. PNG File Routing
+    {
+        const filename = "test_routing.png";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        var png_buf = [_]u8{0} ** 33;
+        @memcpy(png_buf[0..8], &png.pngMagic);
+        png_buf[11] = 13; // chunk length
+        @memcpy(png_buf[12..16], "IHDR");
+        // width = 256, height = 128
+        png_buf[18] = 1;
+        png_buf[19] = 0;
+        png_buf[22] = 0;
+        png_buf[23] = 128;
+
+        try std.Io.File.writePositionalAll(file, io, &png_buf, 0);
+        std.Io.File.close(file, io);
+
+        const full_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, filename });
+        defer allocator.free(full_path);
+
+        var meta = try parseFile(allocator, full_path, io);
+        defer meta.deinit(allocator);
+
+        try std.testing.expectEqualStrings("png", meta.format);
+        try std.testing.expectEqual(@as(u32, 256), meta.width);
+        try std.testing.expectEqual(@as(u32, 128), meta.height);
+    }
+
+    // 2. JPEG File Routing
+    {
+        const filename = "test_routing.jpg";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        var jpeg_buf = [_]u8{0} ** 15;
+        @memcpy(jpeg_buf[0..2], &jpeg.jpegMagic);
+        jpeg_buf[2] = 0xff;
+        jpeg_buf[3] = 0xc0; // SOF0
+        jpeg_buf[5] = 11; // Segment length
+        jpeg_buf[6] = 8; // Precision
+        // height = 240, width = 320
+        jpeg_buf[8] = 240;
+        jpeg_buf[9] = 1;
+        jpeg_buf[10] = 64;
+
+        try std.Io.File.writePositionalAll(file, io, &jpeg_buf, 0);
+        std.Io.File.close(file, io);
+
+        const full_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, filename });
+        defer allocator.free(full_path);
+
+        var meta = try parseFile(allocator, full_path, io);
+        defer meta.deinit(allocator);
+
+        try std.testing.expectEqualStrings("jpeg", meta.format);
+        try std.testing.expectEqual(@as(u32, 320), meta.width);
+        try std.testing.expectEqual(@as(u32, 240), meta.height);
+    }
+
+    // 3. GIF File Routing
+    {
+        const filename = "test_routing.gif";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        var gif_buf = [_]u8{0} ** 10;
+        @memcpy(gif_buf[0..6], "GIF89a");
+        // width = 320 (0x0140), height = 240 (0x00f0)
+        gif_buf[6] = 0x40;
+        gif_buf[7] = 0x01;
+        gif_buf[8] = 0xf0;
+        gif_buf[9] = 0x00;
+
+        try std.Io.File.writePositionalAll(file, io, &gif_buf, 0);
+        std.Io.File.close(file, io);
+
+        const full_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, filename });
+        defer allocator.free(full_path);
+
+        var meta = try parseFile(allocator, full_path, io);
+        defer meta.deinit(allocator);
+
+        try std.testing.expectEqualStrings("gif", meta.format);
+        try std.testing.expectEqual(@as(u32, 320), meta.width);
+        try std.testing.expectEqual(@as(u32, 240), meta.height);
+    }
+
+    // 4. BMP File Routing
+    {
+        const filename = "test_routing.bmp";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        var bmp_buf = [_]u8{0} ** 26;
+        @memcpy(bmp_buf[0..2], &bmp.bmpMagic);
+        bmp_buf[14] = 40; // DIB header size
+        // width = 320 (0x00000140), height = 240 (0x000000f0)
+        bmp_buf[18] = 0x40;
+        bmp_buf[19] = 0x01;
+        bmp_buf[22] = 0xf0;
+
+        try std.Io.File.writePositionalAll(file, io, &bmp_buf, 0);
+        std.Io.File.close(file, io);
+
+        const full_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, filename });
+        defer allocator.free(full_path);
+
+        var meta = try parseFile(allocator, full_path, io);
+        defer meta.deinit(allocator);
+
+        try std.testing.expectEqualStrings("bmp", meta.format);
+        try std.testing.expectEqual(@as(u32, 320), meta.width);
+        try std.testing.expectEqual(@as(u32, 240), meta.height);
+    }
+
+    // 5. WebP File Routing
+    {
+        const filename = "test_routing.webp";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        var webp_buf = [_]u8{0} ** 30;
+        @memcpy(webp_buf[0..4], &webp.webpRiffMagic);
+        @memcpy(webp_buf[8..12], &webp.webpWebpMagic);
+        @memcpy(webp_buf[12..16], "VP8 ");
+        webp_buf[16] = 10; // Chunk size
+        // VP8 signature and dims: width = 1000, height = 800
+        webp_buf[23] = 0x9d;
+        webp_buf[24] = 0x01;
+        webp_buf[25] = 0x2a;
+        webp_buf[26] = 0xe8;
+        webp_buf[27] = 0x03;
+        webp_buf[28] = 0x20;
+        webp_buf[29] = 0x03;
+
+        try std.Io.File.writePositionalAll(file, io, &webp_buf, 0);
+        std.Io.File.close(file, io);
+
+        const full_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, filename });
+        defer allocator.free(full_path);
+
+        var meta = try parseFile(allocator, full_path, io);
+        defer meta.deinit(allocator);
+
+        try std.testing.expectEqualStrings("webp", meta.format);
+        try std.testing.expectEqual(@as(u32, 1000), meta.width);
+        try std.testing.expectEqual(@as(u32, 800), meta.height);
+    }
+
+    // 6. TIFF File Routing
+    {
+        const filename = "test_routing.tiff";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        var tiff_buf = [_]u8{0} ** 50;
+        tiff_buf[0] = 'I';
+        tiff_buf[1] = 'I';
+        tiff_buf[2] = 42;
+        tiff_buf[4] = 8; // IFD offset
+
+        // IFD: 2 entries
+        tiff_buf[8] = 2;
+
+        // ImageWidth (0x0100)
+        tiff_buf[10] = 0x00;
+        tiff_buf[11] = 0x01;
+        tiff_buf[12] = 3; // u16
+        tiff_buf[14] = 1; // count
+        tiff_buf[18] = 0x80; // value = 1920 (0x0780)
+        tiff_buf[19] = 0x07;
+
+        // ImageLength (0x0101)
+        tiff_buf[22] = 0x01;
+        tiff_buf[23] = 0x01;
+        tiff_buf[24] = 3; // u16
+        tiff_buf[26] = 1; // count
+        tiff_buf[30] = 0x38; // value = 1080 (0x0438)
+        tiff_buf[31] = 0x04;
+
+        try std.Io.File.writePositionalAll(file, io, &tiff_buf, 0);
+        std.Io.File.close(file, io);
+
+        const full_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, filename });
+        defer allocator.free(full_path);
+
+        var meta = try parseFile(allocator, full_path, io);
+        defer meta.deinit(allocator);
+
+        try std.testing.expectEqualStrings("tiff", meta.format);
+        try std.testing.expectEqual(@as(u32, 1920), meta.width);
+        try std.testing.expectEqual(@as(u32, 1080), meta.height);
+    }
+}
+
+test "parseFile: error handling on empty or invalid file" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    // 1. Missing file
+    {
+        const full_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, "does_not_exist.png" });
+        defer allocator.free(full_path);
+
+        try std.testing.expectError(error.FileNotFound, parseFile(allocator, full_path, io));
+    }
+
+    // 2. Empty file
+    {
+        const filename = "empty.png";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        std.Io.File.close(file, io);
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        const full_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, filename });
+        defer allocator.free(full_path);
+
+        try std.testing.expectError(error.NotImage, parseFile(allocator, full_path, io));
+    }
+
+    // 3. Unknown format
+    {
+        const filename = "unknown.xyz";
+        const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
+        defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
+
+        const data = "This is not an image at all but has some length";
+        try std.Io.File.writePositionalAll(file, io, data, 0);
+        std.Io.File.close(file, io);
+
+        const full_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, filename });
+        defer allocator.free(full_path);
+
+        try std.testing.expectError(error.NotImage, parseFile(allocator, full_path, io));
+    }
+}
