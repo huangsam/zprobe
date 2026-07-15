@@ -735,7 +735,7 @@ test "init creates expected indices (T20)" {
     try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_paths_metadata_id"));
     try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_paths_size"));
     try std.testing.expectEqual(@as(u32, 0), try queryIndexCount(&database, "idx_metadata_create_time"));
-    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metdata_ctime_norm"));
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metadata_ctime_norm"));
     try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metadata_format"));
 }
 
@@ -988,5 +988,5 @@ test "database migration from version 2 to 3" {
 
     // 3. Verify it migrated and indices are correct
     try std.testing.expectEqual(@as(u32, 0), try queryIndexCount(&database, "idx_metadata_create_time"));
-    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metdata_ctime_norm"));
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metadata_ctime_norm"));
 }
