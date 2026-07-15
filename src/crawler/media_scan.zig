@@ -109,16 +109,11 @@ pub fn scan(root_path: []const u8, io: anytype, allocator: std.mem.Allocator) !s
     defer walker.deinit();
 
     while (true) {
-        const entry = walker.next(io) catch |err| {
-            std.debug.print("Warning: failed to walk next entry: {s}\n", .{@errorName(err)});
-            continue;
-        } orelse break;
+        const entry = (try walker.next(io)) orelse break;
 
         if (entry.kind == .directory) {
             if (isSkippedDirectory(entry.basename)) continue;
-            walker.enter(io, entry) catch |err| {
-                std.debug.print("Warning: failed to enter directory '{s}': {s}\n", .{ entry.path, @errorName(err) });
-            };
+            try walker.enter(io, entry);
             continue;
         }
 
@@ -305,4 +300,42 @@ test "concurrent scan and mock processing" {
     thread2.join();
 
     try std.testing.expectEqual(@as(usize, 2), success.load(.monotonic));
+}
+
+extern fn chmod(path: [*:0]const u8, mode: u32) c_int;
+
+test "scan: propagates directory walking errors" {
+    if (comptime @import("builtin").os.tag == .windows) return;
+
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+    const temp_dir = temp_ctx.tmp.dir;
+
+    try std.Io.Dir.createDirPath(temp_dir, io, "unreadable");
+
+    const unreadable_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, "unreadable" });
+    defer allocator.free(unreadable_path);
+
+    const unreadable_path_z = try allocator.dupeZ(u8, unreadable_path);
+    defer allocator.free(unreadable_path_z);
+
+    const res = chmod(unreadable_path_z.ptr, 0);
+    try std.testing.expectEqual(@as(c_int, 0), res);
+
+    defer {
+        _ = chmod(unreadable_path_z.ptr, 0o755);
+    }
+
+    const result = scan(temp_ctx.abs_path, io, allocator);
+    if (result) |list| {
+        var mutable_list = list;
+        for (mutable_list.items) |entry| allocator.free(entry.path);
+        mutable_list.deinit(allocator);
+        return error.ExpectedScanFailure;
+    } else |err| {
+        try std.testing.expectEqual(error.AccessDenied, err);
+    }
 }
