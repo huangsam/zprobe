@@ -269,7 +269,7 @@ body {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1.75rem;
-  contain: layout paint;
+  contain: layout style;
 }
 
 @media (max-width: 1200px) {

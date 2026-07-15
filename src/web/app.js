@@ -854,6 +854,7 @@ async function fetchStats() {
       const el = document.getElementById(id);
       if (el) {
         el.textContent = "Error";
+        el.title = "Failed to load stats";
         el.classList.add("error-state");
       }
     });
@@ -986,18 +987,31 @@ function populateStats() {
       el.classList.remove("error-state");
     }
   });
-  document.getElementById("stat-total-files").textContent = formatCount(
-    statsData.total_files,
-  );
-  document.getElementById("stat-total-size").textContent = formatBytes(
-    statsData.total_size,
-  );
-  document.getElementById("stat-images").textContent = formatCount(
-    statsData.num_images,
-  );
-  document.getElementById("stat-videos").textContent = formatCount(
-    statsData.num_videos,
-  );
+  const filesVal = formatCount(statsData.total_files);
+  const sizeVal = formatBytes(statsData.total_size);
+  const imagesVal = formatCount(statsData.num_images);
+  const videosVal = formatCount(statsData.num_videos);
+
+  const filesEl = document.getElementById("stat-total-files");
+  if (filesEl) {
+    filesEl.textContent = filesVal;
+    filesEl.title = filesVal;
+  }
+  const sizeEl = document.getElementById("stat-total-size");
+  if (sizeEl) {
+    sizeEl.textContent = sizeVal;
+    sizeEl.title = sizeVal;
+  }
+  const imagesEl = document.getElementById("stat-images");
+  if (imagesEl) {
+    imagesEl.textContent = imagesVal;
+    imagesEl.title = imagesVal;
+  }
+  const videosEl = document.getElementById("stat-videos");
+  if (videosEl) {
+    videosEl.textContent = videosVal;
+    videosEl.title = videosVal;
+  }
 
   const summary = document.getElementById("stats-live-summary");
   if (summary) {
