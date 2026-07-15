@@ -98,12 +98,12 @@ pub const migrations = [_][]const u8{
     \\
     \\-- Migrate legacy data
     \\INSERT OR IGNORE INTO media_metadata (
-    \\    file_hash, format, width, height, orientation, create_time, 
+    \\    file_hash, format, width, height, orientation, create_time,
     \\    camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail
     \\)
-    \\SELECT 
+    \\SELECT
     \\    (size || '_' || mtime || '_' || COALESCE(format, '') || '_' || COALESCE(width, 0) || '_' || COALESCE(height, 0)),
-    \\    format, width, height, orientation, create_time, 
+    \\    format, width, height, orientation, create_time,
     \\    camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail
     \\FROM media;
     \\
@@ -113,6 +113,13 @@ pub const migrations = [_][]const u8{
     \\JOIN media_metadata mm ON mm.file_hash = (m.size || '_' || m.mtime || '_' || COALESCE(m.format, '') || '_' || COALESCE(m.width, 0) || '_' || COALESCE(m.height, 0));
     \\
     \\DROP TABLE media;
+    ,
+    // Version 3: Expression index for normalized create_time. MUST stay byte-identical to normalized_create_time_expr in src/core/db/query.zig (without table alias)
+    \\CREATE INDEX IF NOT EXISTS idx_metdata_ctime_norm
+    \\ON media_metadata(
+    \\    REPLACE(SUBSTR(create_time, 1, 10), ':', '-') || SUBSTR(create_time, 11)
+    \\);
+    \\DROP INDEX IF EXISTS idx_metadata_create_time;
 };
 
 /// Initialize SQLite connection, run migrations, and prepare statements.

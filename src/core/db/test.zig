@@ -734,7 +734,8 @@ test "init creates expected indices (T20)" {
 
     try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_paths_metadata_id"));
     try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_paths_size"));
-    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metadata_create_time"));
+    try std.testing.expectEqual(@as(u32, 0), try queryIndexCount(&database, "idx_metadata_create_time"));
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metdata_ctime_norm"));
     try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metadata_format"));
 }
 
@@ -955,4 +956,37 @@ test "orphan metadata is cleaned up by triggers on delete or update" {
         try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(stmt));
         try std.testing.expectEqual(@as(i32, 0), c.sqlite3_column_int(stmt, 0));
     }
+}
+
+test "database migration from version 2 to 3" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/migration_v2_v3.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    // 1. Manually construct version 2 schema
+    {
+        var handle: ?*c.sqlite3 = null;
+        const path_c = try allocator.dupeZ(u8, path);
+        defer allocator.free(path_c);
+        const rc = c.sqlite3_open(path_c, &handle);
+        try std.testing.expectEqual(c.SQLITE_OK, rc);
+        defer _ = c.sqlite3_close(handle);
+
+        var err_msg: [*c]u8 = null;
+        try std.testing.expectEqual(c.SQLITE_OK, c.sqlite3_exec(handle, migrations[0].ptr, null, null, &err_msg));
+        try std.testing.expectEqual(c.SQLITE_OK, c.sqlite3_exec(handle, migrations[1].ptr, null, null, &err_msg));
+        try std.testing.expectEqual(c.SQLITE_OK, c.sqlite3_exec(handle, "PRAGMA user_version = 2;", null, null, null));
+    }
+
+    // 2. Open via Db.init, which should automatically migrate version 2 to version 3
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    // 3. Verify it migrated and indices are correct
+    try std.testing.expectEqual(@as(u32, 0), try queryIndexCount(&database, "idx_metadata_create_time"));
+    try std.testing.expectEqual(@as(u32, 1), try queryIndexCount(&database, "idx_metdata_ctime_norm"));
 }

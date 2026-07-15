@@ -723,6 +723,7 @@ pub fn getStats(self: *Db, allocator: std.mem.Allocator) !DbStats {
 }
 
 /// SQL expression that normalizes EXIF "YYYY:MM:DD ..." to "YYYY-MM-DD ...".
+/// Note: Must match the expression in schema.zig Version 3 migration (idx_metdata_ctime_norm).
 const normalized_create_time_expr =
     "REPLACE(SUBSTR(m.create_time, 1, 10), ':', '-') || SUBSTR(m.create_time, 11)";
 
