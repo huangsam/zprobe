@@ -182,7 +182,9 @@ fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path
     if (is_video) {
         // -vframes 1 captures a single frame; -t 10 is a standard output-side
         // time limit that aborts gracefully if the seek or decode stalls.
-        try argv.appendSlice(allocator, &.{ "-vframes", "1", "-t", "10" });
+        try argv.appendSlice(allocator, &.{ "-vframes", "1", "-t", "10", "-update", "1" });
+    } else {
+        try argv.appendSlice(allocator, &.{ "-update", "1" });
     }
     try argv.appendSlice(allocator, &.{ "-vf", "scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih)", "-f", "image2", thumb_path_jpg });
 
