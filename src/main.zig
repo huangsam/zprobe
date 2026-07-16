@@ -127,13 +127,14 @@ const WorkerContext = struct {
     has_ffmpeg: bool = false,
     ffmpeg_sem: ?*std.Io.Semaphore = null,
     rebuild_thumbnails: bool = false,
+    ffmpeg_path: []const u8 = "ffmpeg",
 };
 
-fn checkFFmpeg(io: std.Io) bool {
+fn checkFFmpeg(io: std.Io, ffmpeg_path: []const u8) bool {
     const allocator = std.heap.page_allocator;
 
     const decoders_res = std.process.run(allocator, io, .{
-        .argv = &.{ "ffmpeg", "-decoders" },
+        .argv = &.{ ffmpeg_path, "-decoders" },
     }) catch return false;
     defer {
         allocator.free(decoders_res.stdout);
@@ -150,7 +151,7 @@ fn checkFFmpeg(io: std.Io) bool {
     if (std.mem.indexOf(u8, decoders_res.stdout, "h264") == null) return false;
 
     const encoders_res = std.process.run(allocator, io, .{
-        .argv = &.{ "ffmpeg", "-encoders" },
+        .argv = &.{ ffmpeg_path, "-encoders" },
     }) catch return false;
     defer {
         allocator.free(encoders_res.stdout);
@@ -166,14 +167,14 @@ fn checkFFmpeg(io: std.Io) bool {
     return true;
 }
 
-fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8, is_video: bool) !bool {
+fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, thumb_dir: []const u8, is_video: bool) !bool {
     const thumb_path_jpg = try root.utils.getThumbnailPath(allocator, thumb_dir, original_path);
     defer allocator.free(thumb_path_jpg);
 
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
 
-    try argv.appendSlice(allocator, &.{ "ffmpeg", "-y", "-nostdin", "-threads", "1" });
+    try argv.appendSlice(allocator, &.{ ffmpeg_path, "-y", "-nostdin", "-threads", "1" });
     if (is_video) {
         try argv.appendSlice(allocator, &.{ "-skip_frame", "nokey", "-ss", "00:00:01" });
     }
@@ -278,7 +279,7 @@ const worker = struct {
                 if (c_ctx.has_ffmpeg) {
                     if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
                     defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                    has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, path, thumb_dir, true) catch false;
+                    has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir, true) catch false;
                 }
             }
             record = try populateJsonFromVideo(allocator, &res, path, size, has_thumb);
@@ -290,7 +291,7 @@ const worker = struct {
                 } else if (c_ctx.has_ffmpeg) {
                     if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
                     defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                    has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, path, thumb_dir, false) catch false;
+                    has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir, false) catch false;
                 }
             }
             record = try populateJsonFromImage(allocator, &res, path, size, has_thumb);
@@ -434,6 +435,7 @@ fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  --no-thumbnails      Bypass generating and saving thumbnails (useful on slow NAS / 1GB RAM)
         \\  --rebuild-thumbnails Re-generate missing thumbnails during scanning
         \\  --prune              Prune stale cache entries from DB for paths inside scanned directories but no longer present on disk
+        \\  --ffmpeg-path <path> Custom path/command for FFmpeg executable (default: ZPROBE_FFMPEG_PATH env or "ffmpeg")
         \\
         \\Supported Formats:
         \\  Images: JPEG, PNG, GIF, BMP, WebP, TIFF, AVIF, ICO, JXL
@@ -469,6 +471,7 @@ pub fn main(init: std.process.Init) !void {
     var no_thumbnails = false;
     var rebuild_thumbnails = false;
     var prune_mode = false;
+    var ffmpeg_path_override: ?[]const u8 = null;
 
     var arg_idx: usize = 1;
     while (arg_idx < args.len) : (arg_idx += 1) {
@@ -481,6 +484,15 @@ pub fn main(init: std.process.Init) !void {
             rebuild_thumbnails = true;
         } else if (std.mem.eql(u8, arg, "--prune")) {
             prune_mode = true;
+        } else if (std.mem.eql(u8, arg, "--ffmpeg-path")) {
+            if (arg_idx + 1 < args.len) {
+                arg_idx += 1;
+                ffmpeg_path_override = args[arg_idx];
+            } else {
+                try out.print("Error: --ffmpeg-path option requires a value\n", .{});
+                try out.flush();
+                std.process.exit(1);
+            }
         } else if (std.mem.eql(u8, arg, "--concurrency") or std.mem.eql(u8, arg, "-j")) {
             if (arg_idx + 1 < args.len) {
                 arg_idx += 1;
@@ -640,7 +652,10 @@ pub fn main(init: std.process.Init) !void {
     const threads = try allocator.alloc(std.Thread, num_workers);
     defer allocator.free(threads);
 
-    const has_ffmpeg = checkFFmpeg(io);
+    const env_ffmpeg = init.environ_map.get("ZPROBE_FFMPEG_PATH");
+    const ffmpeg_path = if (ffmpeg_path_override) |path| path else (if (env_ffmpeg) |path| path else "ffmpeg");
+
+    const has_ffmpeg = checkFFmpeg(io, ffmpeg_path);
     const ffmpeg_concurrency = @min(num_workers, @min(@max(cpu_count / 2, 1), 4));
     var ffmpeg_sem: std.Io.Semaphore = .{ .permits = ffmpeg_concurrency };
 
@@ -658,6 +673,7 @@ pub fn main(init: std.process.Init) !void {
         .has_ffmpeg = has_ffmpeg,
         .ffmpeg_sem = &ffmpeg_sem,
         .rebuild_thumbnails = rebuild_thumbnails,
+        .ffmpeg_path = ffmpeg_path,
     };
 
     var spawned_count: usize = 0;
