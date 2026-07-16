@@ -86,7 +86,7 @@ test "getThumbnailPath derivation" {
 }
 
 /// Derive the unique absolute animated GIF preview path from the original path and thumbnails directory.
-/// Uses the same sha256(original_path) hash as getThumbnailPath but with a .webp extension.
+/// Uses the same sha256(original_path) hash as getThumbnailPath but with a .gif extension.
 pub fn getAnimatedPreviewPath(allocator: std.mem.Allocator, thumb_dir: []const u8, original_path: []const u8) ![]const u8 {
     var hash_bytes: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});

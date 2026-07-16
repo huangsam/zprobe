@@ -312,13 +312,13 @@ const worker = struct {
                     return null;
                 }
             }
-            // Animated preview (re)regeneration for videos. Two modes, mirroring the
+            // Animated preview (re)generation for videos. Two modes, mirroring the
             // thumbnail flags: --rebuild-previews heals by on-disk existence (like
             // --rebuild-thumbnails), so a deleted gif is regenerated regardless of
             // the has_animated flag; plain --animated-previews only back-fills
-            // videos that never had one (flag-based), sstaying cheap on converged
+            // videos that never had one (flag-based), staying cheap on converged
             // libraries by not stat-ing every gif each scan. Gated on is_video:
-            // previews are only over generated for videos.
+            // previews are only ever generated for videos.
             if (is_video and c_ctx.animated_previews and c_ctx.thumb_dir != null) {
                 const missing = if (c_ctx.rebuild_previews)
                     !checkAnimatedPreviewExists(c_ctx.io, allocator, path, c_ctx.thumb_dir.?)
@@ -535,7 +535,7 @@ fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  --no-thumbnails            Bypass generating and saving thumbnails (useful on slow NAS / 1GB RAM)
         \\  --rebuild-thumbnails       Re-generate missing thumbnails during scanning
         \\  --animated-previews        Generate animated GIF hover previews for videos (3s, 10fps, 320px)
-        \\  --rebuild-previews         Re-generate missing animated GIF previews during scanning
+        \\  --rebuild-previews         Re-generate missing animated GIF previews during scanning (implies --animated-previews)
         \\  --prune                    Prune stale cache entries from DB for paths inside scanned directories but no longer present on disk
         \\  --ffmpeg-path <path>       Custom path/command for FFmpeg executable (default: ZPROBE_FFMPEG_PATH env or "ffmpeg")
         \\
@@ -589,7 +589,9 @@ pub fn main(init: std.process.Init) !void {
         } else if (std.mem.eql(u8, arg, "--animated-previews")) {
             animated_previews = true;
         } else if (std.mem.eql(u8, arg, "--rebuild-previews")) {
+            // Rebuilding previews implies generating them.
             rebuild_previews = true;
+            animated_previews = true;
         } else if (std.mem.eql(u8, arg, "--prune")) {
             prune_mode = true;
         } else if (std.mem.eql(u8, arg, "--ffmpeg-path")) {
