@@ -1112,7 +1112,7 @@ function renderTable() {
     let thumbHtml = "";
     if (row.has_thumbnail) {
       const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
-      // If the row has an animated WebP preview, render it as an overlay that
+      // If the row has an animated GIF preview, render it as an overlay that
       // fades in on hover (CSS .has-animated:hover .animated-overlay).
       const animatedOverlay = row.has_animated
         ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="row-thumbnail animated-overlay" alt="" loading="lazy" aria-hidden="true" />`

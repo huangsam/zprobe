@@ -986,9 +986,9 @@ td:nth-child(5) {
   max-width: 100%;
 }
 
-/* Animated WebP hover-reveal overlay
+/* Animated GIF hover-reveal overlay
  * ─────────────────────────────────────────────────────────────────────────────
- * The animated WebP img (.animated-overlay) is stacked on top of the JPEG
+ * The animated GIF img (.animated-overlay) is stacked on top of the JPEG
  * poster using absolute positioning.  It starts transparent and cross-fades in
  * on hover of the parent container.  Works for both the 44 px table cell
  * thumbnail-wrapper and the 260 px drawer-preview-container.

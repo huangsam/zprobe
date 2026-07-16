@@ -372,6 +372,24 @@ pub fn insertMedia(
         } else {
             return error.DatabaseExecuteError;
         }
+
+        // Persist artifact-presence flags on the existing metadata row so that
+        // thumbnail/preview back-fills (--rebuild-thumbnails, --animated-previews)
+        // are recorded even when the content hash already exists. MAX() only ever
+        // promotes 0→1: a later --no-thumbnails re-scan of a duplicate can never
+        // demote a flag another path already earned on the shared metadata row.
+        const update_flags_sql = "UPDATE media_metadata SET has_thumbnail = MAX(has_thumbnail, ?), has_animated = MAX(has_animated, ?) WHERE id = ?;";
+        var update_flags_stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, update_flags_sql, -1, &update_flags_stmt, null) != c.SQLITE_OK) {
+            return error.DatabasePrepareError;
+        }
+        defer _ = c.sqlite3_finalize(update_flags_stmt);
+        _ = c.sqlite3_bind_int(update_flags_stmt, 1, if (json_out.has_thumbnail) 1 else 0);
+        _ = c.sqlite3_bind_int(update_flags_stmt, 2, if (json_out.has_animated) 1 else 0);
+        _ = c.sqlite3_bind_int64(update_flags_stmt, 3, metadata_id);
+        if (c.sqlite3_step(update_flags_stmt) != c.SQLITE_DONE) {
+            return error.DatabaseExecuteError;
+        }
     } else {
         std.debug.print("Failed to insert media metadata: {s} (code: {d})\n", .{ c.sqlite3_errmsg(self.handle), step_rc });
         return error.DatabaseExecuteError;

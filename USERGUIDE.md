@@ -28,8 +28,13 @@ zig build -OReleaseSafe
 # Run with custom concurrency (e.g. 2 threads) and bypass thumbnail generation (saves CPU/disk writes on NAS)
 ./zig-out/bin/zprobe -j 2 --no-thumbnails --db /path/to/cache.db /path/to/media/directory
 
-# Run and generate animated WebP hover previews for videos (requires FFmpeg with libwebp)
+# Run and generate animated GIF hover previews for videos (requires FFmpeg's built-in gif encoder)
+# Back-fills videos that have no previews yet; stays cheap on already-processed libraries
 ./zig-out/bin/zprobe --animated-previews --db /path/to/cache.db /path/to/media/directory
+
+# Force re-generation of any animated previews missing from disk (implies --animated-previews)
+# Use this after deleting/clearing the .zprobe_thumbnails folder - no DB wipe needed
+./zig-out/bin/zprobe --rebuild-previews --db /path/to/cache.db /path/to/media/directory
 
 # Run daily scan and automatically prune stale cache entries for files deleted/moved in the target directories
 ./zig-out/bin/zprobe --db /path/to/cache.db --prune /path/to/media/directory
@@ -159,7 +164,7 @@ The server exposes the following JSON endpoints:
     - `date_to`: Filter files captured on or before this ISO date (`YYYY-MM-DD`).
     - `size_min`: Filter files larger than or equal to this size in bytes.
     - `size_max`: Filter files smaller than or equal to this size in bytes.
-- **`GET /api/thumbnail`**: Serves generated static poster thumbnails or animated hover WebP previews.
+- **`GET /api/thumbnail`**: Serves generated static poster thumbnails or animated hover GIF previews.
   - **Query Parameters:**
     - `path`: URL-encoded absolute path to the original media file.
-    - `animated`: Optional. Set to `1` to request the animated WebP preview (for videos). Any other value returns the standard JPEG poster thumbnail.
+    - `animated`: Optional. Set to `1` to request the animated GIF preview (for videos). Any other value returns the standard JPEG poster thumbnail.

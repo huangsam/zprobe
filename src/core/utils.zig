@@ -85,14 +85,14 @@ test "getThumbnailPath derivation" {
     try std.testing.expectEqualStrings("/tmp/thumbs/29b626657cf45e36a163312ad9f9af664135c75efa79f87d238c4a52b9ba9585.jpg", path);
 }
 
-/// Derive the unique absolute animated WebP preview path from the original path and thumbnails directory.
+/// Derive the unique absolute animated GIF preview path from the original path and thumbnails directory.
 /// Uses the same sha256(original_path) hash as getThumbnailPath but with a .webp extension.
 pub fn getAnimatedPreviewPath(allocator: std.mem.Allocator, thumb_dir: []const u8, original_path: []const u8) ![]const u8 {
     var hash_bytes: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
     const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
-    var filename_buf: [69]u8 = undefined;
-    const filename = try std.fmt.bufPrint(&filename_buf, "{s}.webp", .{&hex_hash});
+    var filename_buf: [68]u8 = undefined; // 64 hex chars + ".gif"
+    const filename = try std.fmt.bufPrint(&filename_buf, "{s}.gif", .{&hex_hash});
     return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ thumb_dir, filename });
 }
 
@@ -103,10 +103,7 @@ test "getAnimatedPreviewPath derivation" {
     const path = try getAnimatedPreviewPath(allocator, thumb_dir, original_path);
     defer allocator.free(path);
 
-    // Verify: sha256("/path/to/media.mp4") hex + ".webp" under thumb_dir
-    const hash = try getThumbnailPath(allocator, thumb_dir, original_path[0 .. original_path.len - 4]);
-    defer allocator.free(hash);
-    // Confirm the webp path is .webp extension, same directory
-    try std.testing.expect(std.mem.endsWith(u8, path, ".webp"));
+    // Confirm the animated preview path has a .gif extension, in the same directory
+    try std.testing.expect(std.mem.endsWith(u8, path, ".gif"));
     try std.testing.expect(std.mem.startsWith(u8, path, thumb_dir));
 }

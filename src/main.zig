@@ -130,6 +130,7 @@ const WorkerContext = struct {
     ffmpeg_sem: ?*std.Io.Semaphore = null,
     rebuild_thumbnails: bool = false,
     animated_previews: bool = false,
+    rebuild_previews: bool = false,
     ffmpeg_path: []const u8 = "ffmpeg",
 };
 
@@ -166,7 +167,7 @@ fn checkFFmpeg(io: std.Io, ffmpeg_path: []const u8) bool {
     }
 
     if (std.mem.indexOf(u8, encoders_res.stdout, "mjpeg") == null) return false;
-    if (std.mem.indexOf(u8, encoders_res.stdout, "libwebp") == null) return false;
+    if (std.mem.indexOf(u8, encoders_res.stdout, "gif") == null) return false;
 
     return true;
 }
@@ -204,8 +205,10 @@ fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path
     };
 }
 
-/// Generate a 3-second, 10fps, 320px animated WebP preview for a video file.
-/// Uses libwebp encoder. Shared ffmpeg_sem must be held by the caller before this.
+/// Generate a 3-second, 10fps, 320px animated GIF preview for a video file.
+/// Uses ffmpeg's built-in gif encoder (no external library) with a per-clip
+/// palettegen/paletteuse pass for good color fidelity. The shared ffmpeg_sem
+/// must be held by the caller before this.
 fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, thumb_dir: []const u8) !bool {
     const preview_path = try root.utils.getAnimatedPreviewPath(allocator, thumb_dir, original_path);
     defer allocator.free(preview_path);
@@ -213,12 +216,24 @@ fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpe
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
 
-    // Seek to 1s, capture 3s, scale to ≤320px on the longest axis, 10fps, no audio.
+    // Seek to 1s, capture 3s, no audio.
     try argv.appendSlice(allocator, &.{
-        ffmpeg_path,   "-y",       "-nostdin",                                                     "-threads", "1",
-        "-ss",         "00:00:01", "-t",                                                           "3",        "-i",
-        original_path, "-vf",      "scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih),fps=10", "-vcodec",  "libwebp",
-        "-loop",       "0",        "-an",                                                          "-vsync",   "0",
+        ffmpeg_path,
+        "-y",
+        "-nostdin",
+        "-threads",
+        "1",
+        "-ss",
+        "00:00:01",
+        "-t",
+        "3",
+        "-i",
+        original_path,
+        "-vf",
+        "fps=10,scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih):flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
+        "-loop",
+        "0",
+        "-an",
         preview_path,
     });
 
@@ -276,7 +291,12 @@ const worker = struct {
         }
     }
 
-    fn queryCacheRecord(c_ctx: WorkerContext, path: []const u8, size: u64, mtime: i64, allocator: std.mem.Allocator) ?db.DbRecord {
+    /// Look up an existing record by path. On a hit, if --rebuild-thumbnails or
+    /// --animated-previews is set and the corresponding on-disk artifact is
+    /// missing, returns null AND sets force_regen so the caller skips the
+    /// content-hash reuse path and regenerates the artifact via parseMediaFile.
+    fn queryCacheRecord(c_ctx: WorkerContext, path: []const u8, size: u64, mtime: i64, is_video: bool, allocator: std.mem.Allocator, force_regen: *bool) ?db.DbRecord {
+        force_regen.* = false;
         const d = c_ctx.db orelse return null;
         d.lockRead(c_ctx.io);
         defer d.unlockRead(c_ctx.io);
@@ -288,15 +308,25 @@ const worker = struct {
         if (cache_res.hit) {
             if (c_ctx.rebuild_thumbnails and c_ctx.thumb_dir != null) {
                 if (!checkThumbnailExists(c_ctx.io, allocator, path, c_ctx.thumb_dir.?)) {
+                    force_regen.* = true;
                     return null;
                 }
             }
-            // Force a cache miss so we can back-fill the animated preview for videos
-            // that were scanned before --animated-previews was enabled.
-            if (c_ctx.animated_previews and c_ctx.thumb_dir != null) {
-                if (!cache_res.json_out.has_animated and
-                    !checkAnimatedPreviewExists(c_ctx.io, allocator, path, c_ctx.thumb_dir.?))
-                {
+            // Animated preview (re)regeneration for videos. Two modes, mirroring the
+            // thumbnail flags: --rebuild-previews heals by on-disk existence (like
+            // --rebuild-thumbnails), so a deleted gif is regenerated regardless of
+            // the has_animated flag; plain --animated-previews only back-fills
+            // videos that never had one (flag-based), sstaying cheap on converged
+            // libraries by not stat-ing every gif each scan. Gated on is_video:
+            // previews are only over generated for videos.
+            if (is_video and c_ctx.animated_previews and c_ctx.thumb_dir != null) {
+                const missing = if (c_ctx.rebuild_previews)
+                    !checkAnimatedPreviewExists(c_ctx.io, allocator, path, c_ctx.thumb_dir.?)
+                else
+                    !cache_res.json_out.has_animated and
+                        !checkAnimatedPreviewExists(c_ctx.io, allocator, path, c_ctx.thumb_dir.?);
+                if (missing) {
+                    force_regen.* = true;
                     return null;
                 }
             }
@@ -445,7 +475,8 @@ const worker = struct {
         const arena_allocator = arena.allocator();
 
         // 1. Try DB path cache query
-        if (queryCacheRecord(c_ctx, entry.path, fsize, mtime, arena_allocator)) |record| {
+        var force_regen = false;
+        if (queryCacheRecord(c_ctx, entry.path, fsize, mtime, is_video, arena_allocator, &force_regen)) |record| {
             try printMetadataRecord(c_ctx, record, fsize);
             return;
         }
@@ -458,11 +489,16 @@ const worker = struct {
             std.debug.print("Warning: failed to compute fast hash for '{s}': {s}\n", .{ entry.path, @errorName(err) });
         }
 
-        // 3. Try DB hash query (to reuse metadata from duplicates)
-        if (file_hash) |hash| {
-            if (queryHashRecord(c_ctx, entry.path, fsize, mtime, hash, arena_allocator)) |record| {
-                try printMetadataRecord(c_ctx, record, fsize);
-                return;
+        // 3. Try DB hash query (to reuse metadata from duplicates).
+        // Skipped on a forced regen: the path already exists and would match its
+        // own content hash here, returning the stale record and defeating the
+        // thumbnail/preview back-fill before parseMediaFile can regenerate it.
+        if (!force_regen) {
+            if (file_hash) |hash| {
+                if (queryHashRecord(c_ctx, entry.path, fsize, mtime, hash, arena_allocator)) |record| {
+                    try printMetadataRecord(c_ctx, record, fsize);
+                    return;
+                }
             }
         }
 
@@ -498,7 +534,8 @@ fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  -j, --concurrency <n>      Number of concurrent worker threads (default: CPU-based dynamic clamp 8-16)
         \\  --no-thumbnails            Bypass generating and saving thumbnails (useful on slow NAS / 1GB RAM)
         \\  --rebuild-thumbnails       Re-generate missing thumbnails during scanning
-        \\  --animated-previews        Generate animated WebP hover previews for videos (3s, 10fps, 320px; requires libwebp)
+        \\  --animated-previews        Generate animated GIF hover previews for videos (3s, 10fps, 320px)
+        \\  --rebuild-previews         Re-generate missing animated GIF previews during scanning
         \\  --prune                    Prune stale cache entries from DB for paths inside scanned directories but no longer present on disk
         \\  --ffmpeg-path <path>       Custom path/command for FFmpeg executable (default: ZPROBE_FFMPEG_PATH env or "ffmpeg")
         \\
@@ -536,6 +573,7 @@ pub fn main(init: std.process.Init) !void {
     var no_thumbnails = false;
     var rebuild_thumbnails = false;
     var animated_previews = false;
+    var rebuild_previews = false;
     var prune_mode = false;
     var ffmpeg_path_override: ?[]const u8 = null;
 
@@ -550,6 +588,8 @@ pub fn main(init: std.process.Init) !void {
             rebuild_thumbnails = true;
         } else if (std.mem.eql(u8, arg, "--animated-previews")) {
             animated_previews = true;
+        } else if (std.mem.eql(u8, arg, "--rebuild-previews")) {
+            rebuild_previews = true;
         } else if (std.mem.eql(u8, arg, "--prune")) {
             prune_mode = true;
         } else if (std.mem.eql(u8, arg, "--ffmpeg-path")) {
@@ -750,6 +790,7 @@ pub fn main(init: std.process.Init) !void {
         .ffmpeg_sem = &ffmpeg_sem,
         .rebuild_thumbnails = rebuild_thumbnails,
         .animated_previews = animated_previews,
+        .rebuild_previews = rebuild_previews,
         .ffmpeg_path = ffmpeg_path,
     };
 

@@ -121,7 +121,7 @@ pub const migrations = [_][]const u8{
     \\);
     \\DROP INDEX IF EXISTS idx_metadata_create_time;
     ,
-    // Version 4: Add has_animated column to track per-content-hash animated WebP previews
+    // Version 4: Add has_animated column to track per-content-hash animated GIF previews
     \\ALTER TABLE media_metadata ADD COLUMN has_animated INTEGER DEFAULT 0;
 };
 

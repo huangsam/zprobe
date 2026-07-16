@@ -478,7 +478,7 @@ fn handleRequest(
         });
     } else if (std.mem.eql(u8, base_path, "/api/thumbnail")) {
         var query_path: ?[]const u8 = null;
-        // animated=1 triggers serving the .webp animated preview; any other value
+        // animated=1 triggers serving the .gif animated preview; any other value
         // (including missing, empty, or non-"1") falls back to the JPEG poster.
         var animated: bool = false;
 
@@ -513,7 +513,7 @@ fn handleRequest(
         const thumb_dir = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
         defer allocator.free(thumb_dir);
 
-        // Resolve the file path depending on whether the caller wants the animated WebP or JPEG poster.
+        // Resolve the file path depending on whether the caller wants the animated GIF or JPEG poster.
         const thumb_abs_path = if (animated)
             try zprobe.utils.getAnimatedPreviewPath(allocator, thumb_dir, decoded_path)
         else
@@ -570,7 +570,7 @@ fn handleRequest(
             return;
         }
 
-        const content_type: []const u8 = if (animated) "image/webp" else "image/jpeg";
+        const content_type: []const u8 = if (animated) "image/gif" else "image/jpeg";
         try request.respond(buf, .{
             .status = .ok,
             .extra_headers = &.{
