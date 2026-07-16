@@ -547,6 +547,18 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    const env_ffmpeg = init.environ_map.get("ZPROBE_FFMPEG_PATH");
+    const ffmpeg_path = if (ffmpeg_path_override) |path| path else (if (env_ffmpeg) |path| path else "ffmpeg");
+
+    const has_ffmpeg = if (no_thumbnails) false else checkFFmpeg(io, ffmpeg_path);
+    if (!json_mode and !no_thumbnails) {
+        if (has_ffmpeg) {
+            std.debug.print("FFmpeg detected and validated: {s}\n", .{ffmpeg_path});
+        } else {
+            std.debug.print("Warning: FFmpeg not found or invalid at '{s}'. Video and fallback image thumbnails will be skipped.\n", .{ffmpeg_path});
+        }
+    }
+
     // Initialize Database if path is provided
     var database: db.Db = undefined;
     var db_ptr: ?*db.Db = null;
@@ -658,10 +670,6 @@ pub fn main(init: std.process.Init) !void {
     const threads = try allocator.alloc(std.Thread, num_workers);
     defer allocator.free(threads);
 
-    const env_ffmpeg = init.environ_map.get("ZPROBE_FFMPEG_PATH");
-    const ffmpeg_path = if (ffmpeg_path_override) |path| path else (if (env_ffmpeg) |path| path else "ffmpeg");
-
-    const has_ffmpeg = checkFFmpeg(io, ffmpeg_path);
     const ffmpeg_concurrency = @min(num_workers, @min(@max(cpu_count / 2, 1), 4));
     var ffmpeg_sem: std.Io.Semaphore = .{ .permits = ffmpeg_concurrency };
 
