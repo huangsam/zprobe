@@ -1,6 +1,6 @@
 # Multi-stage build for zprobe-server
 # Stage 1: Build the statically linked binary using Zig 0.16.0
-FROM debian:bookworm-slim AS builder
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -11,9 +11,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Zig 0.16.0
+ARG BUILDARCH
 WORKDIR /opt
-RUN curl -L https://ziglang.org/download/0.16.0/zig-linux-x86_64-0.16.0.tar.xz | tar -xJ \
-    && ln -s /opt/zig-linux-x86_64-0.16.0/zig /usr/local/bin/zig
+RUN if [ "$BUILDARCH" = "arm64" ]; then \
+        ZIG_ARCH="aarch64"; \
+    else \
+        ZIG_ARCH="x86_64"; \
+    fi && \
+    curl -L "https://ziglang.org/download/0.16.0/zig-${ZIG_ARCH}-linux-0.16.0.tar.xz" | tar -xJ && \
+    ln -s "/opt/zig-${ZIG_ARCH}-linux-0.16.0/zig" /usr/local/bin/zig
 
 # Set up project workspace
 WORKDIR /src
@@ -21,7 +27,13 @@ COPY . .
 
 # Build statically linked release binary targeting musl
 # This ensures zero runtime dependencies on dynamic libc
-RUN zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSafe
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        ZIG_TARGET="aarch64-linux-musl"; \
+    else \
+        ZIG_TARGET="x86_64-linux-musl"; \
+    fi && \
+    zig build -Dtarget=${ZIG_TARGET} -Doptimize=ReleaseSafe
 
 # Stage 2: Create a minimal, secure runtime container
 FROM alpine:latest

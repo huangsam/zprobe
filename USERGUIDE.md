@@ -108,10 +108,20 @@ The server and cache database are configured with SQLite's **Write-Ahead Logging
 
 Alternatively, you can run `zprobe-server` inside a lightweight container:
 
-1. Build the Docker image from the root of the workspace:
+1. Build the Docker image from the root of the workspace.
+
+   For a single platform (e.g. host-native):
+
    ```bash
    docker build -t zprobe-server .
    ```
+
+   For multiple architectures concurrently (e.g. to run on both standard Intel/AMD `x86_64` servers and ARM64 platforms like Synology NAS or Raspberry Pi) without Rosetta/QEMU emulation overhead:
+
+   ```bash
+   docker buildx build --platform linux/amd64,linux/arm64 -t zprobe-server:latest .
+   ```
+
 2. Start the container, mounting the directory hosting your cache database (optionally passing basic auth environment variables):
    ```bash
    docker run -d \
