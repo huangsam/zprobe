@@ -107,3 +107,27 @@ test "getAnimatedPreviewPath derivation" {
     try std.testing.expect(std.mem.endsWith(u8, path, ".gif"));
     try std.testing.expect(std.mem.startsWith(u8, path, thumb_dir));
 }
+
+/// Determine FFmpeg worker pool size by allocating half of available CPU cores,
+/// clamping between 1 and 4, and ensuring it does not exceed total thread workers.
+pub fn computeFfmpegConcurrency(cpu_count: usize, num_workers: usize) usize {
+    var count = cpu_count / 2;
+    if (count < 1) count = 1;
+    if (count > 4) count = 4;
+    return @min(count, num_workers);
+}
+
+test "computeFfmpegConcurrency scenarios" {
+    // 1-core machine, 8 workers -> 1 permit
+    try std.testing.expectEqual(@as(usize, 1), computeFfmpegConcurrency(1, 8));
+    // 2-core machine, 8 workers -> 1 permit
+    try std.testing.expectEqual(@as(usize, 1), computeFfmpegConcurrency(2, 8));
+    // 4-core machine, 16 workers -> 2 permits
+    try std.testing.expectEqual(@as(usize, 2), computeFfmpegConcurrency(4, 16));
+    // 8-core machine, 16 workers -> 4 permits
+    try std.testing.expectEqual(@as(usize, 4), computeFfmpegConcurrency(8, 16));
+    // 32-core machine, 16 workers -> capped at 4 permits
+    try std.testing.expectEqual(@as(usize, 4), computeFfmpegConcurrency(32, 16));
+    // 8-core machine, but manually overridden to 2 worker threads -> capped at 2 permits
+    try std.testing.expectEqual(@as(usize, 2), computeFfmpegConcurrency(8, 2));
+}

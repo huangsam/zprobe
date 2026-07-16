@@ -43,6 +43,9 @@ zig build -OReleaseSafe
 # Use a custom FFmpeg binary (e.g. unclipped package on Synology NAS) via environment variable or CLI parameter
 ZPROBE_FFMPEG_PATH=/usr/local/bin/ffmpeg8 ./zig-out/bin/zprobe --db /path/to/cache.db /path/to/media/directory
 ./zig-out/bin/zprobe --ffmpeg-path /usr/local/bin/ffmpeg8 --db /path/to/cache.db /path/to/media/directory
+
+# Limit FFmpeg process concurrency (e.g. to exactly 1 concurrent process on a CPU-constrained NAS)
+ZPROBE_FFMPEG_WORKER_COUNT=1 ./zig-out/bin/zprobe --db /path/to/cache.db /path/to/media/directory
 ```
 
 ## Cross-Compilation

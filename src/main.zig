@@ -774,7 +774,14 @@ pub fn main(init: std.process.Init) !void {
     const threads = try allocator.alloc(std.Thread, num_workers);
     defer allocator.free(threads);
 
-    const ffmpeg_concurrency = @min(num_workers, @min(@max(cpu_count / 2, 1), 4));
+    var ffmpeg_concurrency = root.utils.computeFfmpegConcurrency(cpu_count, num_workers);
+    if (init.environ_map.get("ZPROBE_FFMPEG_WORKER_COUNT")) |env_val| {
+        if (std.fmt.parseInt(usize, env_val, 10)) |val| {
+            if (val > 0) {
+                ffmpeg_concurrency = val;
+            }
+        } else |_| {}
+    }
     var ffmpeg_sem: std.Io.Semaphore = .{ .permits = ffmpeg_concurrency };
 
     const worker_ctx = WorkerContext{
