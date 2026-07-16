@@ -253,17 +253,23 @@ const worker = struct {
 
     fn queryHashRecord(c_ctx: WorkerContext, path: []const u8, size: u64, mtime: i64, file_hash: []const u8, allocator: std.mem.Allocator) ?db.DbRecord {
         const d = c_ctx.db orelse return null;
-        d.lockRead(c_ctx.io);
-        defer d.unlockRead(c_ctx.io);
-        var record = d.queryMetadataByHash(allocator, path, file_hash) catch return null;
+        var record: ?db.DbRecord = null;
+        {
+            d.lockRead(c_ctx.io);
+            defer d.unlockRead(c_ctx.io);
+            record = d.queryMetadataByHash(allocator, path, file_hash) catch return null;
+        }
+
         if (record) |*rec| {
             rec.size = size;
             // Insert duplicate media path to DB since we matched by hash but not path
-            d.lockWrite(c_ctx.io);
-            defer d.unlockWrite(c_ctx.io);
-            d.insertMedia(c_ctx.io, rec, mtime) catch |err| {
-                std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
-            };
+            {
+                d.lockWrite(c_ctx.io);
+                defer d.unlockWrite(c_ctx.io);
+                d.insertMedia(c_ctx.io, rec, mtime) catch |err| {
+                    std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
+                };
+            }
             return rec.*;
         }
         return null;
