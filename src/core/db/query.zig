@@ -160,9 +160,12 @@ fn fillMetadataFields(
     if (c.sqlite3_column_type(stmt, base_idx + 9) != c.SQLITE_NULL) {
         record.has_thumbnail = c.sqlite3_column_int(stmt, base_idx + 9) != 0;
     }
-    if (has_hash and c.sqlite3_column_type(stmt, base_idx + 10) != c.SQLITE_NULL) {
-        const raw = c.sqlite3_column_text(stmt, base_idx + 10);
-        const len = c.sqlite3_column_bytes(stmt, base_idx + 10);
+    if (c.sqlite3_column_type(stmt, base_idx + 10) != c.SQLITE_NULL) {
+        record.has_animated = c.sqlite3_column_int(stmt, base_idx + 10) != 0;
+    }
+    if (has_hash and c.sqlite3_column_type(stmt, base_idx + 11) != c.SQLITE_NULL) {
+        const raw = c.sqlite3_column_text(stmt, base_idx + 11);
+        const len = c.sqlite3_column_bytes(stmt, base_idx + 11);
         record.file_hash = try allocator.dupe(u8, raw[0..@intCast(len)]);
     }
 }
@@ -178,7 +181,7 @@ pub fn queryCache(
     if (self.handle == null) return .{ .hit = false };
 
     const query_sql =
-        \\SELECT p.size, p.mtime, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.file_hash
+        \\SELECT p.size, p.mtime, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.has_animated, m.file_hash
         \\FROM media_paths p
         \\JOIN media_metadata m ON p.metadata_id = m.id
         \\WHERE p.path = ?;
@@ -232,7 +235,7 @@ pub fn queryMetadataByHash(
 ) !?DbRecord {
     if (self.handle == null) return error.DatabaseNotOpen;
     const sql =
-        \\SELECT format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail
+        \\SELECT format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail, has_animated
         \\FROM media_metadata
         \\WHERE file_hash = ?;
     ;
@@ -291,8 +294,8 @@ pub fn insertMedia(
 
     // 2. Prepare/Insert into media_metadata
     const insert_meta_sql =
-        \\INSERT INTO media_metadata (file_hash, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail)
-        \\VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        \\INSERT INTO media_metadata (file_hash, format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail, has_animated)
+        \\VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     ;
     var insert_meta_stmt: ?*c.sqlite3_stmt = null;
     if (c.sqlite3_prepare_v2(self.handle, insert_meta_sql, -1, &insert_meta_stmt, null) != c.SQLITE_OK) {
@@ -349,6 +352,7 @@ pub fn insertMedia(
         _ = c.sqlite3_bind_null(insert_meta_stmt, 11);
     }
     _ = c.sqlite3_bind_int(insert_meta_stmt, 12, if (json_out.has_thumbnail) 1 else 0);
+    _ = c.sqlite3_bind_int(insert_meta_stmt, 13, if (json_out.has_animated) 1 else 0);
 
     var metadata_id: i64 = 0;
     const step_rc = c.sqlite3_step(insert_meta_stmt);
@@ -406,6 +410,25 @@ pub fn updateHasThumbnail(self: *Db, path: []const u8, has_thumbnail: bool) !voi
     defer _ = c.sqlite3_finalize(stmt);
 
     _ = c.sqlite3_bind_int(stmt, 1, if (has_thumbnail) 1 else 0);
+    _ = c.sqlite3_bind_text(stmt, 2, path.ptr, @intCast(path.len), null);
+
+    const rc = c.sqlite3_step(stmt);
+    if (rc != c.SQLITE_DONE) {
+        return error.DatabaseExecuteError;
+    }
+}
+
+/// Update the has_animated flag for a given media record.
+pub fn updateHasAnimated(self: *Db, path: []const u8, has_animated: bool) !void {
+    if (self.handle == null) return error.DatabaseNotOpen;
+    const sql = "UPDATE media_metadata SET has_animated = ? WHERE id = (SELECT metadata_id FROM media_paths WHERE path = ?);";
+    var stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK) {
+        return error.DatabasePrepareError;
+    }
+    defer _ = c.sqlite3_finalize(stmt);
+
+    _ = c.sqlite3_bind_int(stmt, 1, if (has_animated) 1 else 0);
     _ = c.sqlite3_bind_text(stmt, 2, path.ptr, @intCast(path.len), null);
 
     const rc = c.sqlite3_step(stmt);
@@ -511,7 +534,7 @@ pub fn getAllRecords(self: *Db, allocator: std.mem.Allocator) ![]DbRecord {
     if (self.handle == null) return error.DatabaseNotOpen;
 
     const select_sql =
-        \\SELECT p.path, p.size, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.file_hash
+        \\SELECT p.path, p.size, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.has_animated, m.file_hash
         \\FROM media_paths p
         \\JOIN media_metadata m ON p.metadata_id = m.id;
     ;
@@ -897,7 +920,8 @@ pub fn getRecordsPaged(
     var select_buf: std.ArrayList(u8) = .empty;
     defer select_buf.deinit(allocator);
     var select_aw = std.Io.Writer.Allocating.fromArrayList(allocator, &select_buf);
-    try select_aw.writer.writeAll("SELECT p.path, p.size, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.file_hash ");
+    try select_aw.writer.writeAll("SELECT p.path, p.size, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.has_animated, m.file_hash ");
+
     try select_aw.writer.writeAll(base_where);
 
     // Sorting

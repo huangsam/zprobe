@@ -16,6 +16,7 @@ pub const DbRecord = struct {
     gps_longitude: ?f64 = null,
     duration_sec: ?f64 = null,
     has_thumbnail: bool = false,
+    has_animated: bool = false,
     file_hash: ?[]const u8 = null,
 
     /// Free heap-allocated strings stored within DbRecord.
@@ -86,7 +87,10 @@ pub const DbStats = struct {
     }
 };
 
-pub const video_formats_sql = "'mp4', 'webm', 'mkv', 'mov', 'avi'";
+/// Canonical SQL format list — must mirror media_scan.videoExtensions.
+/// is_video_pred_m is the single authority for "what is a video" at the query
+/// layer; keep this list in sync with videoExtensions in media_scan.zig.
+pub const video_formats_sql = "'mp4', 'm4v', 'webm', 'mkv', 'mov', 'avi', 'wmv', 'flv'";
 pub const is_image_pred_m = "(m.duration_sec IS NULL AND m.format NOT IN (" ++ video_formats_sql ++ "))";
 pub const is_video_pred_m = "(m.duration_sec IS NOT NULL OR m.format IN (" ++ video_formats_sql ++ "))";
 

@@ -855,6 +855,103 @@ test "updateHasThumbnail updates correctly" {
     }
 }
 
+test "updateHasAnimated updates correctly" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/animated_update_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    // Insert a video record with has_animated = true
+    const record = DbRecord{
+        .path = "/videos/preview_test.mp4",
+        .size = 10_000_000,
+        .format = "mp4",
+        .duration_sec = 30.0,
+        .has_thumbnail = true,
+        .has_animated = true,
+    };
+    try seedRecord(&database, io, record, 456);
+
+    {
+        const hit = try database.queryCache(allocator, record.path, record.size, 456);
+        defer if (hit.hit) {
+            hit.json_out.deinit(allocator);
+            allocator.free(hit.json_out.format);
+        };
+        try std.testing.expect(hit.hit);
+        try std.testing.expect(hit.json_out.has_animated);
+    }
+
+    // Simulate cache-heal: mark the animated preview as missing
+    try database.updateHasAnimated(record.path, false);
+
+    {
+        const hit = try database.queryCache(allocator, record.path, record.size, 456);
+        defer if (hit.hit) {
+            hit.json_out.deinit(allocator);
+            allocator.free(hit.json_out.format);
+        };
+        try std.testing.expect(hit.hit);
+        try std.testing.expect(!hit.json_out.has_animated);
+        // has_thumbnail should be unaffected
+        try std.testing.expect(hit.json_out.has_thumbnail);
+    }
+}
+
+test "has_animated round-trips through insertMedia and queryCache" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/has_animated_rt.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    const rec_with = DbRecord{
+        .path = "/videos/anim.mp4",
+        .size = 5_000_000,
+        .format = "mp4",
+        .duration_sec = 10.0,
+        .has_thumbnail = true,
+        .has_animated = true,
+    };
+    const rec_without = DbRecord{
+        .path = "/videos/nonanim.mp4",
+        .size = 3_000_000,
+        .format = "mp4",
+        .duration_sec = 5.0,
+        .has_thumbnail = true,
+        .has_animated = false,
+    };
+    try seedRecord(&database, io, rec_with, 1);
+    try seedRecord(&database, io, rec_without, 2);
+
+    const hit_with = try database.queryCache(allocator, rec_with.path, rec_with.size, 1);
+    defer if (hit_with.hit) {
+        hit_with.json_out.deinit(allocator);
+        allocator.free(hit_with.json_out.format);
+    };
+    try std.testing.expect(hit_with.hit);
+    try std.testing.expect(hit_with.json_out.has_animated);
+
+    const hit_without = try database.queryCache(allocator, rec_without.path, rec_without.size, 2);
+    defer if (hit_without.hit) {
+        hit_without.json_out.deinit(allocator);
+        allocator.free(hit_without.json_out.format);
+    };
+    try std.testing.expect(hit_without.hit);
+    try std.testing.expect(!hit_without.json_out.has_animated);
+}
+
 test "database relational migration moves legacy data" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;

@@ -89,6 +89,7 @@ fn populateJsonFromVideo(
     path: []const u8,
     size: u64,
     has_thumbnail: bool,
+    has_animated: bool,
 ) !db.DbRecord {
     var json_out = db.DbRecord{
         .path = path,
@@ -104,6 +105,7 @@ fn populateJsonFromVideo(
         .gps_longitude = null,
         .duration_sec = meta.duration_sec,
         .has_thumbnail = has_thumbnail,
+        .has_animated = has_animated,
     };
 
     // Single errdefer: if allocation fails, deinit() safely handles partial state.
@@ -127,6 +129,7 @@ const WorkerContext = struct {
     has_ffmpeg: bool = false,
     ffmpeg_sem: ?*std.Io.Semaphore = null,
     rebuild_thumbnails: bool = false,
+    animated_previews: bool = false,
     ffmpeg_path: []const u8 = "ffmpeg",
 };
 
@@ -163,6 +166,7 @@ fn checkFFmpeg(io: std.Io, ffmpeg_path: []const u8) bool {
     }
 
     if (std.mem.indexOf(u8, encoders_res.stdout, "mjpeg") == null) return false;
+    if (std.mem.indexOf(u8, encoders_res.stdout, "libwebp") == null) return false;
 
     return true;
 }
@@ -200,6 +204,36 @@ fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path
     };
 }
 
+/// Generate a 3-second, 10fps, 320px animated WebP preview for a video file.
+/// Uses libwebp encoder. Shared ffmpeg_sem must be held by the caller before this.
+fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, thumb_dir: []const u8) !bool {
+    const preview_path = try root.utils.getAnimatedPreviewPath(allocator, thumb_dir, original_path);
+    defer allocator.free(preview_path);
+
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(allocator);
+
+    // Seek to 1s, capture 3s, scale to ≤320px on the longest axis, 10fps, no audio.
+    try argv.appendSlice(allocator, &.{
+        ffmpeg_path,   "-y",       "-nostdin",                                                     "-threads", "1",
+        "-ss",         "00:00:01", "-t",                                                           "3",        "-i",
+        original_path, "-vf",      "scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih),fps=10", "-vcodec",  "libwebp",
+        "-loop",       "0",        "-an",                                                          "-vsync",   "0",
+        preview_path,
+    });
+
+    var child = std.process.spawn(io, .{
+        .argv = argv.items,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    }) catch return false;
+    const term = try child.wait(io);
+    return switch (term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+}
+
 fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8, bytes: []const u8) !bool {
     const thumb_path_jpg = try root.utils.getThumbnailPath(allocator, thumb_dir, original_path);
     defer allocator.free(thumb_path_jpg);
@@ -207,6 +241,15 @@ fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, original_path: [
     const file = std.Io.Dir.createFileAbsolute(io, thumb_path_jpg, .{}) catch return false;
     defer std.Io.File.close(file, io);
     try std.Io.File.writePositionalAll(file, io, bytes, 0);
+    return true;
+}
+
+fn checkAnimatedPreviewExists(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8) bool {
+    const preview_path = root.utils.getAnimatedPreviewPath(allocator, thumb_dir, original_path) catch return false;
+    defer allocator.free(preview_path);
+
+    const file = std.Io.Dir.openFileAbsolute(io, preview_path, .{ .mode = .read_only }) catch return false;
+    std.Io.File.close(file, io);
     return true;
 }
 
@@ -248,6 +291,15 @@ const worker = struct {
                     return null;
                 }
             }
+            // Force a cache miss so we can back-fill the animated preview for videos
+            // that were scanned before --animated-previews was enabled.
+            if (c_ctx.animated_previews and c_ctx.thumb_dir != null) {
+                if (!cache_res.json_out.has_animated and
+                    !checkAnimatedPreviewExists(c_ctx.io, allocator, path, c_ctx.thumb_dir.?))
+                {
+                    return null;
+                }
+            }
             return cache_res.json_out;
         }
         return null;
@@ -279,6 +331,7 @@ const worker = struct {
 
     fn parseMediaFile(c_ctx: WorkerContext, path: []const u8, size: u64, is_video: bool, file_hash: ?[]const u8, allocator: std.mem.Allocator) !db.DbRecord {
         var has_thumb = false;
+        var has_animated = false;
         var record: db.DbRecord = undefined;
 
         if (is_video) {
@@ -288,9 +341,12 @@ const worker = struct {
                     if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
                     defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
                     has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir, true) catch false;
+                    if (c_ctx.animated_previews) {
+                        has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir) catch false;
+                    }
                 }
             }
-            record = try populateJsonFromVideo(allocator, &res, path, size, has_thumb);
+            record = try populateJsonFromVideo(allocator, &res, path, size, has_thumb, has_animated);
         } else {
             var res = try image_meta.parseFile(allocator, path, c_ctx.io);
             if (c_ctx.thumb_dir) |thumb_dir| {
@@ -436,18 +492,19 @@ fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  {s} [options] <directory>...
         \\
         \\Options:
-        \\  -h, --help           Show this help message and exit
-        \\  --json               Output metadata in JSON lines format
-        \\  --db <database>      Path to SQLite database for metadata caching and indexing
-        \\  -j, --concurrency <n> Number of concurrent worker threads (default: CPU-based dynamic clamp 8-16)
-        \\  --no-thumbnails      Bypass generating and saving thumbnails (useful on slow NAS / 1GB RAM)
-        \\  --rebuild-thumbnails Re-generate missing thumbnails during scanning
-        \\  --prune              Prune stale cache entries from DB for paths inside scanned directories but no longer present on disk
-        \\  --ffmpeg-path <path> Custom path/command for FFmpeg executable (default: ZPROBE_FFMPEG_PATH env or "ffmpeg")
+        \\  -h, --help                 Show this help message and exit
+        \\  --json                     Output metadata in JSON lines format
+        \\  --db <database>            Path to SQLite database for metadata caching and indexing
+        \\  -j, --concurrency <n>      Number of concurrent worker threads (default: CPU-based dynamic clamp 8-16)
+        \\  --no-thumbnails            Bypass generating and saving thumbnails (useful on slow NAS / 1GB RAM)
+        \\  --rebuild-thumbnails       Re-generate missing thumbnails during scanning
+        \\  --animated-previews        Generate animated WebP hover previews for videos (3s, 10fps, 320px; requires libwebp)
+        \\  --prune                    Prune stale cache entries from DB for paths inside scanned directories but no longer present on disk
+        \\  --ffmpeg-path <path>       Custom path/command for FFmpeg executable (default: ZPROBE_FFMPEG_PATH env or "ffmpeg")
         \\
         \\Supported Formats:
         \\  Images: JPEG, PNG, GIF, BMP, WebP, TIFF, AVIF, ICO, JXL
-        \\  Videos: MP4, MOV, WebM, MKV
+        \\  Videos: MP4, M4V, MOV, WebM, MKV, AVI, WMV, FLV
         \\
     , .{exe_name});
 }
@@ -478,6 +535,7 @@ pub fn main(init: std.process.Init) !void {
     var concurrency_override: ?usize = null;
     var no_thumbnails = false;
     var rebuild_thumbnails = false;
+    var animated_previews = false;
     var prune_mode = false;
     var ffmpeg_path_override: ?[]const u8 = null;
 
@@ -490,6 +548,8 @@ pub fn main(init: std.process.Init) !void {
             no_thumbnails = true;
         } else if (std.mem.eql(u8, arg, "--rebuild-thumbnails")) {
             rebuild_thumbnails = true;
+        } else if (std.mem.eql(u8, arg, "--animated-previews")) {
+            animated_previews = true;
         } else if (std.mem.eql(u8, arg, "--prune")) {
             prune_mode = true;
         } else if (std.mem.eql(u8, arg, "--ffmpeg-path")) {
@@ -689,6 +749,7 @@ pub fn main(init: std.process.Init) !void {
         .has_ffmpeg = has_ffmpeg,
         .ffmpeg_sem = &ffmpeg_sem,
         .rebuild_thumbnails = rebuild_thumbnails,
+        .animated_previews = animated_previews,
         .ffmpeg_path = ffmpeg_path,
     };
 
@@ -831,9 +892,22 @@ test "concurrent file processing integration test" {
 }
 
 test "isVideoExtension boundaries" {
+    // Core formats — parsed by native video parser
     try std.testing.expect(isVideoExtension(".mp4"));
+    try std.testing.expect(isVideoExtension(".m4v"));
+    try std.testing.expect(isVideoExtension(".mov"));
     try std.testing.expect(isVideoExtension(".mkv"));
+    try std.testing.expect(isVideoExtension(".webm"));
+    // Extended formats — scanned but metadata via ffprobe/duration heuristic
+    try std.testing.expect(isVideoExtension(".avi"));
+    try std.testing.expect(isVideoExtension(".wmv"));
+    try std.testing.expect(isVideoExtension(".flv"));
+    // Case-insensitive
+    try std.testing.expect(isVideoExtension(".MP4"));
+    try std.testing.expect(isVideoExtension(".MKV"));
+    // Negatives
     try std.testing.expect(!isVideoExtension(".png"));
+    try std.testing.expect(!isVideoExtension(".jpg"));
     try std.testing.expect(!isVideoExtension(".extremelylongextensionnamehere"));
     try std.testing.expect(!isVideoExtension(""));
 }

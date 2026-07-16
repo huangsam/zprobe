@@ -46,6 +46,8 @@ pub const Db = struct {
     pub const queryMetadataByHash = query.queryMetadataByHash;
     pub const insertMedia = query.insertMedia;
     pub const updateHasThumbnail = query.updateHasThumbnail;
+    pub const updateHasAnimated = query.updateHasAnimated;
+
     pub const deletePath = query.deletePath;
     pub const pruneStalePaths = query.pruneStalePaths;
     pub const getAllRecords = query.getAllRecords;

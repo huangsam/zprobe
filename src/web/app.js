@@ -1095,24 +1095,43 @@ function renderTable() {
 
     tr.setAttribute("aria-label", `View details for ${fileBase}`);
 
+    // VIDEO_FORMATS must mirror media_scan.videoExtensions and db/types.zig video_formats_sql.
+    const VIDEO_FORMATS = [
+      "mp4",
+      "m4v",
+      "webm",
+      "mkv",
+      "mov",
+      "avi",
+      "wmv",
+      "flv",
+    ];
     const isVideo =
-      ["mp4", "webm", "mkv", "mov", "avi"].includes(
-        (row.format || "").toLowerCase(),
-      ) || row.duration_sec !== null;
+      VIDEO_FORMATS.includes((row.format || "").toLowerCase()) ||
+      row.duration_sec !== null;
     let thumbHtml = "";
     if (row.has_thumbnail) {
       const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
-      thumbHtml = `<img src="${escapeHtml(url)}" class="row-thumbnail" alt="Thumbnail" loading="lazy" />`;
+      // If the row has an animated WebP preview, render it as an overlay that
+      // fades in on hover (CSS .has-animated:hover .animated-overlay).
+      const animatedOverlay = row.has_animated
+        ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="row-thumbnail animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
+        : "";
+      thumbHtml = `${animatedOverlay}<img src="${escapeHtml(url)}" class="row-thumbnail" alt="Thumbnail" loading="lazy" />`;
     } else if (isVideo) {
       thumbHtml = `<i data-lucide="video" class="type-icon video-icon"></i>`;
     } else {
       thumbHtml = `<i data-lucide="image" class="type-icon image-icon"></i>`;
     }
+    // Add has-animated marker class so CSS hover rule targets only these rows.
+    const wrapperClass = row.has_animated
+      ? "thumbnail-wrapper has-animated"
+      : "thumbnail-wrapper";
 
     tr.innerHTML = `
               <td class="file-path-cell">
                   <div class="file-path-content">
-                      <div class="thumbnail-wrapper">
+                      <div class="${escapeHtml(wrapperClass)}">
                           ${thumbHtml}
                       </div>
                       <div class="file-name-container">
@@ -1175,16 +1194,33 @@ function showDetails(row, triggerEl) {
   drawerReturnFocus = triggerEl || document.activeElement;
 
   const fileBase = row.path.split("/").pop();
-  const videoFormats = ["mp4", "webm", "mkv", "mov", "avi"];
+  // VIDEO_FORMATS must mirror media_scan.videoExtensions and db/types.zig video_formats_sql.
+  const VIDEO_FORMATS = [
+    "mp4",
+    "m4v",
+    "webm",
+    "mkv",
+    "mov",
+    "avi",
+    "wmv",
+    "flv",
+  ];
   const isVideo =
-    videoFormats.includes((row.format || "").toLowerCase()) ||
+    VIDEO_FORMATS.includes((row.format || "").toLowerCase()) ||
     row.duration_sec !== null;
 
   let html = "";
   if (row.has_thumbnail) {
     const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
+    const animatedOverlay = row.has_animated
+      ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="drawer-preview-image animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
+      : "";
+    const containerClass = row.has_animated
+      ? "drawer-preview-container has-animated"
+      : "drawer-preview-container";
     html += `
-          <div class="drawer-preview-container">
+          <div class="${escapeHtml(containerClass)}">
+              ${animatedOverlay}
               <img src="${escapeHtml(url)}" class="drawer-preview-image" alt="Thumbnail Preview" />
           </div>
     `;

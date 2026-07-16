@@ -478,6 +478,10 @@ fn handleRequest(
         });
     } else if (std.mem.eql(u8, base_path, "/api/thumbnail")) {
         var query_path: ?[]const u8 = null;
+        // animated=1 triggers serving the .webp animated preview; any other value
+        // (including missing, empty, or non-"1") falls back to the JPEG poster.
+        var animated: bool = false;
+
         var query_it = std.mem.splitScalar(u8, query_string, '&');
         while (query_it.next()) |param| {
             if (param.len == 0) continue;
@@ -486,6 +490,9 @@ fn handleRequest(
             const val = param[eq_idx + 1 ..];
             if (std.mem.eql(u8, key, "path")) {
                 query_path = val;
+            } else if (std.mem.eql(u8, key, "animated")) {
+                // Only accept the canonical "1" value; reject "", "true", "yes", etc.
+                animated = std.mem.eql(u8, val, "1");
             }
         }
 
@@ -506,17 +513,24 @@ fn handleRequest(
         const thumb_dir = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
         defer allocator.free(thumb_dir);
 
-        const thumb_abs_path = try zprobe.utils.getThumbnailPath(allocator, thumb_dir, decoded_path);
+        // Resolve the file path depending on whether the caller wants the animated WebP or JPEG poster.
+        const thumb_abs_path = if (animated)
+            try zprobe.utils.getAnimatedPreviewPath(allocator, thumb_dir, decoded_path)
+        else
+            try zprobe.utils.getThumbnailPath(allocator, thumb_dir, decoded_path);
         defer allocator.free(thumb_abs_path);
 
         const file = std.Io.Dir.openFileAbsolute(io, thumb_abs_path, .{ .mode = .read_only }) catch |err| {
             if (err == error.FileNotFound) {
-                // Heal the database cache desync: set has_thumbnail to 0.
-                // Lock scope is kept tight so the write lock is released before
-                // the HTTP respond() call below.
-                {
-                    database.lockWrite(io);
-                    defer database.unlockWrite(io);
+                // Heal the database cache desync: clear the appropriate flag so the
+                // next catalog page load reflects the missing file accurately.
+                database.lockWrite(io);
+                defer database.unlockWrite(io);
+                if (animated) {
+                    database.updateHasAnimated(decoded_path, false) catch |db_err| {
+                        std.debug.print("Failed to update has_animated cache for '{s}': {}\n", .{ decoded_path, db_err });
+                    };
+                } else {
                     database.updateHasThumbnail(decoded_path, false) catch |db_err| {
                         std.debug.print("Failed to update has_thumbnail cache for '{s}': {}\n", .{ decoded_path, db_err });
                     };
@@ -556,10 +570,11 @@ fn handleRequest(
             return;
         }
 
+        const content_type: []const u8 = if (animated) "image/webp" else "image/jpeg";
         try request.respond(buf, .{
             .status = .ok,
             .extra_headers = &.{
-                .{ .name = "Content-Type", .value = "image/jpeg" },
+                .{ .name = "Content-Type", .value = content_type },
                 .{ .name = "Cache-Control", .value = "public, max-age=86400" },
             },
         });

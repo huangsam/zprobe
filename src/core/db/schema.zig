@@ -120,6 +120,9 @@ pub const migrations = [_][]const u8{
     \\    REPLACE(SUBSTR(create_time, 1, 10), ':', '-') || SUBSTR(create_time, 11)
     \\);
     \\DROP INDEX IF EXISTS idx_metadata_create_time;
+    ,
+    // Version 4: Add has_animated column to track per-content-hash animated WebP previews
+    \\ALTER TABLE media_metadata ADD COLUMN has_animated INTEGER DEFAULT 0;
 };
 
 /// Initialize SQLite connection, run migrations, and prepare statements.
