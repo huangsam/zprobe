@@ -230,7 +230,7 @@ fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpe
         "-i",
         original_path,
         "-vf",
-        "fps=10,scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih):flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
+        "fps=8,scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih):flags=bicubic,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
         "-loop",
         "0",
         "-an",
