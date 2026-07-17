@@ -175,6 +175,7 @@ fn checkFFmpeg(io: std.Io, ffmpeg_path: []const u8) bool {
 fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, thumb_dir: []const u8, is_video: bool) !bool {
     const thumb_path_jpg = try root.utils.getThumbnailPath(allocator, thumb_dir, original_path);
     defer allocator.free(thumb_path_jpg);
+    root.utils.ensureParentDirAbsolute(io, thumb_path_jpg) catch return false;
 
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
@@ -212,6 +213,7 @@ fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path
 fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, thumb_dir: []const u8) !bool {
     const preview_path = try root.utils.getAnimatedPreviewPath(allocator, thumb_dir, original_path);
     defer allocator.free(preview_path);
+    root.utils.ensureParentDirAbsolute(io, preview_path) catch return false;
 
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
@@ -252,6 +254,7 @@ fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpe
 fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8, bytes: []const u8) !bool {
     const thumb_path_jpg = try root.utils.getThumbnailPath(allocator, thumb_dir, original_path);
     defer allocator.free(thumb_path_jpg);
+    root.utils.ensureParentDirAbsolute(io, thumb_path_jpg) catch return false;
 
     const file = std.Io.Dir.createFileAbsolute(io, thumb_path_jpg, .{}) catch return false;
     defer std.Io.File.close(file, io);
@@ -1193,18 +1196,9 @@ test "rebuild missing thumbnails unit test" {
     // 1. Verify checkThumbnailExists returns false since no thumbnail exists yet
     try std.testing.expect(!checkThumbnailExists(io, allocator, full_image_path, full_thumb_path));
 
-    // Create a mock thumbnail file manually in the sharded thumbnail path.
-    const mock_thumb_path = try root.utils.getThumbnailPath(allocator, full_thumb_path, full_image_path);
-    defer allocator.free(mock_thumb_path);
-
-    const mock_thumb_dir = std.fs.path.dirname(mock_thumb_path) orelse mock_thumb_path;
-    try std.Io.Dir.createDirPath(std.Io.Dir.cwd(), io, mock_thumb_dir);
-
-    const mock_thumb_file = try std.Io.Dir.createFileAbsolute(io, mock_thumb_path, .{});
-    try std.Io.File.writePositionalAll(mock_thumb_file, io, "MOCK_THUMB", 0);
-    std.Io.File.close(mock_thumb_file, io);
-
-    // 2. Verify checkThumbnailExists now returns true
+    // 2. saveThumbnailBytes must create shard parents (aa/bb/) before writing
+    const wrote = try saveThumbnailBytes(io, allocator, full_image_path, full_thumb_path, "MOCK_THUMB");
+    try std.testing.expect(wrote);
     try std.testing.expect(checkThumbnailExists(io, allocator, full_image_path, full_thumb_path));
 }
 
