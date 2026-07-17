@@ -1,5 +1,24 @@
 const std = @import("std");
 
+/// sha256(original_path) as lowercase hex. Shared by thumbnail path helpers.
+fn pathHashHex(original_path: []const u8) [64]u8 {
+    var hash_bytes: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
+    return std.fmt.bytesToHex(hash_bytes, .lower);
+}
+
+/// Layout: `thumb_dir/aa/bb/<64-hex>.ext` (two-level shard for FS perf).
+fn getShardedMediaPath(allocator: std.mem.Allocator, thumb_dir: []const u8, original_path: []const u8, ext: []const u8) ![]const u8 {
+    const hex_hash = pathHashHex(original_path);
+    return try std.fmt.allocPrint(allocator, "{s}/{s}/{s}/{s}.{s}", .{
+        thumb_dir,
+        hex_hash[0..2],
+        hex_hash[2..4],
+        &hex_hash,
+        ext,
+    });
+}
+
 /// Convert epoch seconds to a civil time string formatted as "YYYY-MM-DD HH:MM:SS".
 /// Leverages Howard Hinnant's civil time algorithm (unsigned variant).
 pub fn formatEpoch(allocator: std.mem.Allocator, epoch_secs: u64) ![]const u8 {
@@ -85,25 +104,6 @@ test "getThumbnailPath derivation" {
     });
     defer allocator.free(expected);
     try std.testing.expectEqualStrings(expected, path);
-}
-
-/// sha256(original_path) as lowercase hex. Shared by thumbnail path helpers.
-fn pathHashHex(original_path: []const u8) [64]u8 {
-    var hash_bytes: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
-    return std.fmt.bytesToHex(hash_bytes, .lower);
-}
-
-/// Layout: `thumb_dir/aa/bb/<64-hex>.ext` (two-level shard for FS perf).
-fn getShardedMediaPath(allocator: std.mem.Allocator, thumb_dir: []const u8, original_path: []const u8, ext: []const u8) ![]const u8 {
-    const hex_hash = pathHashHex(original_path);
-    return try std.fmt.allocPrint(allocator, "{s}/{s}/{s}/{s}.{s}", .{
-        thumb_dir,
-        hex_hash[0..2],
-        hex_hash[2..4],
-        &hex_hash,
-        ext,
-    });
 }
 
 /// Derive the unique absolute animated GIF preview path from the original path and thumbnails directory.
