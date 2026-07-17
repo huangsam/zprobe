@@ -205,7 +205,7 @@ fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path
     };
 }
 
-/// Generate a 3-second, 10fps, 320px animated GIF preview for a video file.
+/// Generate a 2-second, 5fps, 320px animated GIF preview for a video file.
 /// Uses ffmpeg's built-in gif encoder (no external library) with a per-clip
 /// palettegen/paletteuse pass for good color fidelity. The shared ffmpeg_sem
 /// must be held by the caller before this.
@@ -226,11 +226,11 @@ fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpe
         "-ss",
         "00:00:01",
         "-t",
-        "3",
+        "2",
         "-i",
         original_path,
         "-vf",
-        "fps=8,scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih):flags=bicubic,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
+        "fps=5,scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih):flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
         "-loop",
         "0",
         "-an",
@@ -544,7 +544,7 @@ fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  -j, --concurrency <n>      Number of concurrent worker threads (default: CPU-based dynamic clamp 8-16)
         \\  --no-thumbnails            Bypass generating and saving thumbnails (useful on slow NAS / 1GB RAM)
         \\  --rebuild-thumbnails       Re-generate missing thumbnails during scanning
-        \\  --animated-previews        Generate animated GIF hover previews for videos (3s, 10fps, 320px)
+        \\  --animated-previews        Generate animated GIF hover previews for videos (2s, 5fps, 320px)
         \\  --rebuild-previews         Re-generate missing animated GIF previews during scanning (implies --animated-previews)
         \\  --prune                    Prune stale cache entries from DB for paths inside scanned directories but no longer present on disk
         \\  --ffmpeg-path <path>       Custom path/command for FFmpeg executable (default: ZPROBE_FFMPEG_PATH env or "ffmpeg")
