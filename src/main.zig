@@ -367,11 +367,18 @@ const worker = struct {
         if (is_video) {
             var res = try video_meta.getVideoMetadata(allocator, path, c_ctx.io);
             if (c_ctx.thumb_dir) |thumb_dir| {
-                if (c_ctx.has_ffmpeg) {
+                has_thumb = checkThumbnailExists(c_ctx.io, allocator, path, thumb_dir);
+                if (c_ctx.animated_previews) {
+                    has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, path, thumb_dir);
+                }
+
+                if ((!has_thumb or (c_ctx.animated_previews and !has_animated)) and c_ctx.has_ffmpeg) {
                     if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
                     defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                    has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir, true) catch false;
-                    if (c_ctx.animated_previews) {
+                    if (!has_thumb) {
+                        has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir, true) catch false;
+                    }
+                    if (c_ctx.animated_previews and !has_animated) {
                         has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir) catch false;
                     }
                 }
@@ -380,12 +387,15 @@ const worker = struct {
         } else {
             var res = try image_meta.parseFile(allocator, path, c_ctx.io);
             if (c_ctx.thumb_dir) |thumb_dir| {
-                if (res.thumbnail_data) |thumb_bytes| {
-                    has_thumb = saveThumbnailBytes(c_ctx.io, allocator, path, thumb_dir, thumb_bytes) catch false;
-                } else if (c_ctx.has_ffmpeg) {
-                    if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                    defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                    has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir, false) catch false;
+                has_thumb = checkThumbnailExists(c_ctx.io, allocator, path, thumb_dir);
+                if (!has_thumb) {
+                    if (res.thumbnail_data) |thumb_bytes| {
+                        has_thumb = saveThumbnailBytes(c_ctx.io, allocator, path, thumb_dir, thumb_bytes) catch false;
+                    } else if (c_ctx.has_ffmpeg) {
+                        if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                        defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                        has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir, false) catch false;
+                    }
                 }
             }
             record = try populateJsonFromImage(allocator, &res, path, size, has_thumb);
