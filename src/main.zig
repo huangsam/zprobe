@@ -1193,19 +1193,19 @@ test "rebuild missing thumbnails unit test" {
     // 1. Verify checkThumbnailExists returns false since no thumbnail exists yet
     try std.testing.expect(!checkThumbnailExists(io, allocator, full_image_path, full_thumb_path));
 
-    // Create a mock thumbnail file manually
-    var hash_bytes: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(full_image_path, &hash_bytes, .{});
-    const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
-    const mock_thumb_filename = try std.fmt.allocPrint(allocator, "{s}.jpg", .{hex_hash});
-    defer allocator.free(mock_thumb_filename);
+    // Create a mock thumbnail file manually in the sharded thumbnail path.
+    const mock_thumb_path = try root.utils.getThumbnailPath(allocator, full_thumb_path, full_image_path);
+    defer allocator.free(mock_thumb_path);
 
-    const mock_thumb_file = try std.Io.Dir.createFile(temp_dir, io, mock_thumb_filename, .{});
+    const mock_thumb_dir = std.fs.path.dirname(mock_thumb_path) orelse mock_thumb_path;
+    try std.Io.Dir.createDirPath(std.Io.Dir.cwd(), io, mock_thumb_dir);
+
+    const mock_thumb_file = try std.Io.Dir.createFileAbsolute(io, mock_thumb_path, .{});
     try std.Io.File.writePositionalAll(mock_thumb_file, io, "MOCK_THUMB", 0);
     std.Io.File.close(mock_thumb_file, io);
 
     // 2. Verify checkThumbnailExists now returns true
-    try std.testing.expect(checkThumbnailExists(io, allocator, full_image_path, temp_ctx.abs_path));
+    try std.testing.expect(checkThumbnailExists(io, allocator, full_image_path, full_thumb_path));
 }
 
 test "Db.pruneStalePaths pruning logic" {

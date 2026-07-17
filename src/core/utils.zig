@@ -61,9 +61,15 @@ pub fn getThumbnailPath(allocator: std.mem.Allocator, thumb_dir: []const u8, ori
     var hash_bytes: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
     const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
+
+    const hash_seg_1 = hex_hash[0..2];
+    const hash_seg_2 = hex_hash[2..4];
+    const hash_dir = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ thumb_dir, hash_seg_1, hash_seg_2 });
+    defer allocator.free(hash_dir);
+
     var filename_buf: [68]u8 = undefined;
     const filename = try std.fmt.bufPrint(&filename_buf, "{s}.jpg", .{&hex_hash});
-    return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ thumb_dir, filename });
+    return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ hash_dir, filename });
 }
 
 test "computeWorkerCount boundaries" {
@@ -82,7 +88,7 @@ test "getThumbnailPath derivation" {
     const path = try getThumbnailPath(allocator, thumb_dir, original_path);
     defer allocator.free(path);
 
-    try std.testing.expectEqualStrings("/tmp/thumbs/29b626657cf45e36a163312ad9f9af664135c75efa79f87d238c4a52b9ba9585.jpg", path);
+    try std.testing.expectEqualStrings("/tmp/thumbs/29/b6/29b626657cf45e36a163312ad9f9af664135c75efa79f87d238c4a52b9ba9585.jpg", path);
 }
 
 /// Derive the unique absolute animated GIF preview path from the original path and thumbnails directory.
@@ -91,9 +97,15 @@ pub fn getAnimatedPreviewPath(allocator: std.mem.Allocator, thumb_dir: []const u
     var hash_bytes: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
     const hex_hash = std.fmt.bytesToHex(hash_bytes, .lower);
+
+    const hash_seg_1 = hex_hash[0..2];
+    const hash_seg_2 = hex_hash[2..4];
+    const hash_dir = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ thumb_dir, hash_seg_1, hash_seg_2 });
+    defer allocator.free(hash_dir);
+
     var filename_buf: [68]u8 = undefined; // 64 hex chars + ".gif"
     const filename = try std.fmt.bufPrint(&filename_buf, "{s}.gif", .{&hex_hash});
-    return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ thumb_dir, filename });
+    return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ hash_dir, filename });
 }
 
 test "getAnimatedPreviewPath derivation" {
