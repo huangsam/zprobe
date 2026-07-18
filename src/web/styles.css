@@ -112,8 +112,8 @@ body {
   flex-direction: column;
   max-width: 1400px;
   margin: 0 auto;
-  padding: 1.5rem;
-  gap: 1.5rem;
+  padding: 1.25rem;
+  gap: 1.25rem;
 }
 
 .surface {
@@ -288,7 +288,7 @@ body {
 }
 
 .metric-card {
-  padding: 1.5rem;
+  padding: 1.25rem;
   display: flex;
   align-items: center;
   gap: 1.25rem;
