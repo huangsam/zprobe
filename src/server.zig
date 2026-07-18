@@ -509,21 +509,55 @@ fn handleRequest(
         const decoded_path = urlDecode(allocator, query_path.?);
         defer if (decoded_path.ptr != query_path.?.ptr) allocator.free(decoded_path);
 
+        // API keeps ?path=; resolve path → content file_hash → on-disk artifact.
+        // No path-hash fallback: unknown path or non-hex hash → 404.
+        const file_hash: ?[]const u8 = blk: {
+            database.lockRead(io);
+            defer database.unlockRead(io);
+            break :blk database.queryFileHashByPath(allocator, decoded_path) catch null;
+        };
+        defer if (file_hash) |fh| allocator.free(fh);
+
+        if (file_hash == null or !zprobe.utils.isValidContentHash(file_hash.?)) {
+            try request.respond("Not Found: content hash not generated", .{
+                .status = .not_found,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        }
+
         const db_dir = std.fs.path.dirname(database.db_path) orelse ".";
         const thumb_dir = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
         defer allocator.free(thumb_dir);
 
         // Resolve the file path depending on whether the caller wants the animated GIF or JPEG poster.
         const thumb_abs_path = if (animated)
-            try zprobe.utils.getAnimatedPreviewPath(allocator, thumb_dir, decoded_path)
+            zprobe.utils.getAnimatedPreviewPath(allocator, thumb_dir, file_hash.?) catch {
+                try request.respond("Not Found: animated preview not generated", .{
+                    .status = .not_found,
+                    .extra_headers = &.{
+                        .{ .name = "Content-Type", .value = "text/plain" },
+                    },
+                });
+                return;
+            }
         else
-            try zprobe.utils.getThumbnailPath(allocator, thumb_dir, decoded_path);
+            zprobe.utils.getThumbnailPath(allocator, thumb_dir, file_hash.?) catch {
+                try request.respond("Not Found: thumbnail not generated", .{
+                    .status = .not_found,
+                    .extra_headers = &.{
+                        .{ .name = "Content-Type", .value = "text/plain" },
+                    },
+                });
+                return;
+            };
         defer allocator.free(thumb_abs_path);
 
         const file = std.Io.Dir.openFileAbsolute(io, thumb_abs_path, .{ .mode = .read_only }) catch |err| {
             if (err == error.FileNotFound) {
-                // Heal the database cache desync: clear the appropriate flag so the
-                // next catalog page load reflects the missing file accurately.
+                // Content-keyed artifact missing: demoting the shared metadata row is correct.
                 database.lockWrite(io);
                 defer database.unlockWrite(io);
                 if (animated) {
@@ -536,7 +570,11 @@ fn handleRequest(
                     };
                 }
             }
-            try request.respond("Not Found: thumbnail not generated", .{
+            const missing_msg = if (animated)
+                "Not Found: animated preview not generated"
+            else
+                "Not Found: thumbnail not generated";
+            try request.respond(missing_msg, .{
                 .status = .not_found,
                 .extra_headers = &.{
                     .{ .name = "Content-Type", .value = "text/plain" },

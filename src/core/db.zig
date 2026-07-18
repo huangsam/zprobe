@@ -44,6 +44,7 @@ pub const Db = struct {
     // Queries and operations (implemented in query.zig)
     pub const queryCache = query.queryCache;
     pub const queryMetadataByHash = query.queryMetadataByHash;
+    pub const queryFileHashByPath = query.queryFileHashByPath;
     pub const insertMedia = query.insertMedia;
     pub const updateHasThumbnail = query.updateHasThumbnail;
     pub const updateHasAnimated = query.updateHasAnimated;

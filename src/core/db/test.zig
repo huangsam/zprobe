@@ -615,6 +615,37 @@ test "insertMedia and queryCache hit and miss (T17)" {
     try std.testing.expect(!mtime_miss.hit);
 }
 
+test "queryFileHashByPath returns content hash" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/file_hash_lookup_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    const content_hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const record = DbRecord{
+        .path = "/photos/hash_lookup.jpg",
+        .size = 5000,
+        .format = "jpeg",
+        .file_hash = content_hash,
+        .has_thumbnail = true,
+    };
+    try seedRecord(&database, io, record, 123);
+
+    const found = try database.queryFileHashByPath(allocator, record.path);
+    defer if (found) |fh| allocator.free(fh);
+    try std.testing.expect(found != null);
+    try std.testing.expectEqualStrings(content_hash, found.?);
+
+    const missing = try database.queryFileHashByPath(allocator, "/photos/non_existent.jpg");
+    try std.testing.expect(missing == null);
+}
+
 test "insertMedia upsert replaces row (T18)" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;

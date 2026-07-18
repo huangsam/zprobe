@@ -1,20 +1,25 @@
 const std = @import("std");
 
-/// sha256(original_path) as lowercase hex. Shared by thumbnail path helpers.
-fn pathHashHex(original_path: []const u8) [64]u8 {
-    var hash_bytes: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(original_path, &hash_bytes, .{});
-    return std.fmt.bytesToHex(hash_bytes, .lower);
+/// True when `hex` is a 64-char lowercase hex stem (computeFastHash / file_hash form).
+/// Used for content-keyed thumbnail paths; synthetic insertMedia signatures are rejected.
+pub fn isValidContentHash(hex: []const u8) bool {
+    if (hex.len != 64) return false;
+    for (hex) |c| {
+        const ok = (c >= '0' and c <= '9') or (c >= 'a' and c <= 'f');
+        if (!ok) return false;
+    }
+    return true;
 }
 
-/// Layout: `thumb_dir/aa/bb/<64-hex>.ext` (two-level shard for FS perf).
-fn getShardedMediaPath(allocator: std.mem.Allocator, thumb_dir: []const u8, original_path: []const u8, ext: []const u8) ![]const u8 {
-    const hex_hash = pathHashHex(original_path);
+/// Layout: `thumb_dir/aa/bb/<64-hex content hash>.ext` (two-level shard for FS perf).
+/// `content_hash_hex` must be a validated 64-hex stem; returns error.InvalidContentHash otherwise.
+fn getShardedMediaPath(allocator: std.mem.Allocator, thumb_dir: []const u8, content_hash_hex: []const u8, ext: []const u8) ![]const u8 {
+    if (!isValidContentHash(content_hash_hex)) return error.InvalidContentHash;
     return try std.fmt.allocPrint(allocator, "{s}/{s}/{s}/{s}.{s}", .{
         thumb_dir,
-        hex_hash[0..2],
-        hex_hash[2..4],
-        &hex_hash,
+        content_hash_hex[0..2],
+        content_hash_hex[2..4],
+        content_hash_hex,
         ext,
     });
 }
@@ -75,9 +80,9 @@ pub fn computeWorkerCount(cpu_count: usize) usize {
     return @min(@max(cpu_count * 4, 8), 16);
 }
 
-/// Derive the unique absolute thumbnail path from the original path and the thumbnails directory.
-pub fn getThumbnailPath(allocator: std.mem.Allocator, thumb_dir: []const u8, original_path: []const u8) ![]const u8 {
-    return getShardedMediaPath(allocator, thumb_dir, original_path, "jpg");
+/// Derive the unique absolute thumbnail path from a 64-hex content hash and thumbnails directory.
+pub fn getThumbnailPath(allocator: std.mem.Allocator, thumb_dir: []const u8, content_hash_hex: []const u8) ![]const u8 {
+    return getShardedMediaPath(allocator, thumb_dir, content_hash_hex, "jpg");
 }
 
 test "computeWorkerCount boundaries" {
@@ -89,44 +94,45 @@ test "computeWorkerCount boundaries" {
     try std.testing.expectEqual(@as(usize, 16), computeWorkerCount(16));
 }
 
+test "isValidContentHash" {
+    try std.testing.expect(isValidContentHash("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"));
+    try std.testing.expect(!isValidContentHash("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF")); // uppercase
+    try std.testing.expect(!isValidContentHash("abc")); // too short
+    try std.testing.expect(!isValidContentHash("100_123_jpeg_640_480")); // synthetic insertMedia form
+}
+
 test "getThumbnailPath derivation" {
     const allocator = std.testing.allocator;
     const thumb_dir = "/tmp/thumbs";
-    const original_path = "/path/to/media.png";
-    const path = try getThumbnailPath(allocator, thumb_dir, original_path);
+    const content_hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const path = try getThumbnailPath(allocator, thumb_dir, content_hash);
     defer allocator.free(path);
 
-    const hash = pathHashHex(original_path);
-    const expected = try std.fmt.allocPrint(allocator, "/tmp/thumbs/{s}/{s}/{s}.jpg", .{
-        hash[0..2],
-        hash[2..4],
-        &hash,
-    });
-    defer allocator.free(expected);
-    try std.testing.expectEqualStrings(expected, path);
+    try std.testing.expectEqualStrings(
+        "/tmp/thumbs/01/23/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.jpg",
+        path,
+    );
+
+    try std.testing.expectError(error.InvalidContentHash, getThumbnailPath(allocator, thumb_dir, "not-a-hash"));
 }
 
-/// Derive the unique absolute animated GIF preview path from the original path and thumbnails directory.
-/// Uses the same sha256(original_path) hash as getThumbnailPath but with a .gif extension.
-pub fn getAnimatedPreviewPath(allocator: std.mem.Allocator, thumb_dir: []const u8, original_path: []const u8) ![]const u8 {
-    return getShardedMediaPath(allocator, thumb_dir, original_path, "gif");
+/// Derive the unique absolute animated GIF preview path from a 64-hex content hash.
+/// Same shard layout as getThumbnailPath but with a .gif extension.
+pub fn getAnimatedPreviewPath(allocator: std.mem.Allocator, thumb_dir: []const u8, content_hash_hex: []const u8) ![]const u8 {
+    return getShardedMediaPath(allocator, thumb_dir, content_hash_hex, "gif");
 }
 
 test "getAnimatedPreviewPath derivation" {
     const allocator = std.testing.allocator;
     const thumb_dir = "/tmp/thumbs";
-    const original_path = "/path/to/media.mp4";
-    const path = try getAnimatedPreviewPath(allocator, thumb_dir, original_path);
+    const content_hash_hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const path = try getAnimatedPreviewPath(allocator, thumb_dir, content_hash_hex);
     defer allocator.free(path);
 
-    const hex = pathHashHex(original_path);
-    const expected = try std.fmt.allocPrint(allocator, "/tmp/thumbs/{s}/{s}/{s}.gif", .{
-        hex[0..2],
-        hex[2..4],
-        &hex,
-    });
-    defer allocator.free(expected);
-    try std.testing.expectEqualStrings(expected, path);
+    try std.testing.expectEqualStrings(
+        "/tmp/thumbs/01/23/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.gif",
+        path,
+    );
 }
 
 /// Ensure the parent directory of an absolute media path exists (idempotent).
@@ -136,26 +142,23 @@ pub fn ensureParentDirAbsolute(io: std.Io, absolute_path: []const u8) !void {
     try std.Io.Dir.createDirPath(std.Io.Dir.cwd(), io, parent);
 }
 
-/// Determine FFmpeg worker pool size by allocating half of available CPU cores,
-/// clamping between 1 and 4, and ensuring it does not exceed total thread workers.
+/// Determine FFmpeg worker pool size: floor(cpu_count / 4), at least 1, and never
+/// more than the total worker thread count (`num_workers`).
 pub fn computeFfmpegConcurrency(cpu_count: usize, num_workers: usize) usize {
-    var count = cpu_count / 2;
-    if (count < 1) count = 1;
-    if (count > 4) count = 4;
-    return @min(count, num_workers);
+    return @max(@min(cpu_count / 4, num_workers), 1);
 }
 
 test "computeFfmpegConcurrency scenarios" {
-    // 1-core machine, 8 workers -> 1 permit
-    try std.testing.expectEqual(@as(usize, 1), computeFfmpegConcurrency(1, 8));
-    // 2-core machine, 8 workers -> 1 permit
-    try std.testing.expectEqual(@as(usize, 1), computeFfmpegConcurrency(2, 8));
-    // 4-core machine, 16 workers -> 2 permits
-    try std.testing.expectEqual(@as(usize, 2), computeFfmpegConcurrency(4, 16));
-    // 8-core machine, 16 workers -> 4 permits
-    try std.testing.expectEqual(@as(usize, 4), computeFfmpegConcurrency(8, 16));
-    // 32-core machine, 16 workers -> capped at 4 permits
-    try std.testing.expectEqual(@as(usize, 4), computeFfmpegConcurrency(32, 16));
-    // 8-core machine, but manually overridden to 2 worker threads -> capped at 2 permits
-    try std.testing.expectEqual(@as(usize, 2), computeFfmpegConcurrency(8, 2));
+    // 1-core machine, 32 workers -> 1 permit
+    try std.testing.expectEqual(@as(usize, 1), computeFfmpegConcurrency(1, 32));
+    // 2-core machine, 32 workers -> 1 permit
+    try std.testing.expectEqual(@as(usize, 1), computeFfmpegConcurrency(2, 32));
+    // 4-core machine, 32 workers -> 1 permit
+    try std.testing.expectEqual(@as(usize, 1), computeFfmpegConcurrency(4, 32));
+    // 8-core machine, 32 workers -> 2 permits
+    try std.testing.expectEqual(@as(usize, 2), computeFfmpegConcurrency(8, 32));
+    // 32-core machine, 32 workers -> 8 permits
+    try std.testing.expectEqual(@as(usize, 8), computeFfmpegConcurrency(32, 32));
+    // 16-core machine, but manually overridden to 2 worker threads -> 2 permits
+    try std.testing.expectEqual(@as(usize, 2), computeFfmpegConcurrency(16, 2));
 }

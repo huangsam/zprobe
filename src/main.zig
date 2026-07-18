@@ -172,10 +172,21 @@ fn checkFFmpeg(io: std.Io, ffmpeg_path: []const u8) bool {
     return true;
 }
 
-fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, thumb_dir: []const u8, is_video: bool) !bool {
-    const thumb_path_jpg = try root.utils.getThumbnailPath(allocator, thumb_dir, original_path);
+/// Write/check thumbs only under a validated 64-hex content hash. `original_path`
+/// remains the ffmpeg `-i` / EXIF source; the disk stem is never path-hashed.
+fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, content_hash_hex: []const u8, thumb_dir: []const u8, is_video: bool) !bool {
+    const thumb_path_jpg = root.utils.getThumbnailPath(allocator, thumb_dir, content_hash_hex) catch return false;
     defer allocator.free(thumb_path_jpg);
     root.utils.ensureParentDirAbsolute(io, thumb_path_jpg) catch return false;
+
+    // Content-keying maps duplicate-content files to the same final path, so two
+    // workers can run ffmpeg into it concurrently. Write to a per-thread-unique
+    // temp sibling (same dir => same filesystem) and atomically rename into place
+    // so readers only ever see a complete file (last-writer-wins).
+    const tmp_path = std.fmt.allocPrint(allocator, "{s}.{d}.tmp", .{ thumb_path_jpg, std.Thread.getCurrentId() }) catch return false;
+    defer allocator.free(tmp_path);
+    var renamed = false;
+    defer if (!renamed) std.Io.Dir.deleteFileAbsolute(io, tmp_path) catch {};
 
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
@@ -192,7 +203,7 @@ fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path
     } else {
         try argv.appendSlice(allocator, &.{ "-update", "1" });
     }
-    try argv.appendSlice(allocator, &.{ "-vf", "scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih)", "-f", "image2", thumb_path_jpg });
+    try argv.appendSlice(allocator, &.{ "-vf", "scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih)", "-f", "image2", tmp_path });
 
     var child = std.process.spawn(io, .{
         .argv = argv.items,
@@ -200,25 +211,41 @@ fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path
         .stderr = .ignore,
     }) catch return false;
     const term = try child.wait(io);
-    return switch (term) {
+    const ok = switch (term) {
         .exited => |code| code == 0,
         else => false,
     };
+    if (!ok) return false;
+
+    std.Io.Dir.renameAbsolute(tmp_path, thumb_path_jpg, io) catch return false;
+    renamed = true;
+    return true;
 }
 
 /// Generate a 2-second, 5fps, 320px animated GIF preview for a video file.
 /// Uses ffmpeg's built-in gif encoder (no external library) with a per-clip
 /// palettegen/paletteuse pass for good color fidelity. The shared ffmpeg_sem
-/// must be held by the caller before this.
-fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, thumb_dir: []const u8) !bool {
-    const preview_path = try root.utils.getAnimatedPreviewPath(allocator, thumb_dir, original_path);
+/// must be held by the caller before this. Disk key is content hash, not path.
+fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, content_hash_hex: []const u8, thumb_dir: []const u8) !bool {
+    const preview_path = root.utils.getAnimatedPreviewPath(allocator, thumb_dir, content_hash_hex) catch return false;
     defer allocator.free(preview_path);
     root.utils.ensureParentDirAbsolute(io, preview_path) catch return false;
+
+    // Same temp+rename discipline as generateFfmpegThumbnail: duplicate-content
+    // videos map to the same preview path, so generate to a per-thread-unique
+    // temp sibling and atomically rename into place (last-writer-wins).
+    const tmp_path = std.fmt.allocPrint(allocator, "{s}.{d}.tmp", .{ preview_path, std.Thread.getCurrentId() }) catch return false;
+    defer allocator.free(tmp_path);
+    var renamed = false;
+    defer if (!renamed) std.Io.Dir.deleteFileAbsolute(io, tmp_path) catch {};
 
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
 
     // Seek to 1s, capture 3s, no audio.
+    // -f gif is explicit because the .tmp output name defeats ffmpeg's
+    // extension-based muxer inference (which previously relied on the .gif
+    // suffix of the final path).
     try argv.appendSlice(allocator, &.{
         ffmpeg_path,
         "-y",
@@ -236,7 +263,9 @@ fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpe
         "-loop",
         "0",
         "-an",
-        preview_path,
+        "-f",
+        "gif",
+        tmp_path,
     });
 
     var child = std.process.spawn(io, .{
@@ -245,25 +274,41 @@ fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpe
         .stderr = .ignore,
     }) catch return false;
     const term = try child.wait(io);
-    return switch (term) {
+    const ok = switch (term) {
         .exited => |code| code == 0,
         else => false,
     };
-}
+    if (!ok) return false;
 
-fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8, bytes: []const u8) !bool {
-    const thumb_path_jpg = try root.utils.getThumbnailPath(allocator, thumb_dir, original_path);
-    defer allocator.free(thumb_path_jpg);
-    root.utils.ensureParentDirAbsolute(io, thumb_path_jpg) catch return false;
-
-    const file = std.Io.Dir.createFileAbsolute(io, thumb_path_jpg, .{}) catch return false;
-    defer std.Io.File.close(file, io);
-    try std.Io.File.writePositionalAll(file, io, bytes, 0);
+    std.Io.Dir.renameAbsolute(tmp_path, preview_path, io) catch return false;
+    renamed = true;
     return true;
 }
 
-fn checkAnimatedPreviewExists(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8) bool {
-    const preview_path = root.utils.getAnimatedPreviewPath(allocator, thumb_dir, original_path) catch return false;
+fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, content_hash_hex: []const u8, thumb_dir: []const u8, bytes: []const u8) !bool {
+    const thumb_path_jpg = root.utils.getThumbnailPath(allocator, thumb_dir, content_hash_hex) catch return false;
+    defer allocator.free(thumb_path_jpg);
+    root.utils.ensureParentDirAbsolute(io, thumb_path_jpg) catch return false;
+
+    // Write to a per-thread-unique temp sibling then atomically rename, so two
+    // workers saving the same content-keyed thumbnail can't tear each other's file.
+    const tmp_path = std.fmt.allocPrint(allocator, "{s}.{d}.tmp", .{ thumb_path_jpg, std.Thread.getCurrentId() }) catch return false;
+    defer allocator.free(tmp_path);
+    var renamed = false;
+    defer if (!renamed) std.Io.Dir.deleteFileAbsolute(io, tmp_path) catch {};
+    {
+        const file = std.Io.Dir.createFileAbsolute(io, tmp_path, .{}) catch return false;
+        defer std.Io.File.close(file, io);
+        try std.Io.File.writePositionalAll(file, io, bytes, 0);
+    }
+
+    std.Io.Dir.renameAbsolute(tmp_path, thumb_path_jpg, io) catch return false;
+    renamed = true;
+    return true;
+}
+
+fn checkAnimatedPreviewExists(io: std.Io, allocator: std.mem.Allocator, content_hash_hex: []const u8, thumb_dir: []const u8) bool {
+    const preview_path = root.utils.getAnimatedPreviewPath(allocator, thumb_dir, content_hash_hex) catch return false;
     defer allocator.free(preview_path);
 
     const file = std.Io.Dir.openFileAbsolute(io, preview_path, .{ .mode = .read_only }) catch return false;
@@ -271,8 +316,8 @@ fn checkAnimatedPreviewExists(io: std.Io, allocator: std.mem.Allocator, original
     return true;
 }
 
-fn checkThumbnailExists(io: std.Io, allocator: std.mem.Allocator, original_path: []const u8, thumb_dir: []const u8) bool {
-    const thumb_path_jpg = root.utils.getThumbnailPath(allocator, thumb_dir, original_path) catch return false;
+fn checkThumbnailExists(io: std.Io, allocator: std.mem.Allocator, content_hash_hex: []const u8, thumb_dir: []const u8) bool {
+    const thumb_path_jpg = root.utils.getThumbnailPath(allocator, thumb_dir, content_hash_hex) catch return false;
     defer allocator.free(thumb_path_jpg);
 
     const file = std.Io.Dir.openFileAbsolute(io, thumb_path_jpg, .{ .mode = .read_only }) catch return false;
@@ -298,6 +343,7 @@ const worker = struct {
     /// --animated-previews is set and the corresponding on-disk artifact is
     /// missing, returns null AND sets force_regen so the caller skips the
     /// content-hash reuse path and regenerates the artifact via parseMediaFile.
+    /// Existence checks use content-keyed paths from the row's file_hash.
     fn queryCacheRecord(c_ctx: WorkerContext, path: []const u8, size: u64, mtime: i64, is_video: bool, allocator: std.mem.Allocator, force_regen: *bool) ?db.DbRecord {
         force_regen.* = false;
         const d = c_ctx.db orelse return null;
@@ -309,8 +355,14 @@ const worker = struct {
         };
 
         if (cache_res.hit) {
+            const content_hash: ?[]const u8 = if (cache_res.json_out.file_hash) |fh|
+                if (root.utils.isValidContentHash(fh)) fh else null
+            else
+                null;
+
             if (c_ctx.rebuild_thumbnails and c_ctx.thumb_dir != null) {
-                if (!checkThumbnailExists(c_ctx.io, allocator, path, c_ctx.thumb_dir.?)) {
+                const missing = content_hash == null or !checkThumbnailExists(c_ctx.io, allocator, content_hash.?, c_ctx.thumb_dir.?);
+                if (missing) {
                     force_regen.* = true;
                     return null;
                 }
@@ -323,11 +375,11 @@ const worker = struct {
             // libraries by not stat-ing every gif each scan. Gated on is_video:
             // previews are only ever generated for videos.
             if (is_video and c_ctx.animated_previews and c_ctx.thumb_dir != null) {
+                const on_disk = content_hash != null and checkAnimatedPreviewExists(c_ctx.io, allocator, content_hash.?, c_ctx.thumb_dir.?);
                 const missing = if (c_ctx.rebuild_previews)
-                    !checkAnimatedPreviewExists(c_ctx.io, allocator, path, c_ctx.thumb_dir.?)
+                    !on_disk
                 else
-                    !cache_res.json_out.has_animated and
-                        !checkAnimatedPreviewExists(c_ctx.io, allocator, path, c_ctx.thumb_dir.?);
+                    !cache_res.json_out.has_animated and !on_disk;
                 if (missing) {
                     force_regen.* = true;
                     return null;
@@ -338,7 +390,10 @@ const worker = struct {
         return null;
     }
 
-    fn queryHashRecord(c_ctx: WorkerContext, path: []const u8, size: u64, mtime: i64, file_hash: []const u8, allocator: std.mem.Allocator) ?db.DbRecord {
+    /// Content-hash hit for a new path. Never trust has_thumbnail/has_animated alone:
+    /// always stat the content-keyed artifact; generate if missing when possible;
+    /// demote shared-row flags if the content file is still absent after attempts.
+    fn queryHashRecord(c_ctx: WorkerContext, path: []const u8, size: u64, mtime: i64, file_hash: []const u8, is_video: bool, allocator: std.mem.Allocator) ?db.DbRecord {
         const d = c_ctx.db orelse return null;
         var record: ?db.DbRecord = null;
         {
@@ -349,6 +404,46 @@ const worker = struct {
 
         if (record) |*rec| {
             rec.size = size;
+
+            if (c_ctx.thumb_dir) |thumb_dir| {
+                if (root.utils.isValidContentHash(file_hash)) {
+                    var has_thumb = checkThumbnailExists(c_ctx.io, allocator, file_hash, thumb_dir);
+                    var has_animated = if (is_video and c_ctx.animated_previews)
+                        checkAnimatedPreviewExists(c_ctx.io, allocator, file_hash, thumb_dir)
+                    else
+                        rec.has_animated;
+
+                    if ((!has_thumb or (is_video and c_ctx.animated_previews and !has_animated)) and c_ctx.has_ffmpeg) {
+                        if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                        defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                        if (!has_thumb) {
+                            has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, thumb_dir, is_video) catch false;
+                        }
+                        if (is_video and c_ctx.animated_previews and !has_animated) {
+                            has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, thumb_dir) catch false;
+                        }
+                    }
+
+                    // A duplicate-content worker may have produced the shared artifact
+                    // via temp+rename after our check/failed generation. Re-stat before
+                    // recording so we never demote a row a sibling path just populated.
+                    if (!has_thumb)
+                        has_thumb = checkThumbnailExists(c_ctx.io, allocator, file_hash, thumb_dir);
+                    if (is_video and c_ctx.animated_previews and !has_animated)
+                        has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, file_hash, thumb_dir);
+
+                    // Align returned flags with disk evidence (never claim present without a file).
+                    rec.has_thumbnail = has_thumb;
+                    if (is_video and c_ctx.animated_previews) {
+                        rec.has_animated = has_animated;
+                    }
+                } else {
+                    // Non-hex hash: no content-keyed path; do not claim thumbs.
+                    rec.has_thumbnail = false;
+                    if (is_video) rec.has_animated = false;
+                }
+            }
+
             // Insert duplicate media path to DB since we matched by hash but not path
             {
                 d.lockWrite(c_ctx.io);
@@ -356,6 +451,13 @@ const worker = struct {
                 d.insertMedia(c_ctx.io, rec, mtime) catch |err| {
                     std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
                 };
+                // insertMedia uses MAX() on flags; force demote when disk is actually missing.
+                if (!rec.has_thumbnail) {
+                    d.updateHasThumbnail(path, false) catch {};
+                }
+                if (is_video and c_ctx.animated_previews and !rec.has_animated) {
+                    d.updateHasAnimated(path, false) catch {};
+                }
             }
             return rec.*;
         }
@@ -367,38 +469,61 @@ const worker = struct {
         var has_animated = false;
         var record: db.DbRecord = undefined;
 
+        // Disk keys require a real 64-hex computeFastHash. Never fall back to path-hash
+        // or insertMedia synthetic signatures for thumb/preview stems.
+        const content_hash: ?[]const u8 = if (file_hash) |fh|
+            if (root.utils.isValidContentHash(fh)) fh else null
+        else
+            null;
+
         if (is_video) {
             var res = try video_meta.getVideoMetadata(allocator, path, c_ctx.io);
             if (c_ctx.thumb_dir) |thumb_dir| {
-                has_thumb = checkThumbnailExists(c_ctx.io, allocator, path, thumb_dir);
-                if (c_ctx.animated_previews) {
-                    has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, path, thumb_dir);
-                }
+                if (content_hash) |ch| {
+                    has_thumb = checkThumbnailExists(c_ctx.io, allocator, ch, thumb_dir);
+                    if (c_ctx.animated_previews) {
+                        has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, ch, thumb_dir);
+                    }
 
-                if ((!has_thumb or (c_ctx.animated_previews and !has_animated)) and c_ctx.has_ffmpeg) {
-                    if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                    defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                    if (!has_thumb) {
-                        has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir, true) catch false;
+                    if ((!has_thumb or (c_ctx.animated_previews and !has_animated)) and c_ctx.has_ffmpeg) {
+                        if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                        defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                        if (!has_thumb) {
+                            has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, thumb_dir, true) catch false;
+                        }
+                        if (c_ctx.animated_previews and !has_animated) {
+                            has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, thumb_dir) catch false;
+                        }
                     }
-                    if (c_ctx.animated_previews and !has_animated) {
-                        has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir) catch false;
-                    }
+
+                    // Sibling path may have filled the shared content-keyed artifact via
+                    // temp+rename after our check/failed generation. Re-stat so flags
+                    // (and insertMedia MAX) reflect disk, not just this worker's attempt.
+                    if (!has_thumb)
+                        has_thumb = checkThumbnailExists(c_ctx.io, allocator, ch, thumb_dir);
+                    if (c_ctx.animated_previews and !has_animated)
+                        has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, ch, thumb_dir);
                 }
             }
             record = try populateJsonFromVideo(allocator, &res, path, size, has_thumb, has_animated);
         } else {
             var res = try image_meta.parseFile(allocator, path, c_ctx.io);
             if (c_ctx.thumb_dir) |thumb_dir| {
-                has_thumb = checkThumbnailExists(c_ctx.io, allocator, path, thumb_dir);
-                if (!has_thumb) {
-                    if (res.thumbnail_data) |thumb_bytes| {
-                        has_thumb = saveThumbnailBytes(c_ctx.io, allocator, path, thumb_dir, thumb_bytes) catch false;
-                    } else if (c_ctx.has_ffmpeg) {
-                        if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                        defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                        has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, thumb_dir, false) catch false;
+                if (content_hash) |ch| {
+                    has_thumb = checkThumbnailExists(c_ctx.io, allocator, ch, thumb_dir);
+                    if (!has_thumb) {
+                        if (res.thumbnail_data) |thumb_bytes| {
+                            has_thumb = saveThumbnailBytes(c_ctx.io, allocator, ch, thumb_dir, thumb_bytes) catch false;
+                        } else if (c_ctx.has_ffmpeg) {
+                            if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                            defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                            has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, thumb_dir, false) catch false;
+                        }
                     }
+
+                    // Same sibling re-stat as the video branch / queryHashRecord
+                    if (!has_thumb)
+                        has_thumb = checkThumbnailExists(c_ctx.io, allocator, ch, thumb_dir);
                 }
             }
             record = try populateJsonFromImage(allocator, &res, path, size, has_thumb);
@@ -508,7 +633,7 @@ const worker = struct {
         // thumbnail/preview back-fill before parseMediaFile can regenerate it.
         if (!force_regen) {
             if (file_hash) |hash| {
-                if (queryHashRecord(c_ctx, entry.path, fsize, mtime, hash, arena_allocator)) |record| {
+                if (queryHashRecord(c_ctx, entry.path, fsize, mtime, hash, is_video, arena_allocator)) |record| {
                     try printMetadataRecord(c_ctx, record, fsize);
                     return;
                 }
@@ -1193,13 +1318,46 @@ test "rebuild missing thumbnails unit test" {
     try std.Io.Dir.createDirPath(std.Io.Dir.cwd(), io, full_thumb_path);
     defer std.Io.Dir.deleteDir(std.Io.Dir.cwd(), io, full_thumb_path) catch {};
 
+    // Content-keyed stem (fixed 64-hex; same key for any path with this hash)
+    const content_hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     // 1. Verify checkThumbnailExists returns false since no thumbnail exists yet
-    try std.testing.expect(!checkThumbnailExists(io, allocator, full_image_path, full_thumb_path));
+    try std.testing.expect(!checkThumbnailExists(io, allocator, content_hash, full_thumb_path));
 
     // 2. saveThumbnailBytes must create shard parents (aa/bb/) before writing
-    const wrote = try saveThumbnailBytes(io, allocator, full_image_path, full_thumb_path, "MOCK_THUMB");
+    const wrote = try saveThumbnailBytes(io, allocator, content_hash, full_thumb_path, "MOCK_THUMB");
     try std.testing.expect(wrote);
-    try std.testing.expect(checkThumbnailExists(io, allocator, full_image_path, full_thumb_path));
+    try std.testing.expect(checkThumbnailExists(io, allocator, content_hash, full_thumb_path));
+
+    // 3. Non-hex / synthetic stems must not write under path-hash or synthetic names
+    try std.testing.expect(!try saveThumbnailBytes(io, allocator, "nonhexhash", full_thumb_path, "BAD"));
+    try std.testing.expect(!checkThumbnailExists(io, allocator, "nonhexhash", full_thumb_path));
+}
+
+test "two paths one content hash share one on-disk thumbnail" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+
+    const full_thumb_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, "shared_thumbs" });
+    defer allocator.free(full_thumb_path);
+    try std.Io.Dir.createDirPath(std.Io.Dir.cwd(), io, full_thumb_path);
+    defer std.Io.Dir.deleteDir(std.Io.Dir.cwd(), io, full_thumb_path) catch {};
+
+    const content_hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const wrote = try saveThumbnailBytes(io, allocator, content_hash, full_thumb_path, "SHARED_THUMB");
+    try std.testing.expect(wrote);
+
+    // Both logical paths resolve to the same content-keyed file.
+    try std.testing.expect(checkThumbnailExists(io, allocator, content_hash, full_thumb_path));
+    const p1 = try root.utils.getThumbnailPath(allocator, full_thumb_path, content_hash);
+    defer allocator.free(p1);
+    const p2 = try root.utils.getThumbnailPath(allocator, full_thumb_path, content_hash);
+    defer allocator.free(p2);
+    try std.testing.expectEqualStrings(p1, p2);
+    try std.testing.expect(std.mem.indexOf(u8, p1, "01/23/") != null);
 }
 
 test "Db.pruneStalePaths pruning logic" {

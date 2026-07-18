@@ -417,6 +417,35 @@ pub fn insertMedia(
     self.invalidateStatsCache(io);
 }
 
+/// Look up media_metadata.file_hash for a physical path. Returns null if the path
+/// is unknown or the hash column is NULL. Caller owns the returned slice.
+pub fn queryFileHashByPath(self: *Db, allocator: std.mem.Allocator, path: []const u8) !?[]const u8 {
+    if (self.handle == null) return error.DatabaseNotOpen;
+    const sql =
+        \\SELECT m.file_hash
+        \\FROM media_paths p
+        \\JOIN media_metadata m ON p.metadata_id = m.id
+        \\WHERE p.path = ?;
+    ;
+    var stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK) {
+        return error.DatabasePrepareError;
+    }
+    defer _ = c.sqlite3_finalize(stmt);
+
+    if (c.sqlite3_bind_text(stmt, 1, path.ptr, @intCast(path.len), null) != c.SQLITE_OK) {
+        return error.DatabaseBindError;
+    }
+
+    if (c.sqlite3_step(stmt) == c.SQLITE_ROW) {
+        if (c.sqlite3_column_type(stmt, 0) == c.SQLITE_NULL) return null;
+        const raw = c.sqlite3_column_text(stmt, 0);
+        const len = c.sqlite3_column_bytes(stmt, 0);
+        return try allocator.dupe(u8, raw[0..@intCast(len)]);
+    }
+    return null;
+}
+
 /// Update the has_thumbnail flag for a given media record.
 pub fn updateHasThumbnail(self: *Db, path: []const u8, has_thumbnail: bool) !void {
     if (self.handle == null) return error.DatabaseNotOpen;
