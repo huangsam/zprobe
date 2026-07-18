@@ -298,12 +298,6 @@ body {
     transform var(--transition-normal);
 }
 
-.metric-card:hover {
-  border-color: var(--border-color-hover);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
-}
-
 .metric-icon {
   display: flex;
   align-items: center;
