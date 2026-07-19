@@ -78,7 +78,11 @@ fn suggestFlag(arg: []const u8) ?[]const u8 {
             best = flag;
         }
     }
-    return best;
+    // Only suggest when the match is close enough to be plausible: at least
+    // half the characters of the longer token must line up.
+    const b = best orelse return null;
+    if (best_dist * 2 > @max(name.len, b.len)) return null;
+    return b;
 }
 
 /// Whether `arg` is `flag` exactly or `flag=VALUE`.
