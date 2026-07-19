@@ -230,9 +230,6 @@ const WorkerContext = struct {
     anim_dir: ?[]const u8 = null, // .zprobe_animations root
     has_ffmpeg: bool = false,
     ffmpeg_sem: ?*std.Io.Semaphore = null,
-    rebuild_thumbnails: bool = false,
-    animated_previews: bool = false,
-    rebuild_previews: bool = false,
     ffmpeg_path: []const u8 = "ffmpeg",
 };
 
@@ -594,9 +591,9 @@ const worker = struct {
             var res = try video_meta.getVideoMetadata(allocator, path, c_ctx.io);
             if (content_hash) |ch| {
                 const manage_thumb = c_ctx.thumb_dir != null;
-                const manage_anim = c_ctx.animated_previews and c_ctx.thumb_dir != null;
+                const manage_anim = c_ctx.anim_dir != null;
                 if (manage_thumb) has_thumb = checkThumbnailExists(c_ctx.io, allocator, ch, c_ctx.thumb_dir.?);
-                if (manage_anim) has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, ch, c_ctx.thumb_dir.?);
+                if (manage_anim) has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, ch, c_ctx.anim_dir.?);
 
                 const need_thumb_gen = manage_thumb and !has_thumb;
                 const need_anim_gen = manage_anim and !has_animated;
@@ -608,7 +605,7 @@ const worker = struct {
                         has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.thumb_dir.?, true) catch false;
                     }
                     if (need_anim_gen) {
-                        has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.thumb_dir.?) catch false;
+                        has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.anim_dir.?) catch false;
                     }
                 }
 
@@ -618,7 +615,7 @@ const worker = struct {
                 if (manage_thumb and !has_thumb)
                     has_thumb = checkThumbnailExists(c_ctx.io, allocator, ch, c_ctx.thumb_dir.?);
                 if (manage_anim and !has_animated)
-                    has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, ch, c_ctx.thumb_dir.?);
+                    has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, ch, c_ctx.anim_dir.?);
             }
             record = try populateJsonFromVideo(allocator, &res, path, size, has_thumb, has_animated);
         } else {
