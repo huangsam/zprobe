@@ -529,13 +529,13 @@ fn handleRequest(
         }
 
         const db_dir = std.fs.path.dirname(database.db_path) orelse ".";
-        // Static JPEG thumbnails and animated GIF previews live under separate roots
-        const thumb_dir = try std.fs.path.join(allocator, &.{ db_dir, if (animated) ".zprobe_thumbnails" else ".zprobe_animations" });
-        defer allocator.free(thumb_dir);
+        // Static JPEG thumbnails and animated GIF previews live under separate roots.
+        const artifact_dir = try std.fs.path.join(allocator, &.{ db_dir, if (animated) ".zprobe_animations" else ".zprobe_thumbnails" });
+        defer allocator.free(artifact_dir);
 
         // Resolve the file path depending on whether the caller wants the animated GIF or JPEG poster.
         const thumb_abs_path = if (animated)
-            zprobe.utils.getAnimatedPreviewPath(allocator, thumb_dir, file_hash.?) catch {
+            zprobe.utils.getAnimatedPreviewPath(allocator, artifact_dir, file_hash.?) catch {
                 try request.respond("Not Found: animated preview not generated", .{
                     .status = .not_found,
                     .extra_headers = &.{
@@ -545,7 +545,7 @@ fn handleRequest(
                 return;
             }
         else
-            zprobe.utils.getThumbnailPath(allocator, thumb_dir, file_hash.?) catch {
+            zprobe.utils.getThumbnailPath(allocator, artifact_dir, file_hash.?) catch {
                 try request.respond("Not Found: thumbnail not generated", .{
                     .status = .not_found,
                     .extra_headers = &.{
