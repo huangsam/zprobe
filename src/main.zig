@@ -15,6 +15,105 @@ const test_utils = @import("core/test_utils.zig");
 const db = root.db;
 const hashing = root.hashing;
 
+/// Generation policy for a content-keyed artifact type. `--thumbnails` and
+/// `--animations` share this grammar; only their defaults and on-disk roots differ.
+const ArtifactMode = enum {
+    off,
+    on,
+    rebuild,
+
+    /// Whether this run should generate the artifact when it is missing.
+    fn generates(self: ArtifactMode) bool {
+        return self != .off;
+    }
+
+    /// Whether this run should heal by on-disk existence.
+    fn healsFromDisk(self: ArtifactMode) bool {
+        return self == .rebuild;
+    }
+};
+
+/// Parse an `on|off|rebuild` mode value (case-insensitive). Returns null
+/// on an unrecognized value so the caller can emit a precise CLI error.
+fn parseArtifactMode(value: []const u8) ?ArtifactMode {
+    if (std.mem.eql(u8, value, "off")) return .off;
+    if (std.mem.eql(u8, value, "on")) return .on;
+    if (std.mem.eql(u8, value, "rebuild")) return .rebuild;
+    return null;
+}
+
+/// Long options used for "did you mean?" suggestions on an unknown flag.
+const known_flags = [_][]const u8{ "--json", "--db", "--concurrency", "--thumbnails", "--prune", "--animations", "--ffmpeg-path", "--help" };
+
+/// Levenshtein edit distance between two strings. `row` is scratch of length `b.len + 1`.
+fn levenshtein(a: []const u8, b: []const u8, row: []usize) usize {
+    for (0..b.len + 1) |j| row[j] = j;
+    for (a, 0..) |ca, i| {
+        var prev = row[0];
+        row[0] = i + 1;
+        for (b, 0..) |cb, j| {
+            const cur = row[j + 1];
+            const cost: usize = if (ca == cb) 0 else 1;
+            row[j + 1] = @min(@min(row[j] + 1, row[j + 1] + 1), prev + cost);
+            prev = cur;
+        }
+    }
+    return row[b.len];
+}
+
+/// Suggest the closest known flag for an unrecognized flag. Returns
+/// null if no close match is found.
+fn suggestFlag(arg: []const u8) ?[]const u8 {
+    const name = if (std.mem.indexOfScalar(u8, arg, '=')) |eq| arg[0..eq] else arg;
+    if (name.len == 0) return null;
+
+    var best: ?[]const u8 = null;
+    var best_dist: usize = std.math.maxInt(usize);
+    var row: [64]usize = undefined;
+    for (known_flags) |flag| {
+        if (flag.len + 1 > row.len) continue;
+        const d = levenshtein(name, flag, row[0 .. flag.len + 1]);
+        if (d < best_dist) {
+            best_dist = d;
+            best = flag;
+        }
+    }
+    // Only suggest when the match is close enough to be plausible: at least
+    // half the characters of the longer token must line up.
+    const b = best orelse return null;
+    if (best_dist * 2 > @max(name.len, b.len)) return null;
+    return b;
+}
+
+/// Whether `arg` is `flag` exactly or `flag=VALUE`.
+fn flagMatches(arg: []const u8, flag: []const u8) bool {
+    return std.mem.eql(u8, arg, flag) or
+        (arg.len > flag.len and std.mem.startsWith(u8, arg, flag) and arg[flag.len] == '=');
+}
+
+/// Read and validate the mode value for `--thumbnails` / `--animations`, accepting
+/// both `--flag=VALUE` and `--flag VALUE`. Exits(1) with a precise message on a
+/// missing or unrecognized value.
+fn parseModeFlag(out: anytype, args: anytype, arg_idx: *usize, flag: []const u8, arg: []const u8) ArtifactMode {
+    var val: []const u8 = undefined;
+    if (arg.len > flag.len and arg[flag.len] == '=') {
+        val = arg[flag.len + 1 ..];
+    } else {
+        if (arg_idx.* + 1 >= args.len) {
+            out.print("Error: {s} requires a value (on|off|rebuild)\n", .{flag}) catch {};
+            out.flush() catch {};
+            std.process.exit(1);
+        }
+        arg_idx.* += 1;
+        val = args[arg_idx.*];
+    }
+    return parseArtifactMode(val) orelse {
+        out.print("Error: unrecognized value for {s}: {s}\n", .{ flag, val }) catch {};
+        out.flush() catch {};
+        std.process.exit(1);
+    };
+}
+
 /// Helper to initialize a buffered file writer targeting stdout.
 ///
 /// In Zig 0.16.0, `std.Io.File.Writer` provides buffered output streams
@@ -125,7 +224,10 @@ const WorkerContext = struct {
     stdout_mutex: *std.Io.Mutex,
     success_count: *std.atomic.Value(usize),
     db: ?*db.Db = null,
-    thumb_dir: ?[]const u8 = null,
+    thumbnails: ArtifactMode = .on,
+    animations: ArtifactMode = .off,
+    thumb_dir: ?[]const u8 = null, // .zprobe_thumbnails root
+    anim_dir: ?[]const u8 = null, // .zprobe_animations root
     has_ffmpeg: bool = false,
     ffmpeg_sem: ?*std.Io.Semaphore = null,
     rebuild_thumbnails: bool = false,
@@ -339,11 +441,16 @@ const worker = struct {
         }
     }
 
-    /// Look up an existing record by path. On a hit, if --rebuild-thumbnails or
-    /// --animated-previews is set and the corresponding on-disk artifact is
-    /// missing, returns null AND sets force_regen so the caller skips the
-    /// content-hash reuse path and regenerates the artifact via parseMediaFile.
+    /// Look up an existing record by path. On a hit, if a managed artifact needs
+    /// healing under its own root, returns null AND sets force_regen so the caller
+    /// skips the content-hash reuse path and regenerates via parseMediaFile.
     /// Existence checks use content-keyed paths from the row's file_hash.
+    ///
+    /// Force-regen fidelity (per artifact):
+    ///   thumbnails=on      → never force here (backfill happens in parse/hash-hit)
+    ///   thumbnails=rebuild → force when the .jpg is missing under thumb_dir
+    ///   animations=on      → force when !has_animated && the .gif is missing under anim_dir
+    ///   animations=rebuild → force when the .gif is missing under anim_dir
     fn queryCacheRecord(c_ctx: WorkerContext, path: []const u8, size: u64, mtime: i64, is_video: bool, allocator: std.mem.Allocator, force_regen: *bool) ?db.DbRecord {
         force_regen.* = false;
         const d = c_ctx.db orelse return null;
@@ -360,29 +467,28 @@ const worker = struct {
             else
                 null;
 
-            if (c_ctx.rebuild_thumbnails and c_ctx.thumb_dir != null) {
-                const missing = content_hash == null or !checkThumbnailExists(c_ctx.io, allocator, content_hash.?, c_ctx.thumb_dir.?);
-                if (missing) {
-                    force_regen.* = true;
-                    return null;
+            // Thumbnail rebuild logic
+            if (c_ctx.thumbnails.healsFromDisk()) {
+                if (c_ctx.thumb_dir) |thumb_dir| {
+                    const missing = content_hash == null or !checkThumbnailExists(c_ctx.io, allocator, content_hash.?, thumb_dir);
+                    if (missing) {
+                        force_regen.* = true;
+                        return null;
+                    }
                 }
             }
-            // Animated preview (re)generation for videos. Two modes, mirroring the
-            // thumbnail flags: --rebuild-previews heals by on-disk existence (like
-            // --rebuild-thumbnails), so a deleted gif is regenerated regardless of
-            // the has_animated flag; plain --animated-previews only back-fills
-            // videos that never had one (flag-based), staying cheap on converged
-            // libraries by not stat-ing every gif each scan. Gated on is_video:
-            // previews are only ever generated for videos.
-            if (is_video and c_ctx.animated_previews and c_ctx.thumb_dir != null) {
-                const on_disk = content_hash != null and checkAnimatedPreviewExists(c_ctx.io, allocator, content_hash.?, c_ctx.thumb_dir.?);
-                const missing = if (c_ctx.rebuild_previews)
-                    !on_disk
-                else
-                    !cache_res.json_out.has_animated and !on_disk;
-                if (missing) {
-                    force_regen.* = true;
-                    return null;
+            // Animation rebuild logic
+            if (is_video and c_ctx.animations.generates()) {
+                if (c_ctx.anim_dir) |anim_dir| {
+                    const on_disk = content_hash != null and checkAnimatedPreviewExists(c_ctx.io, allocator, content_hash.?, anim_dir);
+                    const missing = if (c_ctx.animations.healsFromDisk())
+                        !on_disk
+                    else
+                        !cache_res.json_out.has_animated and !on_disk;
+                    if (missing) {
+                        force_regen.* = true;
+                        return null;
+                    }
                 }
             }
             return cache_res.json_out;
@@ -405,43 +511,49 @@ const worker = struct {
         if (record) |*rec| {
             rec.size = size;
 
-            if (c_ctx.thumb_dir) |thumb_dir| {
+            const manage_thumb = c_ctx.thumb_dir != null;
+            const manage_anim = is_video and c_ctx.anim_dir != null;
+
+            if (manage_thumb or manage_anim) {
                 if (root.utils.isValidContentHash(file_hash)) {
-                    var has_thumb = checkThumbnailExists(c_ctx.io, allocator, file_hash, thumb_dir);
-                    var has_animated = if (is_video and c_ctx.animated_previews)
-                        checkAnimatedPreviewExists(c_ctx.io, allocator, file_hash, thumb_dir)
+                    var has_thumb = if (c_ctx.thumb_dir) |thumb_dir|
+                        checkThumbnailExists(c_ctx.io, allocator, file_hash, thumb_dir)
+                    else
+                        rec.has_thumbnail;
+                    var has_animated = if (manage_anim)
+                        checkAnimatedPreviewExists(c_ctx.io, allocator, file_hash, c_ctx.anim_dir.?)
                     else
                         rec.has_animated;
 
-                    if ((!has_thumb or (is_video and c_ctx.animated_previews and !has_animated)) and c_ctx.has_ffmpeg) {
+                    const need_thumb_gen = manage_thumb and !has_thumb;
+                    const need_anim_gen = manage_anim and !has_animated;
+                    if ((need_thumb_gen or need_anim_gen) and c_ctx.has_ffmpeg) {
                         if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
                         defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                        if (!has_thumb) {
-                            has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, thumb_dir, is_video) catch false;
+                        if (need_thumb_gen) {
+                            has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, c_ctx.thumb_dir.?, is_video) catch false;
                         }
-                        if (is_video and c_ctx.animated_previews and !has_animated) {
-                            has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, thumb_dir) catch false;
+                        if (need_anim_gen) {
+                            has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, c_ctx.anim_dir.?) catch false;
                         }
                     }
 
                     // A duplicate-content worker may have produced the shared artifact
                     // via temp+rename after our check/failed generation. Re-stat before
                     // recording so we never demote a row a sibling path just populated.
-                    if (!has_thumb)
-                        has_thumb = checkThumbnailExists(c_ctx.io, allocator, file_hash, thumb_dir);
-                    if (is_video and c_ctx.animated_previews and !has_animated)
-                        has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, file_hash, thumb_dir);
+                    if (manage_thumb and !has_thumb)
+                        has_thumb = checkThumbnailExists(c_ctx.io, allocator, file_hash, c_ctx.thumb_dir.?);
+                    if (manage_anim and !has_animated)
+                        has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, file_hash, c_ctx.anim_dir.?);
 
-                    // Align returned flags with disk evidence (never claim present without a file).
-                    rec.has_thumbnail = has_thumb;
-                    if (is_video and c_ctx.animated_previews) {
-                        rec.has_animated = has_animated;
-                    }
-                } else {
-                    // Non-hex hash: no content-keyed path; do not claim thumbs.
-                    rec.has_thumbnail = false;
-                    if (is_video) rec.has_animated = false;
+                    // Align managed flags with disk evidence (never claim present without a file).
+                    if (manage_thumb) rec.has_thumbnail = has_thumb;
+                    if (manage_anim) rec.has_animated = has_animated;
                 }
+            } else {
+                // Non-hex hash: no content-keyed path; do not claim managed artifacts.
+                if (manage_thumb) rec.has_thumbnail = false;
+                if (manage_anim) rec.has_animated = false;
             }
 
             // Insert duplicate media path to DB since we matched by hash but not path
@@ -451,11 +563,13 @@ const worker = struct {
                 d.insertMedia(c_ctx.io, rec, mtime) catch |err| {
                     std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
                 };
-                // insertMedia uses MAX() on flags; force demote when disk is actually missing.
-                if (!rec.has_thumbnail) {
+                // insertMedia uses MAX() on flags; force demote when disk is actually
+                // missing - but only for artifacts this run manages, so an `off` mode
+                // never demotes the other artifact's flag.
+                if (manage_thumb and !rec.has_thumbnail) {
                     d.updateHasThumbnail(path, false) catch {};
                 }
-                if (is_video and c_ctx.animated_previews and !rec.has_animated) {
+                if (manage_anim and !rec.has_animated) {
                     d.updateHasAnimated(path, false) catch {};
                 }
             }
@@ -478,32 +592,33 @@ const worker = struct {
 
         if (is_video) {
             var res = try video_meta.getVideoMetadata(allocator, path, c_ctx.io);
-            if (c_ctx.thumb_dir) |thumb_dir| {
-                if (content_hash) |ch| {
-                    has_thumb = checkThumbnailExists(c_ctx.io, allocator, ch, thumb_dir);
-                    if (c_ctx.animated_previews) {
-                        has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, ch, thumb_dir);
-                    }
+            if (content_hash) |ch| {
+                const manage_thumb = c_ctx.thumb_dir != null;
+                const manage_anim = c_ctx.animated_previews and c_ctx.thumb_dir != null;
+                if (manage_thumb) has_thumb = checkThumbnailExists(c_ctx.io, allocator, ch, c_ctx.thumb_dir.?);
+                if (manage_anim) has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, ch, c_ctx.thumb_dir.?);
 
-                    if ((!has_thumb or (c_ctx.animated_previews and !has_animated)) and c_ctx.has_ffmpeg) {
-                        if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                        defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
-                        if (!has_thumb) {
-                            has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, thumb_dir, true) catch false;
-                        }
-                        if (c_ctx.animated_previews and !has_animated) {
-                            has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, thumb_dir) catch false;
-                        }
-                    }
+                const need_thumb_gen = manage_thumb and !has_thumb;
+                const need_anim_gen = manage_anim and !has_animated;
 
-                    // Sibling path may have filled the shared content-keyed artifact via
-                    // temp+rename after our check/failed generation. Re-stat so flags
-                    // (and insertMedia MAX) reflect disk, not just this worker's attempt.
-                    if (!has_thumb)
-                        has_thumb = checkThumbnailExists(c_ctx.io, allocator, ch, thumb_dir);
-                    if (c_ctx.animated_previews and !has_animated)
-                        has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, ch, thumb_dir);
+                if ((need_thumb_gen or need_anim_gen) and c_ctx.has_ffmpeg) {
+                    if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
+                    defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                    if (need_thumb_gen) {
+                        has_thumb = generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.thumb_dir.?, true) catch false;
+                    }
+                    if (need_anim_gen) {
+                        has_animated = generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.thumb_dir.?) catch false;
+                    }
                 }
+
+                // Sibling path may have filled the shared content-keyed artifact via
+                // temp+rename after our check/failed generation. Re-stat so flags
+                // (and insertMedia MAX) reflect disk, not just this worker's attempt.
+                if (manage_thumb and !has_thumb)
+                    has_thumb = checkThumbnailExists(c_ctx.io, allocator, ch, c_ctx.thumb_dir.?);
+                if (manage_anim and !has_animated)
+                    has_animated = checkAnimatedPreviewExists(c_ctx.io, allocator, ch, c_ctx.thumb_dir.?);
             }
             record = try populateJsonFromVideo(allocator, &res, path, size, has_thumb, has_animated);
         } else {
@@ -666,16 +781,13 @@ fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  {s} [options] <directory>...
         \\
         \\Options:
-        \\  -h, --help                 Show this help message and exit
-        \\  --json                     Output metadata in JSON lines format
-        \\  --db <database>            Path to SQLite database for metadata caching and indexing
-        \\  -j, --concurrency <n>      Number of concurrent worker threads (default: CPU-based dynamic clamp 8-16)
-        \\  --no-thumbnails            Bypass generating and saving thumbnails (useful on slow NAS / 1GB RAM)
-        \\  --rebuild-thumbnails       Re-generate missing thumbnails during scanning
-        \\  --animated-previews        Generate animated GIF hover previews for videos (2s, 5fps, 320px)
-        \\  --rebuild-previews         Re-generate missing animated GIF previews during scanning (implies --animated-previews)
-        \\  --prune                    Prune stale cache entries from DB for paths inside scanned directories but no longer present on disk
-        \\  --ffmpeg-path <path>       Custom path/command for FFmpeg executable (default: ZPROBE_FFMPEG_PATH env or "ffmpeg")
+        \\  -h, --help                    Show this help message and exit
+        \\  --json                        Output metadata in JSON lines format
+        \\  --db <database>               Path to SQLite database for metadata caching and indexing
+        \\  -j, --concurrency <n>         Number of concurrent worker threads (default: CPU-based dynamic clamp 8-16)
+        \\  --thumbnails=on|off|rebuild   Static JPEG thumbnails under .zprobe_thumbnails (default: on)
+        \\  --animations=on|off|rebuild   Animated previews under .zprobe_animations (default: off)
+        \\  --ffmpeg-path <path>          Custom path/command for FFmpeg executable (default: ZPROBE_FFMPEG_PATH env or "ffmpeg")
         \\
         \\Supported Formats:
         \\  Images: JPEG, PNG, GIF, BMP, WebP, TIFF, AVIF, ICO, JXL
@@ -708,10 +820,8 @@ pub fn main(init: std.process.Init) !void {
     var target_dirs: std.ArrayList([]const u8) = .empty;
     defer target_dirs.deinit(allocator);
     var concurrency_override: ?usize = null;
-    var no_thumbnails = false;
-    var rebuild_thumbnails = false;
-    var animated_previews = false;
-    var rebuild_previews = false;
+    var thumbnails: ArtifactMode = .on;
+    var animations: ArtifactMode = .off;
     var prune_mode = false;
     var ffmpeg_path_override: ?[]const u8 = null;
 
@@ -720,16 +830,10 @@ pub fn main(init: std.process.Init) !void {
         const arg = args[arg_idx];
         if (std.mem.eql(u8, arg, "--json")) {
             json_mode = true;
-        } else if (std.mem.eql(u8, arg, "--no-thumbnails")) {
-            no_thumbnails = true;
-        } else if (std.mem.eql(u8, arg, "--rebuild-thumbnails")) {
-            rebuild_thumbnails = true;
-        } else if (std.mem.eql(u8, arg, "--animated-previews")) {
-            animated_previews = true;
-        } else if (std.mem.eql(u8, arg, "--rebuild-previews")) {
-            // Rebuilding previews implies generating them.
-            rebuild_previews = true;
-            animated_previews = true;
+        } else if (flagMatches(arg, "--thumbnails")) {
+            thumbnails = parseModeFlag(out, args, &arg_idx, "--thumbnails", arg);
+        } else if (flagMatches(arg, "--animations")) {
+            animations = parseModeFlag(out, args, &arg_idx, "--animations", arg);
         } else if (std.mem.eql(u8, arg, "--prune")) {
             prune_mode = true;
         } else if (std.mem.eql(u8, arg, "--ffmpeg-path")) {
@@ -772,6 +876,14 @@ pub fn main(init: std.process.Init) !void {
             }
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             show_help = true;
+        } else if (arg.len > 1 and arg[0] == '-') {
+            try out.print("Error: Unknown option '{s}'\n", .{arg});
+            if (suggestFlag(arg)) |s| {
+                try out.print("Did you mean '{s}'?\n", .{s});
+            }
+            try out.print("Run '{s} --help' for available options.\n", .{args[0]});
+            try out.flush();
+            std.process.exit(1);
         } else {
             try target_dirs.append(allocator, arg);
         }
@@ -792,12 +904,21 @@ pub fn main(init: std.process.Init) !void {
     const env_ffmpeg = init.environ_map.get("ZPROBE_FFMPEG_PATH");
     const ffmpeg_path = if (ffmpeg_path_override) |path| path else (if (env_ffmpeg) |path| path else "ffmpeg");
 
-    const has_ffmpeg = if (no_thumbnails) false else checkFFmpeg(io, ffmpeg_path);
-    if (!json_mode and !no_thumbnails) {
+    // FFmpeg is only needed when at least one artifact type is being generated.
+    const want_ffmpeg = thumbnails.generates() or animations.generates();
+    const has_ffmpeg = if (want_ffmpeg) checkFFmpeg(io, ffmpeg_path) else false;
+    if (!json_mode and want_ffmpeg) {
         if (has_ffmpeg) {
             std.debug.print("FFmpeg detected and validated: {s}\n", .{ffmpeg_path});
         } else {
-            std.debug.print("Warning: FFmpeg not found or invalid at '{s}'. Video and fallback image thumbnails will be skipped.\n", .{ffmpeg_path});
+            // Name only the artifacts this run actually depends on ffmpeg for.
+            const skipped = if (thumbnails.generates() and animations.generates())
+                "Video/fallback image thumbnails and animated previews will be skipped"
+            else if (thumbnails.generates())
+                "Video and fallback image thumbnails will be skipped"
+            else
+                "Animated previews will be skipped";
+            std.debug.print("Warning: FFmpeg not found or invalid at '{s}'. {s}.\n", .{ ffmpeg_path, skipped });
         }
     }
 
@@ -805,15 +926,19 @@ pub fn main(init: std.process.Init) !void {
     var database: db.Db = undefined;
     var db_ptr: ?*db.Db = null;
     var thumb_dir_path: ?[]const u8 = null;
+    var anim_dir_path: ?[]const u8 = null;
     defer if (thumb_dir_path) |p| allocator.free(p);
+    defer if (anim_dir_path) |p| allocator.free(p);
 
     if (target_db.len > 0) {
         database = try db.Db.init(allocator, target_db);
         db_ptr = &database;
         database.beginTransaction();
 
-        if (!no_thumbnails) {
-            // Resolve absolute DB directory to create .zprobe_thumbnails next to it
+        // Each artifact type gets its own root next to the DB; create only what
+        // the corresponding mode generates so the two folders stay independent.
+        if (thumbnails.generates() or animations.generates()) {
+            // Resolve absolute DB directory to anchor the artifact roots.
             const cwd = std.Io.Dir.cwd();
             const dir = std.fs.path.dirname(target_db) orelse ".";
             const abs_dir = cwd.realPathFileAlloc(io, dir, allocator) catch null;
@@ -823,13 +948,22 @@ pub fn main(init: std.process.Init) !void {
             defer allocator.free(abs_db);
 
             const db_dir = std.fs.path.dirname(abs_db) orelse ".";
-            thumb_dir_path = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
-
-            std.Io.Dir.createDirPath(cwd, io, thumb_dir_path.?) catch |err| {
-                if (err != error.PathAlreadyExists and err != error.DirExists) {
-                    std.debug.print("Warning: failed to create thumbnail directory: {s}\n", .{@errorName(err)});
-                }
-            };
+            if (thumbnails.generates()) {
+                thumb_dir_path = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
+                std.Io.Dir.createDirPath(cwd, io, thumb_dir_path.?) catch |err| {
+                    if (err != error.PathAlreadyExists and err != error.DirExists) {
+                        std.debug.print("Warning: failed to create thumbnail directory: {s}\n", .{@errorName(err)});
+                    }
+                };
+            }
+            if (animations.generates()) {
+                anim_dir_path = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_animations" });
+                std.Io.Dir.createDirPath(cwd, io, anim_dir_path.?) catch |err| {
+                    if (err != error.PathAlreadyExists and err != error.DirExists) {
+                        std.debug.print("Warning: failed to create animation directory: {s}\n", .{@errorName(err)});
+                    }
+                };
+            }
         }
     }
     defer {
@@ -932,12 +1066,12 @@ pub fn main(init: std.process.Init) !void {
         .stdout_mutex = &stdout_mutex,
         .success_count = &success_count,
         .db = db_ptr,
+        .thumbnails = thumbnails,
+        .animations = animations,
         .thumb_dir = thumb_dir_path,
+        .anim_dir = anim_dir_path,
         .has_ffmpeg = has_ffmpeg,
         .ffmpeg_sem = &ffmpeg_sem,
-        .rebuild_thumbnails = rebuild_thumbnails,
-        .animated_previews = animated_previews,
-        .rebuild_previews = rebuild_previews,
         .ffmpeg_path = ffmpeg_path,
     };
 
@@ -1260,9 +1394,10 @@ test "CLI options integration check" {
     defer allocator.free(full_db_path);
     defer std.Io.Dir.deleteFile(temp_ctx.tmp.dir, io, db_path) catch {};
 
-    // Run with -j 1 and --no-thumbnails
+    // Run with -j 1 and --thumbnails=off (animations default off). Neither artifact
+    // root should be created.
     const run_res = try std.process.run(allocator, io, .{
-        .argv = &.{ abs_bin_path, "-j", "1", "--no-thumbnails", "--db", full_db_path, temp_ctx.abs_path },
+        .argv = &.{ abs_bin_path, "-j", "1", "--thumbnails=off", "--db", full_db_path, temp_ctx.abs_path },
     });
     defer {
         allocator.free(run_res.stdout);
@@ -1274,15 +1409,53 @@ test "CLI options integration check" {
         else => 99,
     });
 
-    // Verify thumbnail directory was NOT created
+    // Verify neither artifact directory was created
     const thumb_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, ".zprobe_thumbnails" });
     defer allocator.free(thumb_path);
     const thumb_exists = if (std.Io.Dir.openDirAbsolute(io, thumb_path, .{})) |d| blk: {
         std.Io.Dir.close(d, io);
         break :blk true;
     } else |_| false;
-
     try std.testing.expect(!thumb_exists);
+    const anim_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, ".zprobe_animations" });
+    defer allocator.free(anim_path);
+    const anim_exists = if (std.Io.Dir.openDirAbsolute(io, anim_path, .{})) |d| blk: {
+        std.Io.Dir.close(d, io);
+        break :blk true;
+    } else |_| false;
+    try std.testing.expect(!anim_exists);
+}
+
+test "parseArtifactMode valid and invalid" {
+    try std.testing.expectEqual(ArtifactMode.on, parseArtifactMode("on"));
+    try std.testing.expectEqual(ArtifactMode.off, parseArtifactMode("off"));
+    try std.testing.expectEqual(ArtifactMode.rebuild, parseArtifactMode("rebuild"));
+    try std.testing.expect(parseArtifactMode("ON") == null); // case-insensitive
+    try std.testing.expect(parseArtifactMode("yes") == null);
+    try std.testing.expect(parseArtifactMode("") == null);
+}
+
+test "ArtifactMode semantics" {
+    try std.testing.expect(!ArtifactMode.off.generates());
+    try std.testing.expect(ArtifactMode.on.generates());
+    try std.testing.expect(ArtifactMode.rebuild.generates());
+    try std.testing.expect(!ArtifactMode.on.healsFromDisk());
+    try std.testing.expect(ArtifactMode.rebuild.healsFromDisk());
+}
+
+test "flagMatches exact and equals-form" {
+    try std.testing.expect(flagMatches("--thumbnails", "--thumbnails"));
+    try std.testing.expect(flagMatches("--thumbnails=on", "--thumbnails"));
+    try std.testing.expect(!flagMatches("--thumbnailsx", "--thumbnails"));
+    try std.testing.expect(!flagMatches("--animations", "--thumbnails"));
+}
+
+test "suggestFlag maps removed flags and typos to nearest known flag" {
+    try std.testing.expectEqualStrings("--thumbnails", suggestFlag("--thumbnails").?);
+    try std.testing.expectEqualStrings("--thumbnails", suggestFlag("--rebuild-thumbnails").?);
+    try std.testing.expectEqualStrings("--thumbnails", suggestFlag("--thumbnials").?);
+    // Completely unrelated tokens should not mislead
+    try std.testing.expect(suggestFlag("--xyzzyplughquux") == null);
 }
 
 test "rebuild missing thumbnails unit test" {
