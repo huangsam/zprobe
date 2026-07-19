@@ -7,7 +7,7 @@ A lightweight, zero-dependency media toolkit written in Zig for recursively scan
 
 The project ships as two focused binaries: `zprobe` for fast CLI scanning and metadata extraction, and `zprobe-server` for browsing cached results through a local web dashboard.
 
-Most media metadata tools are bloated and not built for constrained environments like a NAS or Raspberry Pi. By reading raw binary headers and leveraging SQLite for caching, it enables near-instant incremental scans and visual filtering without the heavy overhead. The result is two self-contained binaries, in the spirit of classic Unix utilities like `ls` or `grep`.
+Unlike bloated media indexers, `zprobe` is built specifically for constrained environments like a NAS or Raspberry Pi. By reading raw binary headers and leveraging SQLite for caching, it enables near-instant incremental scans and visual filtering without the heavy overhead. The result is two self-contained binaries, in the spirit of classic Unix utilities like `ls` or `grep`.
 
 See the [User Guide](USERGUIDE.md) and [Developer & Agent Guide](AGENTS.md) to dive deeper.
 
