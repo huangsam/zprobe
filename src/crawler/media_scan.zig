@@ -36,6 +36,7 @@ pub const videoExtensions = [_][]const u8{
 pub const skipDirectories = [_][]const u8{
     "@eaDir",
     ".zprobe_thumbnails",
+    ".zprobe_animations",
 };
 
 /// Check whether a directory should be skipped based on its name.
@@ -217,6 +218,7 @@ test "isMediaExtension: extremely long extension does not panic" {
 test "isSkippedDirectory: known skip directories" {
     try std.testing.expect(isSkippedDirectory("@eaDir"));
     try std.testing.expect(isSkippedDirectory(".zprobe_thumbnails"));
+    try std.testing.expect(isSkippedDirectory(".zprobe_animations"));
 }
 
 test "isSkippedDirectory: process normal directories" {

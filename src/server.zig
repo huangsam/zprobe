@@ -529,7 +529,8 @@ fn handleRequest(
         }
 
         const db_dir = std.fs.path.dirname(database.db_path) orelse ".";
-        const thumb_dir = try std.fs.path.join(allocator, &.{ db_dir, ".zprobe_thumbnails" });
+        // Static JPEG thumbnails and animated GIF previews live under separate roots
+        const thumb_dir = try std.fs.path.join(allocator, &.{ db_dir, if (animated) ".zprobe_thumbnails" else ".zprobe_animations" });
         defer allocator.free(thumb_dir);
 
         // Resolve the file path depending on whether the caller wants the animated GIF or JPEG poster.

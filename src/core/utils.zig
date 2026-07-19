@@ -117,20 +117,22 @@ test "getThumbnailPath derivation" {
 }
 
 /// Derive the unique absolute animated GIF preview path from a 64-hex content hash.
-/// Same shard layout as getThumbnailPath but with a .gif extension.
-pub fn getAnimatedPreviewPath(allocator: std.mem.Allocator, thumb_dir: []const u8, content_hash_hex: []const u8) ![]const u8 {
-    return getShardedMediaPath(allocator, thumb_dir, content_hash_hex, "gif");
+/// `anim_dir` is the animations root (`.zprobe_animations`), separate from the
+/// thumbnails root. Same shard layout as getThumbnailPath but with a .gif extension.
+pub fn getAnimatedPreviewPath(allocator: std.mem.Allocator, anim_dir: []const u8, content_hash_hex: []const u8) ![]const u8 {
+    return getShardedMediaPath(allocator, anim_dir, content_hash_hex, "gif");
 }
 
 test "getAnimatedPreviewPath derivation" {
     const allocator = std.testing.allocator;
-    const thumb_dir = "/tmp/thumbs";
+    // Animations live under their own root, distinct from the thumbnails root.
+    const anim_dir = "/tmp/anims";
     const content_hash_hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    const path = try getAnimatedPreviewPath(allocator, thumb_dir, content_hash_hex);
+    const path = try getAnimatedPreviewPath(allocator, anim_dir, content_hash_hex);
     defer allocator.free(path);
 
     try std.testing.expectEqualStrings(
-        "/tmp/thumbs/01/23/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.gif",
+        "/tmp/anims/01/23/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.gif",
         path,
     );
 }

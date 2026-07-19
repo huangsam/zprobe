@@ -374,9 +374,9 @@ pub fn insertMedia(
         }
 
         // Persist artifact-presence flags on the existing metadata row so that
-        // thumbnail/preview back-fills (--rebuild-thumbnails, --animated-previews)
+        // thumbnail/animation back-fills (--thumbnails=rebuild, --animations=on|rebuild)
         // are recorded even when the content hash already exists. MAX() only ever
-        // promotes 0→1: a later --no-thumbnails re-scan of a duplicate can never
+        // promotes 0→1: a later --thumbnails=off re-scan of a duplicate can never
         // demote a flag another path already earned on the shared metadata row.
         const update_flags_sql = "UPDATE media_metadata SET has_thumbnail = MAX(has_thumbnail, ?), has_animated = MAX(has_animated, ?) WHERE id = ?;";
         var update_flags_stmt: ?*c.sqlite3_stmt = null;
