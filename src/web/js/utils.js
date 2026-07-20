@@ -173,10 +173,10 @@ function renderThumbnailHtml(row, imgClass = "", altText = "") {
       ? `${imgClass} animated-overlay`
       : "animated-overlay";
     const animatedOverlay = row.has_animated
-      ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="${overlayClass}" alt="" loading="lazy" aria-hidden="true" />`
+      ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="${overlayClass}" alt="" loading="lazy" decoding="async" fetchpriority="low" aria-hidden="true" />`
       : "";
     const mainImgClass = imgClass ? ` class="${imgClass}"` : "";
-    return `${animatedOverlay}<img src="${escapeHtml(url)}"${mainImgClass} alt="${escapeHtml(altText)}" loading="lazy" />`;
+    return `${animatedOverlay}<img src="${escapeHtml(url)}"${mainImgClass} alt="${escapeHtml(altText)}" loading="lazy" decoding="async" fetchpriority="low" />`;
   } else if (isVid) {
     return `<i data-lucide="video" class="type-icon video-icon"></i>`;
   } else {
