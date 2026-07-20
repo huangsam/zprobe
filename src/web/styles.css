@@ -999,9 +999,11 @@ td:nth-child(5) {
   z-index: 1;
 }
 
-/* Poster keeps its natural z-index (auto / 0), overlay sits above it */
-.thumbnail-wrapper.has-animated:hover .animated-overlay,
-.drawer-preview-container.has-animated:hover .animated-overlay {
+/* Poster keeps its natural z-index (auto / 0), overlay sits above it.
+ * Visibility is driven by JS: the .loaded class is added after the GIF
+ * finishes downloading (img.onload), preventing a broken-image flash. */
+.thumbnail-wrapper.has-animated .animated-overlay.loaded,
+.drawer-preview-container.has-animated .animated-overlay.loaded {
   opacity: 1;
 }
 
@@ -1948,7 +1950,7 @@ td.error-state,
   z-index: 2;
 }
 
-.grid-card-media.has-animated:hover .animated-overlay {
+.grid-card-media.has-animated .animated-overlay.loaded {
   opacity: 1;
 }
 

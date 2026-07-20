@@ -1141,9 +1141,9 @@ function renderTable() {
     if (row.has_thumbnail) {
       const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
       // If the row has an animated GIF preview, render it as an overlay that
-      // fades in on hover (CSS .has-animated:hover .animated-overlay).
+      // fades in on load (CSS .animated-overlay.loaded).
       const animatedOverlay = row.has_animated
-        ? `<img data-src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="row-thumbnail animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
+        ? `<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="row-thumbnail animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
         : "";
       thumbHtml = `${animatedOverlay}<img src="${escapeHtml(url)}" class="row-thumbnail" alt="Thumbnail" loading="lazy" />`;
     } else if (isVideo) {
@@ -1227,7 +1227,7 @@ function renderGrid() {
     if (row.has_thumbnail) {
       const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
       const animatedOverlay = row.has_animated
-        ? `<img data-src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
+        ? `<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
         : "";
       thumbHtml = `${animatedOverlay}<img src="${escapeHtml(url)}" alt="${escapeHtml(fileBase)}" loading="lazy" />`;
     } else if (isVideo) {
@@ -1380,7 +1380,7 @@ function showDetails(row, triggerEl) {
   if (row.has_thumbnail) {
     const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
     const animatedOverlay = row.has_animated
-      ? `<img data-src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="drawer-preview-image animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
+      ? `<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="drawer-preview-image animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
       : "";
     const containerClass = row.has_animated
       ? "drawer-preview-container has-animated"
@@ -2328,28 +2328,34 @@ document.addEventListener("DOMContentLoaded", () => {
   updateSizePresetActiveState();
   initMoreFiltersToggle();
 
-  // Hover-activated lazy loading for animated GIF previews
+  // Hover-activated lazy loading for animated GIF previews.
+  // The overlay is only revealed via the .loaded class (added on img.onload)
+  // so users never see a broken-image icon while the GIF downloads.
+  const SPACER =
+    "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
   const loadGif = (e) => {
     const target = e.target;
-    const wrapper =
-      target.closest(".has-animated") || target.querySelector(".has-animated");
+    const wrapper = target.closest(".has-animated");
     if (!wrapper) return;
     const img = wrapper.querySelector(".animated-overlay");
-    if (img && !img.src) {
-      const dataSrc = img.getAttribute("data-src");
-      if (dataSrc) img.src = dataSrc;
-    }
+    if (!img) return;
+    const dataSrc = img.getAttribute("data-src");
+    if (!dataSrc || img.src === dataSrc) return;
+    img.onload = () => img.classList.add("loaded");
+    img.src = dataSrc;
   };
 
   const unloadGif = (e) => {
     const target = e.target;
-    const wrapper =
-      target.closest(".has-animated") || target.querySelector(".has-animated");
+    const wrapper = target.closest(".has-animated");
     if (!wrapper) return;
     if (e.relatedTarget && wrapper.contains(e.relatedTarget)) return;
     const img = wrapper.querySelector(".animated-overlay");
-    if (img && img.src) {
-      img.removeAttribute("src");
+    if (img) {
+      img.classList.remove("loaded");
+      img.onload = null;
+      img.src = SPACER;
     }
   };
 
