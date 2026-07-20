@@ -33,7 +33,7 @@ zig build -OReleaseSafe
 ./zig-out/bin/zprobe --animations=on --db /path/to/cache.db /path/to/media/directory
 
 # Force re-generation of any animated previews missing from disk
-# Use this after deleting/clearing the .zprobe_thumbnails folder - no DB wipe needed
+# Use this after deleting/clearing the .zprobe_animations folder - no DB wipe needed
 ./zig-out/bin/zprobe --animations=rebuild --db /path/to/cache.db /path/to/media/directory
 
 # Run daily scan and automatically prune stale cache entries for files deleted/moved in the target directories
