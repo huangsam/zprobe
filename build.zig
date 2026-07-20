@@ -210,7 +210,7 @@ pub fn build(b: *std.Build) void {
     // Link SQLite3 to the test executable as well
     exe_tests.root_module.linkLibrary(sqlite_lib);
     exe_tests.root_module.linkSystemLibrary("c", .{});
-    
+
     const run_exe_tests = b.addRunArtifact(exe_tests);
 
     const server_tests = b.addTest(.{
@@ -226,4 +226,3 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_server_tests.step);
 }
-
