@@ -124,21 +124,29 @@ function setViewLayout(layout) {
 
   if (!catalogTable) return;
 
-  localStorage.setItem("zprobe_view_layout", layout);
-  catalogTable.setAttribute("data-view-layout", layout);
+  const updateDOM = () => {
+    localStorage.setItem("zprobe_view_layout", layout);
+    catalogTable.setAttribute("data-view-layout", layout);
 
-  if (layout === "grid") {
-    viewListBtn?.classList.remove("active");
-    viewListBtn?.setAttribute("aria-pressed", "false");
-    viewGridBtn?.classList.add("active");
-    viewGridBtn?.setAttribute("aria-pressed", "true");
-    renderGrid();
+    if (layout === "grid") {
+      viewListBtn?.classList.remove("active");
+      viewListBtn?.setAttribute("aria-pressed", "false");
+      viewGridBtn?.classList.add("active");
+      viewGridBtn?.setAttribute("aria-pressed", "true");
+      renderGrid();
+    } else {
+      viewListBtn?.classList.add("active");
+      viewListBtn?.setAttribute("aria-pressed", "true");
+      viewGridBtn?.classList.remove("active");
+      viewGridBtn?.setAttribute("aria-pressed", "false");
+      renderTable();
+    }
+  };
+
+  if (document.startViewTransition) {
+    document.startViewTransition(updateDOM);
   } else {
-    viewListBtn?.classList.add("active");
-    viewListBtn?.setAttribute("aria-pressed", "true");
-    viewGridBtn?.classList.remove("active");
-    viewGridBtn?.setAttribute("aria-pressed", "false");
-    renderTable();
+    updateDOM();
   }
 }
 
