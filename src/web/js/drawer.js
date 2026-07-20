@@ -43,6 +43,15 @@ function closeDrawer() {
   drawer.setAttribute("aria-hidden", "true");
   document.getElementById("drawer-backdrop").classList.remove("visible");
   document.removeEventListener("keydown", handleDrawerKeydown);
+
+  // Pause any playing video in the drawer
+  const video = drawer.querySelector("video");
+  if (video) {
+    video.pause();
+    video.removeAttribute("src"); // Stop buffering
+    video.load();
+  }
+
   const returnFocus = drawerReturnFocus;
   drawerReturnFocus = null;
   if (returnFocus && typeof returnFocus.focus === "function") {
