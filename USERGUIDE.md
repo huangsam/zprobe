@@ -22,8 +22,8 @@ zig build -OReleaseSafe
 # Run zprobe on one or more directories
 ./zig-out/bin/zprobe /path/to/media/directory1 /path/to/media/directory2
 
-# Run in JSON mode with a SQLite caching database
-./zig-out/bin/zprobe --json --db /path/to/cache.db /path/to/media/directory
+# Run with a SQLite caching database
+./zig-out/bin/zprobe --db /path/to/cache.db /path/to/media/directory
 
 # Run with custom concurrency (e.g. 2 threads) and bypass thumbnail generation (saves CPU/disk writes on NAS)
 ./zig-out/bin/zprobe -j 2 --no-thumbnails --db /path/to/cache.db /path/to/media/directory

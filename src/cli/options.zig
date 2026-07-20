@@ -36,7 +36,7 @@ pub fn parseArtifactMode(value: []const u8) ?ArtifactMode {
 }
 
 /// Long options used for "did you mean?" suggestions on an unknown flag.
-const known_flags = [_][]const u8{ "--json", "--db", "--concurrency", "--thumbnails", "--prune", "--animations", "--ffmpeg-path", "--help", "--profile" };
+const known_flags = [_][]const u8{ "--db", "--concurrency", "--thumbnails", "--prune", "--animations", "--ffmpeg-path", "--help", "--profile" };
 
 /// Levenshtein edit distance between two strings. `row` is scratch of length `b.len + 1`.
 fn levenshtein(a: []const u8, b: []const u8, row: []usize) usize {
@@ -108,7 +108,6 @@ fn parseModeFlag(out: anytype, args: []const []const u8, arg_idx: *usize, flag: 
 /// Parsed CLI options structure that captures all configuration
 /// from command-line arguments.
 pub const CliOptions = struct {
-    json_mode: bool,
     target_db: []const u8,
     show_help: bool,
     concurrency_override: ?usize,
@@ -125,7 +124,6 @@ pub const CliOptions = struct {
     /// The caller is responsible for freeing `target_db` and `target_dirs.items`.
     pub fn parse(allocator: std.mem.Allocator, args: []const []const u8, out: anytype) !CliOptions {
         var result = CliOptions{
-            .json_mode = false,
             .target_db = "",
             .show_help = false,
             .concurrency_override = null,
@@ -140,9 +138,7 @@ pub const CliOptions = struct {
         var arg_idx: usize = 1;
         while (arg_idx < args.len) : (arg_idx += 1) {
             const arg = args[arg_idx];
-            if (std.mem.eql(u8, arg, "--json")) {
-                result.json_mode = true;
-            } else if (std.mem.eql(u8, arg, "--profile")) {
+            if (std.mem.eql(u8, arg, "--profile")) {
                 result.profile_mode = true;
             } else if (flagMatches(arg, "--thumbnails")) {
                 result.thumbnails = parseModeFlag(out, args, &arg_idx, "--thumbnails", arg);
@@ -218,7 +214,6 @@ pub fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\
         \\Options:
         \\  -h, --help                    Show this help message and exit
-        \\  --json                        Output metadata in JSON lines format
         \\  --db <database>               Path to SQLite database for metadata caching and indexing
         \\  -j, --concurrency <n>         Number of concurrent worker threads (default: CPU-based dynamic clamp 8-16)
         \\  --thumbnails=on|off|rebuild   Static JPEG thumbnails under .zprobe_thumbnails (default: on)
@@ -316,7 +311,6 @@ test "parseArtifactMode rejects invalid values" {
 }
 
 test "flagMatches exact match" {
-    try std.testing.expect(flagMatches("--json", "--json"));
     try std.testing.expect(flagMatches("--db", "--db"));
 }
 
@@ -326,6 +320,5 @@ test "flagMatches with value" {
 }
 
 test "flagMatches no match" {
-    try std.testing.expect(!flagMatches("--json", "--db"));
     try std.testing.expect(!flagMatches("--thumb", "--thumbnails"));
 }
