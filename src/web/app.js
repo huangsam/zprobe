@@ -1251,9 +1251,14 @@ function renderGrid() {
       let durText = "";
       if (row.duration_sec != null) {
         const secs = Math.round(row.duration_sec);
-        const m = Math.floor(secs / 60);
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
         const s = secs % 60;
-        durText = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+        if (h > 0) {
+          durText = `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+        } else {
+          durText = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+        }
       }
       videoBadge = `
         <div class="grid-card-video-badge" aria-hidden="true">
