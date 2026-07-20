@@ -25,49 +25,6 @@ fn parseArtifactMode(value: []const u8) ?cli.ArtifactMode {
     return cli.parseArtifactMode(value);
 }
 
-/// Long options used for "did you mean?" suggestions on an unknown flag.
-const known_flags = [_][]const u8{ "--json", "--db", "--concurrency", "--thumbnails", "--prune", "--animations", "--ffmpeg-path", "--help" };
-
-/// Levenshtein edit distance between two strings. `row` is scratch of length `b.len + 1`.
-fn levenshtein(a: []const u8, b: []const u8, row: []usize) usize {
-    for (0..b.len + 1) |j| row[j] = j;
-    for (a, 0..) |ca, i| {
-        var prev = row[0];
-        row[0] = i + 1;
-        for (b, 0..) |cb, j| {
-            const cur = row[j + 1];
-            const cost: usize = if (ca == cb) 0 else 1;
-            row[j + 1] = @min(@min(row[j] + 1, row[j + 1] + 1), prev + cost);
-            prev = cur;
-        }
-    }
-    return row[b.len];
-}
-
-/// Suggest the closest known flag for an unrecognized flag. Returns
-/// null if no close match is found.
-fn suggestFlag(arg: []const u8) ?[]const u8 {
-    const name = if (std.mem.indexOfScalar(u8, arg, '=')) |eq| arg[0..eq] else arg;
-    if (name.len == 0) return null;
-
-    var best: ?[]const u8 = null;
-    var best_dist: usize = std.math.maxInt(usize);
-    var row: [64]usize = undefined;
-    for (known_flags) |flag| {
-        if (flag.len + 1 > row.len) continue;
-        const d = levenshtein(name, flag, row[0 .. flag.len + 1]);
-        if (d < best_dist) {
-            best_dist = d;
-            best = flag;
-        }
-    }
-    // Only suggest when the match is close enough to be plausible: at least
-    // half the characters of the longer token must line up.
-    const b = best orelse return null;
-    if (best_dist * 2 > @max(name.len, b.len)) return null;
-    return b;
-}
-
 /// Whether `arg` is `flag` exactly or `flag=VALUE`.
 fn flagMatches(arg: []const u8, flag: []const u8) bool {
     return std.mem.eql(u8, arg, flag) or
