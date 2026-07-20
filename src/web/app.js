@@ -778,30 +778,48 @@ function triggerFilterRefresh() {
 // Helper: Render pulsing skeleton loading rows
 function renderSkeletons() {
   const tbody = document.getElementById("media-tbody");
-  if (!tbody) return;
-  let html = "";
-  for (let i = 0; i < 5; i++) {
-    html += `
-      <tr class="skeleton-row">
-        <td class="file-path-cell">
-          <div class="file-path-content">
-            <div class="thumbnail-wrapper">
-              <span class="skeleton-bar thumbnail-bar"></span>
+  if (tbody) {
+    let html = "";
+    for (let i = 0; i < 5; i++) {
+      html += `
+        <tr class="skeleton-row">
+          <td class="file-path-cell">
+            <div class="file-path-content">
+              <div class="thumbnail-wrapper">
+                <span class="skeleton-bar thumbnail-bar"></span>
+              </div>
+              <div class="file-name-container">
+                <span class="skeleton-bar name"></span>
+                <span class="skeleton-bar dir"></span>
+              </div>
             </div>
-            <div class="file-name-container">
-              <span class="skeleton-bar name"></span>
-              <span class="skeleton-bar dir"></span>
-            </div>
-          </div>
-        </td>
-        <td><span class="skeleton-bar date"></span></td>
-        <td><span class="skeleton-bar size"></span></td>
-        <td><span class="skeleton-bar format"></span></td>
-        <td><span class="skeleton-bar dimensions"></span></td>
-      </tr>
-    `;
+          </td>
+          <td><span class="skeleton-bar date"></span></td>
+          <td><span class="skeleton-bar size"></span></td>
+          <td><span class="skeleton-bar format"></span></td>
+          <td><span class="skeleton-bar dimensions"></span></td>
+        </tr>
+      `;
+    }
+    tbody.innerHTML = html;
   }
-  tbody.innerHTML = html;
+
+  const grid = document.getElementById("media-grid");
+  if (grid) {
+    let html = "";
+    for (let i = 0; i < 8; i++) {
+      html += `
+        <div class="grid-skeleton-card">
+          <div class="grid-skeleton-media"></div>
+          <div class="grid-skeleton-info">
+            <div class="grid-skeleton-text title"></div>
+            <div class="grid-skeleton-text subtitle"></div>
+          </div>
+        </div>
+      `;
+    }
+    grid.innerHTML = html;
+  }
 }
 
 // Helper: Format bytes to human readable format
@@ -881,6 +899,8 @@ async function fetchMedia({
   const tbody = document.getElementById("media-tbody");
   const tableContainer = document.querySelector(".table-container");
   if (tableContainer) tableContainer.setAttribute("aria-busy", "true");
+  const gridContainer = document.getElementById("media-grid");
+  if (gridContainer) gridContainer.setAttribute("aria-busy", "true");
   if (showSkeleton) renderSkeletons();
 
   const refreshBtn = document.getElementById("refresh-btn");
@@ -946,13 +966,19 @@ async function fetchMedia({
       });
     }
 
-    renderTable();
+    renderMediaCatalog();
     updatePaginationControls();
     updateActiveFilterChips();
   } catch (err) {
     if (err.name === "AbortError") return;
     console.error(err);
-    tbody.innerHTML = `<tr><td colspan="5" class="error-state">Failed to load media catalog: ${err.message}</td></tr>`;
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="5" class="error-state">Failed to load media catalog: ${err.message}</td></tr>`;
+    }
+    const grid = document.getElementById("media-grid");
+    if (grid) {
+      grid.innerHTML = `<div class="error-state" style="grid-column: 1 / -1">Failed to load media catalog: ${err.message}</div>`;
+    }
   } finally {
     if (controller === currentFetchController) {
       const elapsedTime = Date.now() - startTime;
@@ -966,6 +992,8 @@ async function fetchMedia({
         if (refreshBtn) refreshBtn.disabled = false;
         const tableContainer = document.querySelector(".table-container");
         if (tableContainer) tableContainer.setAttribute("aria-busy", "false");
+        const gridContainer = document.getElementById("media-grid");
+        if (gridContainer) gridContainer.setAttribute("aria-busy", "false");
         currentFetchController = null;
       }, remainingTime);
     }
@@ -1152,6 +1180,145 @@ function renderTable() {
     typeof lucide.createIcons === "function"
   ) {
     lucide.createIcons({ root: tbody });
+  }
+}
+
+// Render the grid layout cards
+function renderGrid() {
+  const grid = document.getElementById("media-grid");
+  if (!grid) return;
+
+  if (mediaData.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1">${buildEmptyStateHtml()}</div>`;
+    return;
+  }
+
+  const searchInput = document.getElementById("search-input");
+  const query = searchInput ? searchInput.value : "";
+
+  grid.innerHTML = "";
+  mediaData.forEach((row, index) => {
+    const card = document.createElement("div");
+    card.className = "grid-card";
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.dataset.rowIndex = String(index);
+
+    const fileBase = row.path.split("/").pop();
+    const dirPath = row.path.substring(0, row.path.lastIndexOf("/"));
+
+    card.setAttribute("aria-label", `View details for ${fileBase}`);
+
+    const VIDEO_FORMATS = [
+      "mp4",
+      "m4v",
+      "webm",
+      "mkv",
+      "mov",
+      "avi",
+      "wmv",
+      "flv",
+    ];
+    const isVideo =
+      VIDEO_FORMATS.includes((row.format || "").toLowerCase()) ||
+      row.duration_sec !== null;
+
+    let thumbHtml = "";
+    if (row.has_thumbnail) {
+      const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
+      const animatedOverlay = row.has_animated
+        ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
+        : "";
+      thumbHtml = `${animatedOverlay}<img src="${escapeHtml(url)}" alt="${escapeHtml(fileBase)}" loading="lazy" />`;
+    } else if (isVideo) {
+      thumbHtml = `<i data-lucide="video" class="type-icon video-icon"></i>`;
+    } else {
+      thumbHtml = `<i data-lucide="image" class="type-icon image-icon"></i>`;
+    }
+
+    const mediaClass = row.has_animated
+      ? "grid-card-media has-animated"
+      : "grid-card-media";
+
+    // Format badge
+    const formatBadge = row.format
+      ? `<span class="grid-card-badge">${highlightMatch((row.format || "").toUpperCase(), query)}</span>`
+      : "";
+
+    // Permanent Video Badge with duration overlay if available
+    let videoBadge = "";
+    if (isVideo) {
+      let durText = "";
+      if (row.duration_sec != null) {
+        const secs = Math.round(row.duration_sec);
+        const m = Math.floor(secs / 60);
+        const s = secs % 60;
+        durText = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+      }
+      videoBadge = `
+        <div class="grid-card-video-badge" aria-hidden="true">
+          <i data-lucide="video"></i>
+          ${durText ? `<span>${durText}</span>` : ""}
+        </div>
+      `;
+    }
+
+    card.innerHTML = `
+      <div class="${escapeHtml(mediaClass)}">
+        ${thumbHtml}
+        ${formatBadge}
+        ${videoBadge}
+      </div>
+      <div class="grid-card-info">
+        <span class="grid-card-title">${highlightMatch(fileBase, query)}</span>
+        <span class="grid-card-meta" title="${escapeHtml(dirPath)}">${highlightMatch(dirPath, query)}</span>
+      </div>
+    `;
+
+    grid.appendChild(card);
+  });
+
+  if (
+    typeof lucide !== "undefined" &&
+    typeof lucide.createIcons === "function"
+  ) {
+    lucide.createIcons({ root: grid });
+  }
+}
+
+// Master rendering function determined by view mode preference
+function renderMediaCatalog() {
+  const activeLayout = localStorage.getItem("zprobe_view_layout") || "list";
+  if (activeLayout === "grid") {
+    renderGrid();
+  } else {
+    renderTable();
+  }
+}
+
+// Set active view layout and switch containers
+function setViewLayout(layout) {
+  const viewListBtn = document.getElementById("view-list-btn");
+  const viewGridBtn = document.getElementById("view-grid-btn");
+  const catalogTable = document.getElementById("catalog-table");
+
+  if (!catalogTable) return;
+
+  localStorage.setItem("zprobe_view_layout", layout);
+  catalogTable.setAttribute("data-view-layout", layout);
+
+  if (layout === "grid") {
+    viewListBtn?.classList.remove("active");
+    viewListBtn?.setAttribute("aria-pressed", "false");
+    viewGridBtn?.classList.add("active");
+    viewGridBtn?.setAttribute("aria-pressed", "true");
+    renderGrid();
+  } else {
+    viewListBtn?.classList.add("active");
+    viewListBtn?.setAttribute("aria-pressed", "true");
+    viewGridBtn?.classList.remove("active");
+    viewGridBtn?.setAttribute("aria-pressed", "false");
+    renderTable();
   }
 }
 
@@ -1904,6 +2071,10 @@ function renderVideoCharts() {
 
 // Setup UI Event Listeners
 document.addEventListener("DOMContentLoaded", () => {
+  // Initialize view layout
+  const activeView = localStorage.getItem("zprobe_view_layout") || "list";
+  setViewLayout(activeView);
+
   // Initial load: fetch stats, then fetch media
   fetchStats().then(() => fetchMedia());
 
@@ -2039,6 +2210,43 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!Number.isNaN(idx) && mediaData[idx]) {
       showDetails(mediaData[idx], tr);
     }
+  });
+
+  // Grid view click and keydown handlers
+  document.getElementById("media-grid")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".empty-state-action");
+    if (btn) {
+      e.stopPropagation();
+      handleEmptyStateAction(btn);
+      return;
+    }
+
+    const card = e.target.closest(".grid-card[data-row-index]");
+    if (!card) return;
+    const idx = parseInt(card.dataset.rowIndex, 10);
+    if (!Number.isNaN(idx) && mediaData[idx]) {
+      showDetails(mediaData[idx], card);
+    }
+  });
+
+  document.getElementById("media-grid")?.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const card = e.target.closest(".grid-card[data-row-index]");
+    if (!card) return;
+    e.preventDefault();
+    const idx = parseInt(card.dataset.rowIndex, 10);
+    if (!Number.isNaN(idx) && mediaData[idx]) {
+      showDetails(mediaData[idx], card);
+    }
+  });
+
+  // View toggle button click listeners
+  document.getElementById("view-list-btn")?.addEventListener("click", () => {
+    setViewLayout("list");
+  });
+
+  document.getElementById("view-grid-btn")?.addEventListener("click", () => {
+    setViewLayout("grid");
   });
 
   // Search input with 500ms debounce
