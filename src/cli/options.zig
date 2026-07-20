@@ -220,6 +220,7 @@ pub fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  --animations=on|off|rebuild   Animated previews under .zprobe_animations (default: off)
         \\  --ffmpeg-path <path>          Custom path/command for FFmpeg executable (default: ZPROBE_FFMPEG_PATH env or "ffmpeg")
         \\  --profile                     Print performance profiling metrics after scanning
+        \\  --prune                       Remove database entries for files that no longer exist on disk
         \\
         \\Supported Formats:
         \\  Images: JPEG, PNG, GIF, BMP, WebP, TIFF, AVIF, ICO, JXL
