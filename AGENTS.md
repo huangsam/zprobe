@@ -10,14 +10,17 @@ This document details the internal design, directory layout, parsing flow, and c
 
 ```text
 src/
-├── cli/        # CLI options parsing and worker thread pool
-├── core/       # Byte reader, SQLite cache interface
-├── crawler/    # Filesystem scanner and crawler logic
-├── formats/    # Image and video binary header parsers
-│   ├── images/ # Parsers for BMP, GIF, JPEG, PNG, TIFF, and WebP
-│   └── videos/ # Parsers for MP4 (ISOBMFF) and WebM/MKV (EBML)
-├── server/     # Embedded dashboard server and TCP thread pool handlers
-└── web/        # Embedded dashboard assets
+├── cli/            # CLI options parsing and worker thread pool
+├── core/           # Byte reader, SQLite cache interface
+├── crawler/        # Filesystem scanner and crawler logic
+├── formats/        # Image and video binary header parsers
+│   ├── images/     # Parsers for BMP, GIF, JPEG, PNG, TIFF, and WebP
+│   └── videos/     # Parsers for MP4 (ISOBMFF) and WebM/MKV (EBML)
+├── server/         # Embedded dashboard server and TCP thread pool handlers
+└── web/            # Embedded dashboard assets
+    ├── assets.zig  # Compile-time asset pipeline & concatenation SOT
+    ├── css/        # CSS fragments (variables, layout, table, grid)
+    └── js/         # JS modules & vendor libraries
 ```
 
 ### Parse Flow
