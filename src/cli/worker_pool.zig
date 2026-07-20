@@ -27,7 +27,50 @@ pub const WorkerContext = struct {
     ffmpeg_path: []const u8 = "ffmpeg",
 };
 
+const FfmpegLock = struct {
+    sem: ?*std.Io.Semaphore,
+    io: std.Io,
+
+    fn acquire(sem: ?*std.Io.Semaphore, io: std.Io) FfmpegLock {
+        if (sem) |s| s.waitUncancelable(io);
+        return .{ .sem = sem, .io = io };
+    }
+
+    fn release(self: FfmpegLock) void {
+        if (self.sem) |s| s.post(self.io);
+    }
+};
+
 pub const worker = struct {
+    fn reStatSiblingArtifacts(
+        c_ctx: WorkerContext,
+        allocator: std.mem.Allocator,
+        hash: []const u8,
+        is_video: bool,
+        has_thumb: *bool,
+        has_animated: *bool,
+    ) void {
+        if (c_ctx.thumb_dir) |thumb_dir| {
+            if (!has_thumb.*) {
+                has_thumb.* = cli.format_handler.checkThumbnailExists(c_ctx.io, allocator, hash, thumb_dir);
+            }
+        }
+        if (is_video) {
+            if (c_ctx.anim_dir) |anim_dir| {
+                if (!has_animated.*) {
+                    has_animated.* = cli.format_handler.checkAnimatedPreviewExists(c_ctx.io, allocator, hash, anim_dir);
+                }
+            }
+        }
+    }
+
+    fn printWarning(c_ctx: WorkerContext, comptime fmt: []const u8, args: anytype) void {
+        c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
+        defer c_ctx.stdout_mutex.unlock(c_ctx.io);
+        c_ctx.out.flush() catch {};
+        std.debug.print(fmt, args);
+    }
+
     pub fn workerMain(c_ctx: WorkerContext) void {
         while (true) {
             const idx = c_ctx.file_index.fetchAdd(1, .monotonic);
@@ -57,7 +100,7 @@ pub const worker = struct {
         d.lockRead(c_ctx.io);
         defer d.unlockRead(c_ctx.io);
         const cache_res = d.queryCache(allocator, path, size, mtime) catch |err| {
-            std.debug.print("Warning: cache query failed: {s}\n", .{@errorName(err)});
+            printWarning(c_ctx, "Warning: cache query failed: {s}\n", .{@errorName(err)});
             return null;
         };
 
@@ -128,8 +171,8 @@ pub const worker = struct {
                     const need_thumb_gen = manage_thumb and !has_thumb;
                     const need_anim_gen = manage_anim and !has_animated;
                     if ((need_thumb_gen or need_anim_gen) and c_ctx.has_ffmpeg) {
-                        if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                        defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                        const lock = FfmpegLock.acquire(c_ctx.ffmpeg_sem, c_ctx.io);
+                        defer lock.release();
                         if (need_thumb_gen) {
                             has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, c_ctx.thumb_dir.?, is_video) catch false;
                         }
@@ -141,10 +184,7 @@ pub const worker = struct {
                     // A duplicate-content worker may have produced the shared artifact
                     // via temp+rename after our check/failed generation. Re-stat before
                     // recording so we never demote a row a sibling path just populated.
-                    if (manage_thumb and !has_thumb)
-                        has_thumb = cli.format_handler.checkThumbnailExists(c_ctx.io, allocator, file_hash, c_ctx.thumb_dir.?);
-                    if (manage_anim and !has_animated)
-                        has_animated = cli.format_handler.checkAnimatedPreviewExists(c_ctx.io, allocator, file_hash, c_ctx.anim_dir.?);
+                    reStatSiblingArtifacts(c_ctx, allocator, file_hash, is_video, &has_thumb, &has_animated);
 
                     // Align managed flags with disk evidence (never claim present without a file).
                     if (manage_thumb) rec.has_thumbnail = has_thumb;
@@ -161,7 +201,7 @@ pub const worker = struct {
                 d.lockWrite(c_ctx.io);
                 defer d.unlockWrite(c_ctx.io);
                 d.insertMedia(c_ctx.io, rec, mtime) catch |err| {
-                    std.debug.print("Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
+                    printWarning(c_ctx, "Warning: failed to insert duplicate media path to DB: {s}\n", .{@errorName(err)});
                 };
                 // insertMedia uses MAX() on flags; force demote when disk is actually
                 // missing - but only for artifacts this run manages, so an `off` mode
@@ -202,8 +242,8 @@ pub const worker = struct {
                 const need_anim_gen = manage_anim and !has_animated;
 
                 if ((need_thumb_gen or need_anim_gen) and c_ctx.has_ffmpeg) {
-                    if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                    defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                    const lock = FfmpegLock.acquire(c_ctx.ffmpeg_sem, c_ctx.io);
+                    defer lock.release();
                     if (need_thumb_gen) {
                         has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.thumb_dir.?, true) catch false;
                     }
@@ -215,10 +255,7 @@ pub const worker = struct {
                 // Sibling path may have filled the shared content-keyed artifact via
                 // temp+rename after our check/failed generation. Re-stat so flags
                 // (and insertMedia MAX) reflect disk, not just this worker's attempt.
-                if (manage_thumb and !has_thumb)
-                    has_thumb = cli.format_handler.checkThumbnailExists(c_ctx.io, allocator, ch, c_ctx.thumb_dir.?);
-                if (manage_anim and !has_animated)
-                    has_animated = cli.format_handler.checkAnimatedPreviewExists(c_ctx.io, allocator, ch, c_ctx.anim_dir.?);
+                reStatSiblingArtifacts(c_ctx, allocator, ch, true, &has_thumb, &has_animated);
             }
             record = try db.populateJsonFromVideo(allocator, &res, path, size, has_thumb, has_animated);
         } else {
@@ -230,15 +267,14 @@ pub const worker = struct {
                         if (res.thumbnail_data) |thumb_bytes| {
                             has_thumb = cli.format_handler.saveThumbnailBytes(c_ctx.io, allocator, ch, thumb_dir, thumb_bytes) catch false;
                         } else if (c_ctx.has_ffmpeg) {
-                            if (c_ctx.ffmpeg_sem) |sem| sem.waitUncancelable(c_ctx.io);
-                            defer if (c_ctx.ffmpeg_sem) |sem| sem.post(c_ctx.io);
+                            const lock = FfmpegLock.acquire(c_ctx.ffmpeg_sem, c_ctx.io);
+                            defer lock.release();
                             has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, thumb_dir, false) catch false;
                         }
                     }
 
                     // Same sibling re-stat as the video branch / queryHashRecord
-                    if (!has_thumb)
-                        has_thumb = cli.format_handler.checkThumbnailExists(c_ctx.io, allocator, ch, thumb_dir);
+                    reStatSiblingArtifacts(c_ctx, allocator, ch, false, &has_thumb, &has_animated);
                 }
             }
             record = try db.populateJsonFromImage(allocator, &res, path, size, has_thumb);
@@ -256,25 +292,19 @@ pub const worker = struct {
         d.lockWrite(c_ctx.io);
         defer d.unlockWrite(c_ctx.io);
         d.insertMedia(c_ctx.io, record, mtime) catch |err| {
-            std.debug.print("Warning: failed to insert media to DB: {s}\n", .{@errorName(err)});
+            printWarning(c_ctx, "Warning: failed to insert media to DB: {s}\n", .{@errorName(err)});
         };
     }
 
     pub fn processFile(c_ctx: WorkerContext, entry: media_scan.ScanEntry, is_video: bool) !void {
         const file = std.Io.Dir.openFileAbsolute(c_ctx.io, entry.path, .{ .mode = .read_only }) catch |err| {
-            c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
-            defer c_ctx.stdout_mutex.unlock(c_ctx.io);
-            c_ctx.out.flush() catch {};
-            std.debug.print("Warning: failed to open '{s}': {s}\n", .{ entry.path, @errorName(err) });
+            printWarning(c_ctx, "Warning: failed to open '{s}': {s}\n", .{ entry.path, @errorName(err) });
             return;
         };
         defer std.Io.File.close(file, c_ctx.io);
 
         const st = std.Io.File.stat(file, c_ctx.io) catch |err| {
-            c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
-            defer c_ctx.stdout_mutex.unlock(c_ctx.io);
-            c_ctx.out.flush() catch {};
-            std.debug.print("Warning: failed to get stat of '{s}': {s}\n", .{ entry.path, @errorName(err) });
+            printWarning(c_ctx, "Warning: failed to get stat of '{s}': {s}\n", .{ entry.path, @errorName(err) });
             return;
         };
         const fsize = st.size;
@@ -296,7 +326,7 @@ pub const worker = struct {
         if (hashing.computeFastHash(c_ctx.io, arena_allocator, entry.path)) |hash| {
             file_hash = hash;
         } else |err| {
-            std.debug.print("Warning: failed to compute fast hash for '{s}': {s}\n", .{ entry.path, @errorName(err) });
+            printWarning(c_ctx, "Warning: failed to compute fast hash for '{s}': {s}\n", .{ entry.path, @errorName(err) });
         }
 
         // 3. Try DB hash query (to reuse metadata from duplicates).
@@ -314,11 +344,8 @@ pub const worker = struct {
 
         // 4. Parse the file manually and generate thumbnails
         const record = parseMediaFile(c_ctx, entry.path, fsize, is_video, file_hash, arena_allocator) catch |err| {
-            c_ctx.stdout_mutex.lockUncancelable(c_ctx.io);
-            defer c_ctx.stdout_mutex.unlock(c_ctx.io);
-            c_ctx.out.flush() catch {};
             const media_type = if (is_video) "video" else "image";
-            std.debug.print("Warning: failed to parse {s} '{s}': {s}\n", .{ media_type, entry.path, @errorName(err) });
+            printWarning(c_ctx, "Warning: failed to parse {s} '{s}': {s}\n", .{ media_type, entry.path, @errorName(err) });
             return;
         };
 
