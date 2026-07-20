@@ -53,6 +53,11 @@ test {
     _ = @import("core/byte_reader.zig");
     _ = @import("core/utils.zig");
     _ = @import("crawler/media_scan.zig");
+    _ = @import("cli/options.zig");
+    _ = @import("cli/ffmpeg.zig");
+    _ = @import("cli/format_handler.zig");
+    _ = @import("cli/output_formatter.zig");
+    _ = @import("cli/worker_pool.zig");
     _ = @import("formats/images/common.zig");
     _ = @import("formats/images/jpeg.zig");
     _ = @import("formats/images/png.zig");

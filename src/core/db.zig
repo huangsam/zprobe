@@ -11,12 +11,15 @@ pub const c = @cImport({
 pub const types = @import("db/types.zig");
 pub const schema = @import("db/schema.zig");
 pub const query = @import("db/query.zig");
+pub const conversion = @import("db/conversion.zig");
 
 // Re-export structural types
 pub const DbRecord = types.DbRecord;
 pub const CacheResult = types.CacheResult;
 pub const DbStats = types.DbStats;
 pub const PagedResult = types.PagedResult;
+pub const populateJsonFromImage = conversion.populateJsonFromImage;
+pub const populateJsonFromVideo = conversion.populateJsonFromVideo;
 
 /// Manager wrapping SQLite database connection and prepared statements.
 pub const Db = struct {
