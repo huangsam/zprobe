@@ -3,15 +3,16 @@ const zprobe = @import("zprobe");
 const Db = zprobe.db.Db;
 const utils = @import("utils.zig");
 
-const index_html = @embedFile("../web/index.html");
-const styles_css = @embedFile("../web/styles.css");
-const app_js = @embedFile("../web/app.js");
-const logo_svg = @embedFile("../web/logo.svg");
-const lucide_js = @embedFile("../web/js/lucide.min.js");
-const chart_js = @embedFile("../web/js/chart.umd.js");
-const font_outfit_600 = @embedFile("../web/fonts/outfit-600.woff2");
-const font_pj_400 = @embedFile("../web/fonts/plus-jakarta-400.woff2");
-const font_pj_600 = @embedFile("../web/fonts/plus-jakarta-600.woff2");
+const assets = @import("../web/assets.zig");
+const index_html = assets.index_html;
+const logo_svg = assets.logo_svg;
+const lucide_js = assets.lucide_js;
+const chart_js = assets.chart_js;
+const font_outfit_600 = assets.font_outfit_600;
+const font_pj_400 = assets.font_pj_400;
+const font_pj_600 = assets.font_pj_600;
+const styles_css = assets.styles_css;
+const app_js = assets.app_js;
 
 pub fn handleStaticAsset(request: *std.http.Server.Request, base_path: []const u8) !bool {
     if (std.mem.eql(u8, base_path, "/") or std.mem.eql(u8, base_path, "/index.html")) {

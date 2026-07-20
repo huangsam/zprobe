@@ -1,0 +1,133 @@
+@font-face {
+  font-family: "Outfit";
+  src: url("/fonts/outfit-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/plus-jakarta-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/plus-jakarta-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Global Styles & Variables (Synology DSM Light Theme) */
+:root {
+  --bg-main: #f0f3f7;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f5f7fa;
+  --border-color: #dde2eb;
+  --border-color-hover: #cbd5e1;
+
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --text-muted: #8c9ba5;
+
+  --primary: #2b76db; /* Synology Brand Blue */
+  --primary-hover: #1e5cb8;
+  --primary-light: color-mix(in srgb, var(--primary) 8%, transparent);
+  --primary-border: color-mix(in srgb, var(--primary) 35%, transparent);
+  --primary-border-strong: color-mix(in srgb, var(--primary) 45%, transparent);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--primary) 15%, transparent);
+
+  --bg-input: #fafbfc;
+
+  --success: #2e7d32;
+  --success-light: color-mix(in srgb, var(--success) 8%, transparent);
+  --warning: #ef6c00;
+  --danger: #d32f2f;
+  --purple: #7c3aed;
+  --purple-light: color-mix(in srgb, var(--purple) 8%, transparent);
+  --orange: #d97706;
+  --orange-light: color-mix(in srgb, var(--orange) 8%, transparent);
+
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-heading: "Outfit", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
+
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Support sticky footer layout */
+html,
+body {
+  box-sizing: border-box;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Spinner Animation for loading/refresh actions */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 0.5s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .details-drawer,
+  .drawer-backdrop,
+  .modal,
+  .modal-content,
+  .skeleton-bar,
+  .details-drawer.open .detail-section,
+  .spin {
+    animation: none !important;
+    transition: none !important;
+  }
+}

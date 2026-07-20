@@ -1,0 +1,367 @@
+/* Media Table / File Station look */
+.catalog-section {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+
+.table-container {
+  overflow-x: auto;
+  flex: 1 1 auto;
+}
+
+table {
+  width: 100%;
+  min-width: 1000px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.85rem;
+  /*
+   * PERF: Use fixed table layout to eliminate resize-triggered reflow.
+   * With the default `table-layout: auto`, the browser scans every cell's
+   * content on every resize step to dynamically compute column widths,
+   * causing a full-page paint storm visible as neon-green flashing in
+   * Chrome DevTools Paint Flashing mode. `fixed` layout computes column
+   * widths from the header row alone, making resizes O(1) instead of O(n).
+   */
+  table-layout: fixed;
+}
+
+th {
+  background: #f8fafc;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  user-select: none;
+}
+
+/*
+ * PERF: Explicit column widths are required for `table-layout: fixed`.
+ * Without these, the browser falls back to equal-width columns.
+ * Percentages are used so the table scales proportionally with the container.
+ */
+#th-path {
+  width: 45%;
+}
+#th-date {
+  width: 17%;
+}
+#th-size {
+  width: 12%;
+}
+#th-format {
+  width: 11%;
+}
+#th-dimensions {
+  width: 15%;
+}
+
+th:hover {
+  background: #edf2f7;
+  color: var(--text-primary);
+}
+
+@media (hover: hover) {
+  th {
+    transition:
+      background-color var(--transition-fast),
+      color var(--transition-fast);
+  }
+
+  tr:hover td {
+    transition: background-color var(--transition-fast);
+  }
+}
+
+#media-table th.sort-asc::after,
+#media-table th.sort-desc::after {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+}
+
+#media-table th.sort-asc::after {
+  border-bottom: 5px solid var(--text-secondary);
+}
+
+#media-table th.sort-desc::after {
+  border-top: 5px solid var(--text-secondary);
+}
+
+td {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+tr {
+  cursor: pointer;
+}
+
+tr:hover td {
+  background: var(--bg-surface-hover);
+}
+
+#media-table tbody tr[role="button"]:focus-visible td {
+  background: var(--bg-surface-hover);
+}
+
+tr.empty-state-row,
+tr.skeleton-row {
+  cursor: default;
+}
+
+tr.empty-state-row:focus-visible,
+tr.skeleton-row:focus-visible {
+  outline: none;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+/*
+ * PERF: Prevent data cells from changing row heights on resize.
+ * Dynamic text-wrapping in cells changes row heights, which cascades upward
+ * forcing the browser to recalculate the height of every parent element
+ * (table, catalog-section, dashboard-main, app-container, body) on every
+ * pixel of a window resize, invalidating the entire layout tree.
+ */
+td:nth-child(2),
+td:nth-child(3),
+td:nth-child(4),
+td:nth-child(5) {
+  white-space: nowrap;
+}
+
+/* Specific cell formats */
+.file-path-cell {
+  vertical-align: middle;
+}
+
+.file-path-content {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.thumbnail-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  max-width: 44px;
+  max-height: 44px;
+  flex-shrink: 0;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.row-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.type-icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.5px;
+}
+
+.image-icon {
+  color: var(--primary);
+}
+
+.video-icon {
+  color: #10b981;
+}
+
+.file-name-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.file-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.file-dir {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Animated GIF hover-reveal overlay
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The animated GIF img (.animated-overlay) is stacked on top of the JPEG
+ * poster using absolute positioning.  It starts transparent and cross-fades in
+ * on hover of the parent container.  Works for both the 44 px table cell
+ * thumbnail-wrapper and the 260 px drawer-preview-container.
+ */
+.animated-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  /* Ensure the poster .row-thumbnail/.drawer-preview-image beneath is visible */
+  z-index: 1;
+}
+
+/* Poster keeps its natural z-index (auto / 0), overlay sits above it */
+.thumbnail-wrapper.has-animated:hover .animated-overlay,
+.drawer-preview-container.has-animated:hover .animated-overlay {
+  opacity: 1;
+}
+
+/* Honour reduced-motion preference — skip the fade, keep the hover swap */
+@media (prefers-reduced-motion: reduce) {
+  .animated-overlay {
+    transition: none;
+  }
+}
+
+/* Drawer Preview Styles */
+.drawer-preview-container {
+  position: relative;
+  width: 100%;
+  height: 260px;
+  flex-shrink: 0;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.02);
+}
+
+.drawer-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(0, 0, 0, 0.05) 100%
+  );
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  font-family: var(--font-mono);
+}
+
+.badge-format {
+  background: var(--primary-light);
+  color: var(--primary);
+  border: 1px solid rgba(43, 118, 219, 0.15);
+}
+
+/* Table states */
+td.loading-state,
+td.error-state,
+td.empty-state {
+  text-align: center;
+  padding: 5rem 2rem;
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+
+.empty-state-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+.empty-state-title {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.empty-state-hint {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.empty-state-action {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-family: var(--font-sans);
+  font-size: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.empty-state-action:hover {
+  color: var(--primary-hover);
+}
+
+.empty-state-action:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+tr.empty-state-row:hover td {
+  background: transparent;
+}
+
+td.error-state,
+.metric-info p.error-state {
+  color: var(--danger);
+}
+
+:is(#media-table th, #media-table tbody tr[role="button"]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
