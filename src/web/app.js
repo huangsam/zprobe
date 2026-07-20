@@ -1143,7 +1143,7 @@ function renderTable() {
       // If the row has an animated GIF preview, render it as an overlay that
       // fades in on hover (CSS .has-animated:hover .animated-overlay).
       const animatedOverlay = row.has_animated
-        ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="row-thumbnail animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
+        ? `<img data-src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="row-thumbnail animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
         : "";
       thumbHtml = `${animatedOverlay}<img src="${escapeHtml(url)}" class="row-thumbnail" alt="Thumbnail" loading="lazy" />`;
     } else if (isVideo) {
@@ -1227,7 +1227,7 @@ function renderGrid() {
     if (row.has_thumbnail) {
       const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
       const animatedOverlay = row.has_animated
-        ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
+        ? `<img data-src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
         : "";
       thumbHtml = `${animatedOverlay}<img src="${escapeHtml(url)}" alt="${escapeHtml(fileBase)}" loading="lazy" />`;
     } else if (isVideo) {
@@ -1380,7 +1380,7 @@ function showDetails(row, triggerEl) {
   if (row.has_thumbnail) {
     const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
     const animatedOverlay = row.has_animated
-      ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="drawer-preview-image animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
+      ? `<img data-src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="drawer-preview-image animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
       : "";
     const containerClass = row.has_animated
       ? "drawer-preview-container has-animated"
@@ -2327,4 +2327,51 @@ document.addEventListener("DOMContentLoaded", () => {
   updateDatePresetActiveState();
   updateSizePresetActiveState();
   initMoreFiltersToggle();
+
+  // Hover-activated lazy loading for animated GIF previews
+  const loadGif = (e) => {
+    const target = e.target;
+    const wrapper =
+      target.closest(".has-animated") || target.querySelector(".has-animated");
+    if (!wrapper) return;
+    const img = wrapper.querySelector(".animated-overlay");
+    if (img && !img.src) {
+      const dataSrc = img.getAttribute("data-src");
+      if (dataSrc) img.src = dataSrc;
+    }
+  };
+
+  const unloadGif = (e) => {
+    const target = e.target;
+    const wrapper =
+      target.closest(".has-animated") || target.querySelector(".has-animated");
+    if (!wrapper) return;
+    if (e.relatedTarget && wrapper.contains(e.relatedTarget)) return;
+    const img = wrapper.querySelector(".animated-overlay");
+    if (img && img.src) {
+      img.removeAttribute("src");
+    }
+  };
+
+  const tbody = document.getElementById("media-tbody");
+  if (tbody) {
+    tbody.addEventListener("mouseover", loadGif);
+    tbody.addEventListener("mouseout", unloadGif);
+    tbody.addEventListener("focusin", loadGif);
+    tbody.addEventListener("focusout", unloadGif);
+  }
+
+  const grid = document.getElementById("media-grid");
+  if (grid) {
+    grid.addEventListener("mouseover", loadGif);
+    grid.addEventListener("mouseout", unloadGif);
+    grid.addEventListener("focusin", loadGif);
+    grid.addEventListener("focusout", unloadGif);
+  }
+
+  const drawer = document.getElementById("details-drawer");
+  if (drawer) {
+    drawer.addEventListener("mouseover", loadGif);
+    drawer.addEventListener("mouseout", unloadGif);
+  }
 });

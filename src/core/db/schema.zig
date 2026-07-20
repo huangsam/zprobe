@@ -231,6 +231,7 @@ pub fn beginTransaction(self: *Db) void {
 pub fn commitTransaction(self: *Db, io: std.Io) void {
     if (self.handle) |h| {
         _ = c.sqlite3_exec(h, "COMMIT TRANSACTION;", null, null, null);
+        _ = c.sqlite3_exec(h, "ANALYZE;", null, null, null);
         self.invalidateStatsCache(io);
     }
 }

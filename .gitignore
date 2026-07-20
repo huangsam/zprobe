@@ -12,6 +12,7 @@ zig-out/
 Thumbs.db
 
 # Additional assets
+.zprobe_animations/
 .zprobe_thumbnails/
 brainstorm/
 playground/
