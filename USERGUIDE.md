@@ -26,15 +26,15 @@ zig build -OReleaseSafe
 ./zig-out/bin/zprobe --db /path/to/cache.db /path/to/media/directory
 
 # Run with custom concurrency (e.g. 2 threads) and bypass thumbnail generation (saves CPU/disk writes on NAS)
-./zig-out/bin/zprobe -j 2 --no-thumbnails --db /path/to/cache.db /path/to/media/directory
+./zig-out/bin/zprobe -j 2 --thumbnails=off --db /path/to/cache.db /path/to/media/directory
 
 # Run and generate animated GIF hover previews for videos (requires FFmpeg's built-in gif encoder)
 # Back-fills videos that have no previews yet; stays cheap on already-processed libraries
-./zig-out/bin/zprobe --animated-previews --db /path/to/cache.db /path/to/media/directory
+./zig-out/bin/zprobe --animations=on --db /path/to/cache.db /path/to/media/directory
 
-# Force re-generation of any animated previews missing from disk (implies --animated-previews)
+# Force re-generation of any animated previews missing from disk
 # Use this after deleting/clearing the .zprobe_thumbnails folder - no DB wipe needed
-./zig-out/bin/zprobe --rebuild-previews --db /path/to/cache.db /path/to/media/directory
+./zig-out/bin/zprobe --animations=rebuild --db /path/to/cache.db /path/to/media/directory
 
 # Run daily scan and automatically prune stale cache entries for files deleted/moved in the target directories
 ./zig-out/bin/zprobe --db /path/to/cache.db --prune /path/to/media/directory
