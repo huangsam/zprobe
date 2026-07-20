@@ -18,8 +18,8 @@ pub const DbRecord = types.DbRecord;
 pub const CacheResult = types.CacheResult;
 pub const DbStats = types.DbStats;
 pub const PagedResult = types.PagedResult;
-pub const populateJsonFromImage = conversion.populateJsonFromImage;
-pub const populateJsonFromVideo = conversion.populateJsonFromVideo;
+pub const populateDbRecordFromImage = conversion.populateDbRecordFromImage;
+pub const populateDbRecordFromVideo = conversion.populateDbRecordFromVideo;
 
 /// Manager wrapping SQLite database connection and prepared statements.
 pub const Db = struct {

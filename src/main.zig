@@ -458,15 +458,15 @@ test "Db.pruneStalePaths pruning logic" {
     // Verify b.mp4 is deleted, a.jpg remains
     const hit_a = try database.queryCache(allocator, "/photos/a.jpg", 100, 10);
     defer if (hit_a.hit) {
-        hit_a.json_out.deinit(allocator);
-        allocator.free(hit_a.json_out.format);
+        hit_a.db_record.deinit(allocator);
+        allocator.free(hit_a.db_record.format);
     };
     try std.testing.expect(hit_a.hit);
 
     const hit_b = try database.queryCache(allocator, "/videos/b.mp4", 200, 20);
     defer if (hit_b.hit) {
-        hit_b.json_out.deinit(allocator);
-        allocator.free(hit_b.json_out.format);
+        hit_b.db_record.deinit(allocator);
+        allocator.free(hit_b.db_record.format);
     };
     try std.testing.expect(!hit_b.hit);
 }
@@ -505,8 +505,8 @@ test "Db.pruneStalePaths skips directories excluded by the guardrail" {
 
     const hit_b = try database.queryCache(allocator, "/videos/b.mp4", 200, 20);
     defer if (hit_b.hit) {
-        hit_b.json_out.deinit(allocator);
-        allocator.free(hit_b.json_out.format);
+        hit_b.db_record.deinit(allocator);
+        allocator.free(hit_b.db_record.format);
     };
     try std.testing.expect(hit_b.hit);
 }
@@ -589,15 +589,15 @@ test "main CLI scan: degraded scan disables pruning" {
 
     const hit_healthy = try database.queryCache(allocator, healthy_img, 100, 10);
     defer if (hit_healthy.hit) {
-        hit_healthy.json_out.deinit(allocator);
-        allocator.free(hit_healthy.json_out.format);
+        hit_healthy.db_record.deinit(allocator);
+        allocator.free(hit_healthy.db_record.format);
     };
     try std.testing.expect(hit_healthy.hit);
 
     const hit_stale = try database.queryCache(allocator, stale_img, 200, 20);
     defer if (hit_stale.hit) {
-        hit_stale.json_out.deinit(allocator);
-        allocator.free(hit_stale.json_out.format);
+        hit_stale.db_record.deinit(allocator);
+        allocator.free(hit_stale.db_record.format);
     };
     try std.testing.expect(hit_stale.hit);
 }
@@ -659,8 +659,8 @@ test "Db.pruneStalePaths trailing slash and absolute paths" {
     // Verify /photos_backup/b.jpg remains
     const hit_b = try database.queryCache(allocator, "/photos_backup/b.jpg", 200, 20);
     defer if (hit_b.hit) {
-        hit_b.json_out.deinit(allocator);
-        allocator.free(hit_b.json_out.format);
+        hit_b.db_record.deinit(allocator);
+        allocator.free(hit_b.db_record.format);
     };
     try std.testing.expect(hit_b.hit);
 

@@ -113,7 +113,7 @@ pub const worker = struct {
         }
 
         if (cache_res.hit) {
-            const content_hash: ?[]const u8 = if (cache_res.json_out.file_hash) |fh|
+            const content_hash: ?[]const u8 = if (cache_res.db_record.file_hash) |fh|
                 if (root.utils.isValidContentHash(fh)) fh else null
             else
                 null;
@@ -135,14 +135,14 @@ pub const worker = struct {
                     const missing = if (c_ctx.animations.healsFromDisk())
                         !on_disk
                     else
-                        !cache_res.json_out.has_animated and !on_disk;
+                        !cache_res.db_record.has_animated and !on_disk;
                     if (missing) {
                         force_regen.* = true;
                         return null;
                     }
                 }
             }
-            return cache_res.json_out;
+            return cache_res.db_record;
         }
         return null;
     }
@@ -289,7 +289,7 @@ pub const worker = struct {
                 // (and insertMedia MAX) reflect disk, not just this worker's attempt.
                 reStatSiblingArtifacts(c_ctx, allocator, ch, true, &has_thumb, &has_animated);
             }
-            record = try db.populateJsonFromVideo(allocator, &res, path, size, has_thumb, has_animated);
+            record = try db.populateDbRecordFromVideo(allocator, &res, path, size, has_thumb, has_animated);
         } else {
             var parse_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
             var res = try image_meta.parseFile(allocator, path, c_ctx.io);
@@ -317,7 +317,7 @@ pub const worker = struct {
                     reStatSiblingArtifacts(c_ctx, allocator, ch, false, &has_thumb, &has_animated);
                 }
             }
-            record = try db.populateJsonFromImage(allocator, &res, path, size, has_thumb);
+            record = try db.populateDbRecordFromImage(allocator, &res, path, size, has_thumb);
         }
 
         if (file_hash) |fh| {
@@ -576,9 +576,9 @@ test "sqlite db caching integration test" {
 
     const cache_res_first = try database.queryCache(allocator, full_image_path, png_header.len, mtime_first);
     try std.testing.expect(cache_res_first.hit);
-    try std.testing.expectEqualStrings("png", cache_res_first.json_out.format);
-    allocator.free(cache_res_first.json_out.format);
-    cache_res_first.json_out.deinit(allocator);
+    try std.testing.expectEqualStrings("png", cache_res_first.db_record.format);
+    allocator.free(cache_res_first.db_record.format);
+    cache_res_first.db_record.deinit(allocator);
 
     // Corrupt the file on disk (overwrite with invalid data)
     const corrupt_file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});

@@ -201,25 +201,25 @@ pub fn queryCache(
         const db_mtime = c.sqlite3_column_int64(stmt, 1);
 
         if (db_size == @as(i64, @intCast(size)) and db_mtime == mtime) {
-            var json_out = DbRecord{
+            var db_record = DbRecord{
                 .path = path,
                 .size = size,
                 .format = undefined,
             };
-            errdefer json_out.deinit(allocator);
+            errdefer db_record.deinit(allocator);
 
             const fmt_raw = c.sqlite3_column_text(stmt, 2);
             if (fmt_raw) |raw| {
                 const fmt_len = c.sqlite3_column_bytes(stmt, 2);
-                json_out.format = try allocator.dupe(u8, raw[0..@intCast(fmt_len)]);
+                db_record.format = try allocator.dupe(u8, raw[0..@intCast(fmt_len)]);
             } else {
-                json_out.format = try allocator.dupe(u8, "unknown");
+                db_record.format = try allocator.dupe(u8, "unknown");
             }
-            errdefer allocator.free(json_out.format);
+            errdefer allocator.free(db_record.format);
 
-            try fillMetadataFields(allocator, &json_out, stmt, 3, true);
+            try fillMetadataFields(allocator, &db_record, stmt, 3, true);
 
-            return .{ .hit = true, .json_out = json_out };
+            return .{ .hit = true, .db_record = db_record };
         }
     }
 
@@ -248,26 +248,26 @@ pub fn queryMetadataByHash(
     _ = c.sqlite3_bind_text(stmt, 1, file_hash.ptr, @intCast(file_hash.len), null);
 
     if (c.sqlite3_step(stmt) == c.SQLITE_ROW) {
-        var json_out = DbRecord{
+        var db_record = DbRecord{
             .path = path,
             .size = 0,
             .format = undefined,
             .file_hash = try allocator.dupe(u8, file_hash),
         };
-        errdefer json_out.deinit(allocator);
+        errdefer db_record.deinit(allocator);
 
         const fmt_raw = c.sqlite3_column_text(stmt, 0);
         if (fmt_raw) |raw| {
             const fmt_len = c.sqlite3_column_bytes(stmt, 0);
-            json_out.format = try allocator.dupe(u8, raw[0..@intCast(fmt_len)]);
+            db_record.format = try allocator.dupe(u8, raw[0..@intCast(fmt_len)]);
         } else {
-            json_out.format = try allocator.dupe(u8, "unknown");
+            db_record.format = try allocator.dupe(u8, "unknown");
         }
-        errdefer allocator.free(json_out.format);
+        errdefer allocator.free(db_record.format);
 
-        try fillMetadataFields(allocator, &json_out, stmt, 1, false);
+        try fillMetadataFields(allocator, &db_record, stmt, 1, false);
 
-        return json_out;
+        return db_record;
     }
 
     return null;
@@ -277,19 +277,19 @@ pub fn queryMetadataByHash(
 pub fn insertMedia(
     self: *Db,
     io: std.Io,
-    json_out: *const DbRecord,
+    db_record: *const DbRecord,
     mtime: i64,
 ) !void {
     if (self.handle == null) return error.DatabaseNotOpen;
 
     // 1. Generate fallback file hash signature if not provided
     var hash_buf: [256]u8 = undefined;
-    const file_hash = if (json_out.file_hash) |fh| fh else try std.fmt.bufPrint(&hash_buf, "{d}_{d}_{s}_{d}_{d}", .{
-        json_out.size,
+    const file_hash = if (db_record.file_hash) |fh| fh else try std.fmt.bufPrint(&hash_buf, "{d}_{d}_{s}_{d}_{d}", .{
+        db_record.size,
         mtime,
-        json_out.format,
-        json_out.width orelse 0,
-        json_out.height orelse 0,
+        db_record.format,
+        db_record.width orelse 0,
+        db_record.height orelse 0,
     });
 
     // 2. Prepare/Insert into media_metadata
@@ -304,55 +304,55 @@ pub fn insertMedia(
     defer _ = c.sqlite3_finalize(insert_meta_stmt);
 
     _ = c.sqlite3_bind_text(insert_meta_stmt, 1, file_hash.ptr, @intCast(file_hash.len), null);
-    _ = c.sqlite3_bind_text(insert_meta_stmt, 2, json_out.format.ptr, @intCast(json_out.format.len), null);
+    _ = c.sqlite3_bind_text(insert_meta_stmt, 2, db_record.format.ptr, @intCast(db_record.format.len), null);
 
-    if (json_out.width) |w| {
+    if (db_record.width) |w| {
         _ = c.sqlite3_bind_int(insert_meta_stmt, 3, @intCast(w));
     } else {
         _ = c.sqlite3_bind_null(insert_meta_stmt, 3);
     }
-    if (json_out.height) |h| {
+    if (db_record.height) |h| {
         _ = c.sqlite3_bind_int(insert_meta_stmt, 4, @intCast(h));
     } else {
         _ = c.sqlite3_bind_null(insert_meta_stmt, 4);
     }
-    if (json_out.orientation) |o| {
+    if (db_record.orientation) |o| {
         _ = c.sqlite3_bind_int(insert_meta_stmt, 5, @intCast(o));
     } else {
         _ = c.sqlite3_bind_null(insert_meta_stmt, 5);
     }
-    if (json_out.create_time) |ct| {
+    if (db_record.create_time) |ct| {
         _ = c.sqlite3_bind_text(insert_meta_stmt, 6, ct.ptr, @intCast(ct.len), null);
     } else {
         _ = c.sqlite3_bind_null(insert_meta_stmt, 6);
     }
-    if (json_out.camera_make) |cm| {
+    if (db_record.camera_make) |cm| {
         _ = c.sqlite3_bind_text(insert_meta_stmt, 7, cm.ptr, @intCast(cm.len), null);
     } else {
         _ = c.sqlite3_bind_null(insert_meta_stmt, 7);
     }
-    if (json_out.camera_model) |cm| {
+    if (db_record.camera_model) |cm| {
         _ = c.sqlite3_bind_text(insert_meta_stmt, 8, cm.ptr, @intCast(cm.len), null);
     } else {
         _ = c.sqlite3_bind_null(insert_meta_stmt, 8);
     }
-    if (json_out.gps_latitude) |lat| {
+    if (db_record.gps_latitude) |lat| {
         _ = c.sqlite3_bind_double(insert_meta_stmt, 9, lat);
     } else {
         _ = c.sqlite3_bind_null(insert_meta_stmt, 9);
     }
-    if (json_out.gps_longitude) |lon| {
+    if (db_record.gps_longitude) |lon| {
         _ = c.sqlite3_bind_double(insert_meta_stmt, 10, lon);
     } else {
         _ = c.sqlite3_bind_null(insert_meta_stmt, 10);
     }
-    if (json_out.duration_sec) |dur| {
+    if (db_record.duration_sec) |dur| {
         _ = c.sqlite3_bind_double(insert_meta_stmt, 11, dur);
     } else {
         _ = c.sqlite3_bind_null(insert_meta_stmt, 11);
     }
-    _ = c.sqlite3_bind_int(insert_meta_stmt, 12, if (json_out.has_thumbnail) 1 else 0);
-    _ = c.sqlite3_bind_int(insert_meta_stmt, 13, if (json_out.has_animated) 1 else 0);
+    _ = c.sqlite3_bind_int(insert_meta_stmt, 12, if (db_record.has_thumbnail) 1 else 0);
+    _ = c.sqlite3_bind_int(insert_meta_stmt, 13, if (db_record.has_animated) 1 else 0);
 
     var metadata_id: i64 = 0;
     const step_rc = c.sqlite3_step(insert_meta_stmt);
@@ -384,8 +384,8 @@ pub fn insertMedia(
             return error.DatabasePrepareError;
         }
         defer _ = c.sqlite3_finalize(update_flags_stmt);
-        _ = c.sqlite3_bind_int(update_flags_stmt, 1, if (json_out.has_thumbnail) 1 else 0);
-        _ = c.sqlite3_bind_int(update_flags_stmt, 2, if (json_out.has_animated) 1 else 0);
+        _ = c.sqlite3_bind_int(update_flags_stmt, 1, if (db_record.has_thumbnail) 1 else 0);
+        _ = c.sqlite3_bind_int(update_flags_stmt, 2, if (db_record.has_animated) 1 else 0);
         _ = c.sqlite3_bind_int64(update_flags_stmt, 3, metadata_id);
         if (c.sqlite3_step(update_flags_stmt) != c.SQLITE_DONE) {
             return error.DatabaseExecuteError;
@@ -403,8 +403,8 @@ pub fn insertMedia(
     }
     defer _ = c.sqlite3_finalize(insert_path_stmt);
 
-    _ = c.sqlite3_bind_text(insert_path_stmt, 1, json_out.path.ptr, @intCast(json_out.path.len), null);
-    _ = c.sqlite3_bind_int64(insert_path_stmt, 2, @intCast(json_out.size));
+    _ = c.sqlite3_bind_text(insert_path_stmt, 1, db_record.path.ptr, @intCast(db_record.path.len), null);
+    _ = c.sqlite3_bind_int64(insert_path_stmt, 2, @intCast(db_record.size));
     _ = c.sqlite3_bind_int64(insert_path_stmt, 3, mtime);
     _ = c.sqlite3_bind_int64(insert_path_stmt, 4, metadata_id);
 

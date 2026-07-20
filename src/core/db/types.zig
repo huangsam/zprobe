@@ -31,7 +31,7 @@ pub const DbRecord = struct {
 /// Result returned from checking the cache.
 pub const CacheResult = struct {
     hit: bool,
-    json_out: DbRecord = undefined,
+    db_record: DbRecord = undefined,
 };
 
 /// Holds aggregated statistics for dashboard charts and metrics.

@@ -4,7 +4,7 @@ This document details the internal design, directory layout, parsing flow, and c
 
 ## Project Architecture
 
-`zprobe` scans a target directory recursively for media files, parses their binary headers, and outputs metadata (dimensions, file formats, and sizes) as plain text or structured JSON.
+`zprobe` scans a target directory recursively for media files, parses their binary headers, and outputs metadata (dimensions, file formats, and sizes) as plain text.
 
 ### Directory Structure
 

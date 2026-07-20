@@ -603,10 +603,10 @@ test "insertMedia and queryCache hit and miss (T17)" {
     try seedRecord(&database, io, record, 999);
 
     const hit = try database.queryCache(allocator, record.path, record.size, 999);
-    defer if (hit.hit) hit.json_out.deinit(allocator);
-    defer if (hit.hit) allocator.free(hit.json_out.format);
+    defer if (hit.hit) hit.db_record.deinit(allocator);
+    defer if (hit.hit) allocator.free(hit.db_record.format);
     try std.testing.expect(hit.hit);
-    try std.testing.expectEqual(@as(u64, 1234), hit.json_out.size);
+    try std.testing.expectEqual(@as(u64, 1234), hit.db_record.size);
 
     const size_miss = try database.queryCache(allocator, record.path, record.size + 1, 999);
     try std.testing.expect(!size_miss.hit);
@@ -817,11 +817,11 @@ test "insertMedia and queryCache with has_thumbnail" {
 
     const hit = try database.queryCache(allocator, record.path, record.size, 123);
     defer if (hit.hit) {
-        hit.json_out.deinit(allocator);
-        allocator.free(hit.json_out.format);
+        hit.db_record.deinit(allocator);
+        allocator.free(hit.db_record.format);
     };
     try std.testing.expect(hit.hit);
-    try std.testing.expect(hit.json_out.has_thumbnail);
+    try std.testing.expect(hit.db_record.has_thumbnail);
 
     const result = try database.getRecordsPaged(
         allocator,
@@ -866,11 +866,11 @@ test "updateHasThumbnail updates correctly" {
     {
         const hit = try database.queryCache(allocator, record.path, record.size, 123);
         defer if (hit.hit) {
-            hit.json_out.deinit(allocator);
-            allocator.free(hit.json_out.format);
+            hit.db_record.deinit(allocator);
+            allocator.free(hit.db_record.format);
         };
         try std.testing.expect(hit.hit);
-        try std.testing.expect(hit.json_out.has_thumbnail);
+        try std.testing.expect(hit.db_record.has_thumbnail);
     }
 
     try database.updateHasThumbnail(record.path, false);
@@ -878,11 +878,11 @@ test "updateHasThumbnail updates correctly" {
     {
         const hit = try database.queryCache(allocator, record.path, record.size, 123);
         defer if (hit.hit) {
-            hit.json_out.deinit(allocator);
-            allocator.free(hit.json_out.format);
+            hit.db_record.deinit(allocator);
+            allocator.free(hit.db_record.format);
         };
         try std.testing.expect(hit.hit);
-        try std.testing.expect(!hit.json_out.has_thumbnail);
+        try std.testing.expect(!hit.db_record.has_thumbnail);
     }
 }
 
@@ -912,11 +912,11 @@ test "updateHasAnimated updates correctly" {
     {
         const hit = try database.queryCache(allocator, record.path, record.size, 456);
         defer if (hit.hit) {
-            hit.json_out.deinit(allocator);
-            allocator.free(hit.json_out.format);
+            hit.db_record.deinit(allocator);
+            allocator.free(hit.db_record.format);
         };
         try std.testing.expect(hit.hit);
-        try std.testing.expect(hit.json_out.has_animated);
+        try std.testing.expect(hit.db_record.has_animated);
     }
 
     // Simulate cache-heal: mark the animated preview as missing
@@ -925,13 +925,13 @@ test "updateHasAnimated updates correctly" {
     {
         const hit = try database.queryCache(allocator, record.path, record.size, 456);
         defer if (hit.hit) {
-            hit.json_out.deinit(allocator);
-            allocator.free(hit.json_out.format);
+            hit.db_record.deinit(allocator);
+            allocator.free(hit.db_record.format);
         };
         try std.testing.expect(hit.hit);
-        try std.testing.expect(!hit.json_out.has_animated);
+        try std.testing.expect(!hit.db_record.has_animated);
         // has_thumbnail should be unaffected
-        try std.testing.expect(hit.json_out.has_thumbnail);
+        try std.testing.expect(hit.db_record.has_thumbnail);
     }
 }
 
@@ -968,19 +968,19 @@ test "has_animated round-trips through insertMedia and queryCache" {
 
     const hit_with = try database.queryCache(allocator, rec_with.path, rec_with.size, 1);
     defer if (hit_with.hit) {
-        hit_with.json_out.deinit(allocator);
-        allocator.free(hit_with.json_out.format);
+        hit_with.db_record.deinit(allocator);
+        allocator.free(hit_with.db_record.format);
     };
     try std.testing.expect(hit_with.hit);
-    try std.testing.expect(hit_with.json_out.has_animated);
+    try std.testing.expect(hit_with.db_record.has_animated);
 
     const hit_without = try database.queryCache(allocator, rec_without.path, rec_without.size, 2);
     defer if (hit_without.hit) {
-        hit_without.json_out.deinit(allocator);
-        allocator.free(hit_without.json_out.format);
+        hit_without.db_record.deinit(allocator);
+        allocator.free(hit_without.db_record.format);
     };
     try std.testing.expect(hit_without.hit);
-    try std.testing.expect(!hit_without.json_out.has_animated);
+    try std.testing.expect(!hit_without.db_record.has_animated);
 }
 
 test "database relational migration moves legacy data" {
@@ -1018,13 +1018,13 @@ test "database relational migration moves legacy data" {
     // 3. Verify it migrated and data is queryable
     const cache_res = try database.queryCache(allocator, "/legacy.jpg", 12345, 98765);
     defer if (cache_res.hit) {
-        cache_res.json_out.deinit(allocator);
-        allocator.free(cache_res.json_out.format);
+        cache_res.db_record.deinit(allocator);
+        allocator.free(cache_res.db_record.format);
     };
     try std.testing.expect(cache_res.hit);
-    try std.testing.expectEqualStrings("jpeg", cache_res.json_out.format);
-    try std.testing.expectEqual(@as(?u32, 800), cache_res.json_out.width);
-    try std.testing.expectEqual(@as(?u32, 600), cache_res.json_out.height);
+    try std.testing.expectEqualStrings("jpeg", cache_res.db_record.format);
+    try std.testing.expectEqual(@as(?u32, 800), cache_res.db_record.width);
+    try std.testing.expectEqual(@as(?u32, 600), cache_res.db_record.height);
 }
 
 test "orphan metadata is cleaned up by triggers on delete or update" {
