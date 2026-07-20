@@ -60,7 +60,18 @@ function showDetails(row, triggerEl) {
   const isVid = isVideo(row);
 
   let html = "";
-  if (row.has_thumbnail) {
+  if (isVid) {
+    const posterAttr = row.has_thumbnail
+      ? ` poster="/api/thumbnail?path=${encodeURIComponent(row.path)}"`
+      : "";
+    html += `
+          <div class="drawer-preview-container">
+              <video class="drawer-preview-video" controls preload="metadata"${posterAttr} src="/api/file?path=${encodeURIComponent(row.path)}">
+                  Your browser does not support the video tag.
+              </video>
+          </div>
+    `;
+  } else if (row.has_thumbnail) {
     const containerClass = row.has_animated
       ? "drawer-preview-container has-animated"
       : "drawer-preview-container";
