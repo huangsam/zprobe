@@ -42,6 +42,9 @@ pub const hashing = @import("core/hashing.zig");
 /// Utility functions.
 pub const utils = @import("core/utils.zig");
 
+/// Command-line interface parsing module.
+pub const cli = @import("cli.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = @import("main.zig");

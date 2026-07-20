@@ -11,35 +11,18 @@ const root = @import("root.zig");
 const media_scan = root.media_scan;
 const image_meta = root.image_meta;
 const video_meta = root.video_meta;
+const cli = root.cli;
 const test_utils = @import("core/test_utils.zig");
 const db = root.db;
 const hashing = root.hashing;
 
 /// Generation policy for a content-keyed artifact type. `--thumbnails` and
 /// `--animations` share this grammar; only their defaults and on-disk roots differ.
-const ArtifactMode = enum {
-    off,
-    on,
-    rebuild,
+pub const ArtifactMode = cli.ArtifactMode;
 
-    /// Whether this run should generate the artifact when it is missing.
-    fn generates(self: ArtifactMode) bool {
-        return self != .off;
-    }
-
-    /// Whether this run should heal by on-disk existence.
-    fn healsFromDisk(self: ArtifactMode) bool {
-        return self == .rebuild;
-    }
-};
-
-/// Parse an `on|off|rebuild` mode value (case-insensitive). Returns null
-/// on an unrecognized value so the caller can emit a precise CLI error.
-fn parseArtifactMode(value: []const u8) ?ArtifactMode {
-    if (std.mem.eql(u8, value, "off")) return .off;
-    if (std.mem.eql(u8, value, "on")) return .on;
-    if (std.mem.eql(u8, value, "rebuild")) return .rebuild;
-    return null;
+// Re-export parseArtifactMode for backward compatibility with tests in this file
+fn parseArtifactMode(value: []const u8) ?cli.ArtifactMode {
+    return cli.parseArtifactMode(value);
 }
 
 /// Long options used for "did you mean?" suggestions on an unknown flag.
@@ -811,90 +794,39 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(allocator);
     defer allocator.free(args);
 
-    var json_mode = false;
-    var target_db: []const u8 = "";
-    var show_help = false;
-    var target_dirs: std.ArrayList([]const u8) = .empty;
-    defer target_dirs.deinit(allocator);
-    var concurrency_override: ?usize = null;
-    var thumbnails: ArtifactMode = .on;
-    var animations: ArtifactMode = .off;
-    var prune_mode = false;
-    var ffmpeg_path_override: ?[]const u8 = null;
-
-    var arg_idx: usize = 1;
-    while (arg_idx < args.len) : (arg_idx += 1) {
-        const arg = args[arg_idx];
-        if (std.mem.eql(u8, arg, "--json")) {
-            json_mode = true;
-        } else if (flagMatches(arg, "--thumbnails")) {
-            thumbnails = parseModeFlag(out, args, &arg_idx, "--thumbnails", arg);
-        } else if (flagMatches(arg, "--animations")) {
-            animations = parseModeFlag(out, args, &arg_idx, "--animations", arg);
-        } else if (std.mem.eql(u8, arg, "--prune")) {
-            prune_mode = true;
-        } else if (std.mem.eql(u8, arg, "--ffmpeg-path")) {
-            if (arg_idx + 1 < args.len) {
-                arg_idx += 1;
-                ffmpeg_path_override = args[arg_idx];
-            } else {
-                try out.print("Error: --ffmpeg-path option requires a value\n", .{});
-                try out.flush();
-                std.process.exit(1);
-            }
-        } else if (std.mem.eql(u8, arg, "--concurrency") or std.mem.eql(u8, arg, "-j")) {
-            if (arg_idx + 1 < args.len) {
-                arg_idx += 1;
-                const val = args[arg_idx];
-                const parsed = std.fmt.parseInt(usize, val, 10) catch {
-                    try out.print("Error: Invalid concurrency value '{s}'\n", .{val});
-                    try out.flush();
-                    std.process.exit(1);
-                };
-                if (parsed == 0) {
-                    try out.print("Error: Concurrency must be at least 1\n", .{});
-                    try out.flush();
-                    std.process.exit(1);
-                }
-                concurrency_override = parsed;
-            } else {
-                try out.print("Error: --concurrency/-j option requires a value\n", .{});
-                try out.flush();
-                std.process.exit(1);
-            }
-        } else if (std.mem.eql(u8, arg, "--db")) {
-            if (arg_idx + 1 < args.len) {
-                arg_idx += 1;
-                target_db = args[arg_idx];
-            } else {
-                try out.print("Error: --db option requires a database path\n", .{});
-                try out.flush();
-                return;
-            }
-        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            show_help = true;
-        } else if (arg.len > 1 and arg[0] == '-') {
-            try out.print("Error: Unknown option '{s}'\n", .{arg});
-            if (suggestFlag(arg)) |s| {
-                try out.print("Did you mean '{s}'?\n", .{s});
-            }
-            try out.print("Run '{s} --help' for available options.\n", .{args[0]});
+    // Use cli module to parse arguments
+    var cli_opts: cli.CliOptions = undefined;
+    if (cli.CliOptions.parse(allocator, args, out)) |opts| {
+        cli_opts = opts;
+    } else |err| {
+        if (err == error.InvalidArgument) {
             try out.flush();
             std.process.exit(1);
-        } else {
-            try target_dirs.append(allocator, arg);
         }
+        return err;
     }
 
-    if (show_help or args.len < 2) {
-        try printHelp(out, args[0]);
+    const json_mode = cli_opts.json_mode;
+    const target_db = cli_opts.target_db;
+    const show_help = cli_opts.show_help;
+    const concurrency_override = cli_opts.concurrency_override;
+    const thumbnails = cli_opts.thumbnails;
+    const animations = cli_opts.animations;
+    const prune_mode = cli_opts.prune_mode;
+    const ffmpeg_path_override = cli_opts.ffmpeg_path_override;
+    const target_dirs = &cli_opts.target_dirs;
+
+    if (show_help) {
+        try cli.printHelp(out, args[0]);
         try out.flush();
+        cli_opts.deinit(allocator);
         return;
     }
 
     if (target_dirs.items.len == 0) {
         try out.print("Error: No directories specified\n", .{});
         try out.flush();
+        cli_opts.deinit(allocator);
         return;
     }
 
@@ -1111,6 +1043,9 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try out.flush();
+
+    // Defer CLI options cleanup - must happen after all target_dirs usage
+    defer cli_opts.deinit(allocator);
 
     if (!json_mode) {
         std.debug.print("Found {d} media file(s)\n", .{all_entries.items.len});
@@ -1421,38 +1356,6 @@ test "CLI options integration check" {
         break :blk true;
     } else |_| false;
     try std.testing.expect(!anim_exists);
-}
-
-test "parseArtifactMode valid and invalid" {
-    try std.testing.expectEqual(ArtifactMode.on, parseArtifactMode("on"));
-    try std.testing.expectEqual(ArtifactMode.off, parseArtifactMode("off"));
-    try std.testing.expectEqual(ArtifactMode.rebuild, parseArtifactMode("rebuild"));
-    try std.testing.expect(parseArtifactMode("ON") == null); // case-insensitive
-    try std.testing.expect(parseArtifactMode("yes") == null);
-    try std.testing.expect(parseArtifactMode("") == null);
-}
-
-test "ArtifactMode semantics" {
-    try std.testing.expect(!ArtifactMode.off.generates());
-    try std.testing.expect(ArtifactMode.on.generates());
-    try std.testing.expect(ArtifactMode.rebuild.generates());
-    try std.testing.expect(!ArtifactMode.on.healsFromDisk());
-    try std.testing.expect(ArtifactMode.rebuild.healsFromDisk());
-}
-
-test "flagMatches exact and equals-form" {
-    try std.testing.expect(flagMatches("--thumbnails", "--thumbnails"));
-    try std.testing.expect(flagMatches("--thumbnails=on", "--thumbnails"));
-    try std.testing.expect(!flagMatches("--thumbnailsx", "--thumbnails"));
-    try std.testing.expect(!flagMatches("--animations", "--thumbnails"));
-}
-
-test "suggestFlag maps removed flags and typos to nearest known flag" {
-    try std.testing.expectEqualStrings("--thumbnails", suggestFlag("--thumbnails").?);
-    try std.testing.expectEqualStrings("--thumbnails", suggestFlag("--rebuild-thumbnails").?);
-    try std.testing.expectEqualStrings("--thumbnails", suggestFlag("--thumbnials").?);
-    // Completely unrelated tokens should not mislead
-    try std.testing.expect(suggestFlag("--xyzzyplughquux") == null);
 }
 
 test "rebuild missing thumbnails unit test" {
