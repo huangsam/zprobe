@@ -39,7 +39,6 @@ zig build -OReleaseSafe
 # Run daily scan and automatically prune stale cache entries for files deleted/moved in the target directories
 ./zig-out/bin/zprobe --db /path/to/cache.db --prune /path/to/media/directory
 
-
 # Use a custom FFmpeg binary (e.g. unclipped package on Synology NAS) via environment variable or CLI parameter
 ZPROBE_FFMPEG_PATH=/usr/local/bin/ffmpeg8 ./zig-out/bin/zprobe --db /path/to/cache.db /path/to/media/directory
 ./zig-out/bin/zprobe --ffmpeg-path /usr/local/bin/ffmpeg8 --db /path/to/cache.db /path/to/media/directory
