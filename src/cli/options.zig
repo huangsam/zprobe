@@ -36,7 +36,7 @@ pub fn parseArtifactMode(value: []const u8) ?ArtifactMode {
 }
 
 /// Long options used for "did you mean?" suggestions on an unknown flag.
-const known_flags = [_][]const u8{ "--json", "--db", "--concurrency", "--thumbnails", "--prune", "--animations", "--ffmpeg-path", "--help" };
+const known_flags = [_][]const u8{ "--json", "--db", "--concurrency", "--thumbnails", "--prune", "--animations", "--ffmpeg-path", "--help", "--profile" };
 
 /// Levenshtein edit distance between two strings. `row` is scratch of length `b.len + 1`.
 fn levenshtein(a: []const u8, b: []const u8, row: []usize) usize {
@@ -116,6 +116,7 @@ pub const CliOptions = struct {
     animations: ArtifactMode,
     prune_mode: bool,
     ffmpeg_path_override: ?[]const u8,
+    profile_mode: bool,
     target_dirs: std.ArrayList([]const u8),
 
     /// Parse command-line arguments into CliOptions.
@@ -132,6 +133,7 @@ pub const CliOptions = struct {
             .animations = .off,
             .prune_mode = false,
             .ffmpeg_path_override = null,
+            .profile_mode = false,
             .target_dirs = std.ArrayList([]const u8).empty,
         };
 
@@ -140,6 +142,8 @@ pub const CliOptions = struct {
             const arg = args[arg_idx];
             if (std.mem.eql(u8, arg, "--json")) {
                 result.json_mode = true;
+            } else if (std.mem.eql(u8, arg, "--profile")) {
+                result.profile_mode = true;
             } else if (flagMatches(arg, "--thumbnails")) {
                 result.thumbnails = parseModeFlag(out, args, &arg_idx, "--thumbnails", arg);
             } else if (flagMatches(arg, "--animations")) {
@@ -220,6 +224,7 @@ pub fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\  --thumbnails=on|off|rebuild   Static JPEG thumbnails under .zprobe_thumbnails (default: on)
         \\  --animations=on|off|rebuild   Animated previews under .zprobe_animations (default: off)
         \\  --ffmpeg-path <path>          Custom path/command for FFmpeg executable (default: ZPROBE_FFMPEG_PATH env or "ffmpeg")
+        \\  --profile                     Print performance profiling metrics after scanning
         \\
         \\Supported Formats:
         \\  Images: JPEG, PNG, GIF, BMP, WebP, TIFF, AVIF, ICO, JXL
@@ -227,6 +232,73 @@ pub fn printHelp(out: anytype, exe_name: []const u8) !void {
         \\
     , .{exe_name});
 }
+
+pub const ProfileMetrics = struct {
+    enabled: bool,
+    dir_crawl_ns: std.atomic.Value(u64),
+    worker_processing_ns: std.atomic.Value(u64),
+    cache_queries_ns: std.atomic.Value(u64),
+    file_hashing_ns: std.atomic.Value(u64),
+    header_parsing_ns: std.atomic.Value(u64),
+    ffmpeg_spawns_ns: std.atomic.Value(u64),
+    prune_commit_ns: std.atomic.Value(u64),
+
+    pub fn init(enabled: bool) ProfileMetrics {
+        return .{
+            .enabled = enabled,
+            .dir_crawl_ns = std.atomic.Value(u64).init(0),
+            .worker_processing_ns = std.atomic.Value(u64).init(0),
+            .cache_queries_ns = std.atomic.Value(u64).init(0),
+            .file_hashing_ns = std.atomic.Value(u64).init(0),
+            .header_parsing_ns = std.atomic.Value(u64).init(0),
+            .ffmpeg_spawns_ns = std.atomic.Value(u64).init(0),
+            .prune_commit_ns = std.atomic.Value(u64).init(0),
+        };
+    }
+
+    pub fn record(self: *ProfileMetrics, metric: *std.atomic.Value(u64), duration: u64) void {
+        if (self.enabled) {
+            _ = metric.fetchAdd(duration, .monotonic);
+        }
+    }
+};
+
+pub const MonotonicTimer = struct {
+    start_ts: std.Io.Clock.Timestamp,
+    io: std.Io,
+
+    pub fn start(io: std.Io) MonotonicTimer {
+        return .{
+            .start_ts = std.Io.Clock.Timestamp.now(io, .awake),
+            .io = io,
+        };
+    }
+
+    pub fn read(self: MonotonicTimer) u64 {
+        const duration = self.start_ts.untilNow(self.io);
+        return @intCast(duration.raw.nanoseconds);
+    }
+};
+
+pub const DurationFormatter = struct {
+    ns: u64,
+
+    pub fn format(
+        self: DurationFormatter,
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        const ns_f = @as(f64, @floatFromInt(self.ns));
+        if (self.ns >= 1_000_000_000) {
+            try writer.print("{d:.2}s", .{ns_f / 1_000_000_000.0});
+        } else if (self.ns >= 1_000_000) {
+            try writer.print("{d:.2}ms", .{ns_f / 1_000_000.0});
+        } else if (self.ns >= 1_000) {
+            try writer.print("{d:.2}us", .{ns_f / 1_000.0});
+        } else {
+            try writer.print("{d}ns", .{self.ns});
+        }
+    }
+};
 
 test "parseArtifactMode accepts valid values" {
     try std.testing.expectEqual(ArtifactMode.off, parseArtifactMode("off").?);

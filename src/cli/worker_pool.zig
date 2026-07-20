@@ -25,6 +25,7 @@ pub const WorkerContext = struct {
     has_ffmpeg: bool = false,
     ffmpeg_sem: ?*std.Io.Semaphore = null,
     ffmpeg_path: []const u8 = "ffmpeg",
+    profile_metrics: ?*cli.ProfileMetrics = null,
 };
 
 const FfmpegLock = struct {
@@ -72,6 +73,10 @@ pub const worker = struct {
     }
 
     pub fn workerMain(c_ctx: WorkerContext) void {
+        var thread_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
+        defer if (c_ctx.profile_metrics) |metrics| {
+            metrics.record(&metrics.worker_processing_ns, thread_timer.read());
+        };
         while (true) {
             const idx = c_ctx.file_index.fetchAdd(1, .monotonic);
             if (idx >= c_ctx.entries.len) break;
@@ -99,10 +104,14 @@ pub const worker = struct {
         const d = c_ctx.db orelse return null;
         d.lockRead(c_ctx.io);
         defer d.unlockRead(c_ctx.io);
+        var timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
         const cache_res = d.queryCache(allocator, path, size, mtime) catch |err| {
             printWarning(c_ctx, "Warning: cache query failed: {s}\n", .{@errorName(err)});
             return null;
         };
+        if (c_ctx.profile_metrics) |metrics| {
+            metrics.record(&metrics.cache_queries_ns, timer.read());
+        }
 
         if (cache_res.hit) {
             const content_hash: ?[]const u8 = if (cache_res.json_out.file_hash) |fh|
@@ -148,7 +157,11 @@ pub const worker = struct {
         {
             d.lockRead(c_ctx.io);
             defer d.unlockRead(c_ctx.io);
+            var timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
             record = d.queryMetadataByHash(allocator, path, file_hash) catch return null;
+            if (c_ctx.profile_metrics) |metrics| {
+                metrics.record(&metrics.cache_queries_ns, timer.read());
+            }
         }
 
         if (record) |*rec| {
@@ -174,10 +187,18 @@ pub const worker = struct {
                         const lock = FfmpegLock.acquire(c_ctx.ffmpeg_sem, c_ctx.io);
                         defer lock.release();
                         if (need_thumb_gen) {
+                            var timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
                             has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, c_ctx.thumb_dir.?, is_video) catch false;
+                            if (c_ctx.profile_metrics) |metrics| {
+                                metrics.record(&metrics.ffmpeg_spawns_ns, timer.read());
+                            }
                         }
                         if (need_anim_gen) {
+                            var timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
                             has_animated = cli.format_handler.generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, c_ctx.anim_dir.?) catch false;
+                            if (c_ctx.profile_metrics) |metrics| {
+                                metrics.record(&metrics.ffmpeg_spawns_ns, timer.read());
+                            }
                         }
                     }
 
@@ -231,7 +252,11 @@ pub const worker = struct {
             null;
 
         if (is_video) {
+            var parse_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
             var res = try video_meta.getVideoMetadata(allocator, path, c_ctx.io);
+            if (c_ctx.profile_metrics) |metrics| {
+                metrics.record(&metrics.header_parsing_ns, parse_timer.read());
+            }
             if (content_hash) |ch| {
                 const manage_thumb = c_ctx.thumb_dir != null;
                 const manage_anim = c_ctx.anim_dir != null;
@@ -245,10 +270,18 @@ pub const worker = struct {
                     const lock = FfmpegLock.acquire(c_ctx.ffmpeg_sem, c_ctx.io);
                     defer lock.release();
                     if (need_thumb_gen) {
+                        var ffmpeg_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
                         has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.thumb_dir.?, true) catch false;
+                        if (c_ctx.profile_metrics) |metrics| {
+                            metrics.record(&metrics.ffmpeg_spawns_ns, ffmpeg_timer.read());
+                        }
                     }
                     if (need_anim_gen) {
+                        var ffmpeg_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
                         has_animated = cli.format_handler.generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.anim_dir.?) catch false;
+                        if (c_ctx.profile_metrics) |metrics| {
+                            metrics.record(&metrics.ffmpeg_spawns_ns, ffmpeg_timer.read());
+                        }
                     }
                 }
 
@@ -259,7 +292,11 @@ pub const worker = struct {
             }
             record = try db.populateJsonFromVideo(allocator, &res, path, size, has_thumb, has_animated);
         } else {
+            var parse_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
             var res = try image_meta.parseFile(allocator, path, c_ctx.io);
+            if (c_ctx.profile_metrics) |metrics| {
+                metrics.record(&metrics.header_parsing_ns, parse_timer.read());
+            }
             if (c_ctx.thumb_dir) |thumb_dir| {
                 if (content_hash) |ch| {
                     has_thumb = cli.format_handler.checkThumbnailExists(c_ctx.io, allocator, ch, thumb_dir);
@@ -269,7 +306,11 @@ pub const worker = struct {
                         } else if (c_ctx.has_ffmpeg) {
                             const lock = FfmpegLock.acquire(c_ctx.ffmpeg_sem, c_ctx.io);
                             defer lock.release();
+                            var ffmpeg_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
                             has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, thumb_dir, false) catch false;
+                            if (c_ctx.profile_metrics) |metrics| {
+                                metrics.record(&metrics.ffmpeg_spawns_ns, ffmpeg_timer.read());
+                            }
                         }
                     }
 
@@ -323,10 +364,14 @@ pub const worker = struct {
 
         // 2. Compute fast hash
         var file_hash: ?[]const u8 = null;
+        var hash_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
         if (hashing.computeFastHash(c_ctx.io, arena_allocator, entry.path)) |hash| {
             file_hash = hash;
         } else |err| {
             printWarning(c_ctx, "Warning: failed to compute fast hash for '{s}': {s}\n", .{ entry.path, @errorName(err) });
+        }
+        if (c_ctx.profile_metrics) |metrics| {
+            metrics.record(&metrics.file_hashing_ns, hash_timer.read());
         }
 
         // 3. Try DB hash query (to reuse metadata from duplicates).

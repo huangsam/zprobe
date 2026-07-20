@@ -170,6 +170,9 @@ pub fn main(init: std.process.Init) !void {
         prunable_dirs.deinit(allocator);
     }
 
+    var profile_metrics = cli.ProfileMetrics.init(cli_opts.profile_mode);
+    var total_timer = cli.MonotonicTimer.start(io);
+
     const cwd = std.Io.Dir.cwd();
     for (target_dirs.items) |dir_path| {
         const abs_dir = cwd.realPathFileAlloc(io, dir_path, allocator) catch |err| {
@@ -183,7 +186,11 @@ pub fn main(init: std.process.Init) !void {
             std.debug.print("Scanning: {s}\n", .{dir_path});
         }
 
+        var crawl_timer = if (cli_opts.profile_mode) cli.MonotonicTimer.start(io) else undefined;
         var scan_res = try media_scan.scan(abs_dir, io, allocator);
+        if (cli_opts.profile_mode) {
+            profile_metrics.record(&profile_metrics.dir_crawl_ns, crawl_timer.read());
+        }
         errdefer {
             for (scan_res.entries.items) |entry| {
                 allocator.free(entry.path);
@@ -252,6 +259,7 @@ pub fn main(init: std.process.Init) !void {
         .has_ffmpeg = has_ffmpeg,
         .ffmpeg_sem = &ffmpeg_sem,
         .ffmpeg_path = ffmpeg_path,
+        .profile_metrics = if (cli_opts.profile_mode) &profile_metrics else null,
     };
 
     var spawned_count: usize = 0;
@@ -270,6 +278,8 @@ pub fn main(init: std.process.Init) !void {
         t.join();
     }
     spawned_count = 0;
+
+    var prune_commit_timer = if (cli_opts.profile_mode) cli.MonotonicTimer.start(io) else undefined;
 
     // Run pruning pass if requested. Only prune within directories that produced
     // entries this run, so a degraded scan cannot wipe its cached entries.
@@ -292,13 +302,58 @@ pub fn main(init: std.process.Init) !void {
         d.commitTransaction(io);
     }
 
+    if (cli_opts.profile_mode) {
+        profile_metrics.record(&profile_metrics.prune_commit_ns, prune_commit_timer.read());
+    }
+
     try out.flush();
 
     // Defer CLI options cleanup - must happen after all target_dirs usage
     defer cli_opts.deinit(allocator);
 
     if (!json_mode) {
-        std.debug.print("Found {d} media file(s)\n", .{all_entries.items.len});
+        const total_ns = total_timer.read();
+        if (cli_opts.profile_mode) {
+            var dur_crawl_buf: [32]u8 = undefined;
+            var dur_worker_buf: [32]u8 = undefined;
+            var dur_cache_buf: [32]u8 = undefined;
+            var dur_hash_buf: [32]u8 = undefined;
+            var dur_parse_buf: [32]u8 = undefined;
+            var dur_ffmpeg_buf: [32]u8 = undefined;
+            var dur_prune_buf: [32]u8 = undefined;
+
+            const dur_crawl = formatDurationBuf(&dur_crawl_buf, profile_metrics.dir_crawl_ns.load(.monotonic)) catch "0ms";
+            const dur_worker = formatDurationBuf(&dur_worker_buf, profile_metrics.worker_processing_ns.load(.monotonic)) catch "0ms";
+            const dur_cache = formatDurationBuf(&dur_cache_buf, profile_metrics.cache_queries_ns.load(.monotonic)) catch "0ms";
+            const dur_hash = formatDurationBuf(&dur_hash_buf, profile_metrics.file_hashing_ns.load(.monotonic)) catch "0ms";
+            const dur_parse = formatDurationBuf(&dur_parse_buf, profile_metrics.header_parsing_ns.load(.monotonic)) catch "0ms";
+            const dur_ffmpeg = formatDurationBuf(&dur_ffmpeg_buf, profile_metrics.ffmpeg_spawns_ns.load(.monotonic)) catch "0ms";
+            const dur_prune = formatDurationBuf(&dur_prune_buf, profile_metrics.prune_commit_ns.load(.monotonic)) catch "0ms";
+
+            std.debug.print("Found {d} media file(s) in {f}\n", .{ all_entries.items.len, cli.DurationFormatter{ .ns = total_ns } });
+            std.debug.print("  ├── Directory crawl:   {s}\n", .{dur_crawl});
+            std.debug.print("  ├── Worker processing: {s} (cumulative)\n", .{dur_worker});
+            std.debug.print("  │    ├── Cache queries:     {s}\n", .{dur_cache});
+            std.debug.print("  │    ├── File hashing:     {s}\n", .{dur_hash});
+            std.debug.print("  │    ├── Header parsing:    {s}\n", .{dur_parse});
+            std.debug.print("  │    └── FFmpeg spawns:   {s}\n", .{dur_ffmpeg});
+            std.debug.print("  └── Pruning & commits:  {s}\n", .{dur_prune});
+        } else {
+            std.debug.print("Found {d} media file(s) in {f}\n", .{ all_entries.items.len, cli.DurationFormatter{ .ns = total_ns } });
+        }
+    }
+}
+
+fn formatDurationBuf(buf: []u8, ns: u64) ![]const u8 {
+    const ns_f = @as(f64, @floatFromInt(ns));
+    if (ns >= 1_000_000_000) {
+        return try std.fmt.bufPrint(buf, "{d:.2}s", .{ns_f / 1_000_000_000.0});
+    } else if (ns >= 1_000_000) {
+        return try std.fmt.bufPrint(buf, "{d:.2}ms", .{ns_f / 1_000_000.0});
+    } else if (ns >= 1_000) {
+        return try std.fmt.bufPrint(buf, "{d:.2}us", .{ns_f / 1_000.0});
+    } else {
+        return try std.fmt.bufPrint(buf, "{d}ns", .{ns});
     }
 }
 
