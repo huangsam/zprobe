@@ -73,23 +73,7 @@ function renderTable() {
 
     tr.setAttribute("aria-label", `View details for ${fileBase}`);
 
-    const isVideo =
-      VIDEO_FORMATS.includes((row.format || "").toLowerCase()) ||
-      row.duration_sec !== null;
-    let thumbHtml = "";
-    if (row.has_thumbnail) {
-      const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
-      // If the row has an animated GIF preview, render it as an overlay that
-      // fades in on hover (CSS .has-animated:hover .animated-overlay).
-      const animatedOverlay = row.has_animated
-        ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="row-thumbnail animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
-        : "";
-      thumbHtml = `${animatedOverlay}<img src="${escapeHtml(url)}" class="row-thumbnail" alt="Thumbnail" loading="lazy" />`;
-    } else if (isVideo) {
-      thumbHtml = `<i data-lucide="video" class="type-icon video-icon"></i>`;
-    } else {
-      thumbHtml = `<i data-lucide="image" class="type-icon image-icon"></i>`;
-    }
+    const thumbHtml = renderThumbnailHtml(row, "row-thumbnail", "Thumbnail");
     // Add has-animated marker class so CSS hover rule targets only these rows.
     const wrapperClass = row.has_animated
       ? "thumbnail-wrapper has-animated"

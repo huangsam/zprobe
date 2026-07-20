@@ -57,23 +57,16 @@ function showDetails(row, triggerEl) {
   drawerReturnFocus = triggerEl || document.activeElement;
 
   const fileBase = row.path.split("/").pop();
-  const isVideo =
-    VIDEO_FORMATS.includes((row.format || "").toLowerCase()) ||
-    row.duration_sec !== null;
+  const isVid = isVideo(row);
 
   let html = "";
   if (row.has_thumbnail) {
-    const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
-    const animatedOverlay = row.has_animated
-      ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="drawer-preview-image animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
-      : "";
     const containerClass = row.has_animated
       ? "drawer-preview-container has-animated"
       : "drawer-preview-container";
     html += `
           <div class="${escapeHtml(containerClass)}">
-              ${animatedOverlay}
-              <img src="${escapeHtml(url)}" class="drawer-preview-image" alt="Thumbnail Preview" />
+              ${renderThumbnailHtml(row, "drawer-preview-image", "Thumbnail Preview")}
           </div>
     `;
   }
@@ -124,7 +117,7 @@ function showDetails(row, triggerEl) {
           `;
   }
 
-  if (isVideo && row.duration_sec) {
+  if (isVid && row.duration_sec) {
     html += `
               <div class="detail-section">
                   <h4>Video Properties</h4>

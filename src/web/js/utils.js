@@ -157,3 +157,41 @@ function trapFocus(e, container) {
     first.focus();
   }
 }
+
+function isVideo(row) {
+  return (
+    VIDEO_FORMATS.includes((row.format || "").toLowerCase()) ||
+    row.duration_sec !== null
+  );
+}
+
+function renderThumbnailHtml(row, imgClass = "", altText = "") {
+  const isVid = isVideo(row);
+  if (row.has_thumbnail) {
+    const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
+    const overlayClass = imgClass
+      ? `${imgClass} animated-overlay`
+      : "animated-overlay";
+    const animatedOverlay = row.has_animated
+      ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="${overlayClass}" alt="" loading="lazy" aria-hidden="true" />`
+      : "";
+    const mainImgClass = imgClass ? ` class="${imgClass}"` : "";
+    return `${animatedOverlay}<img src="${escapeHtml(url)}"${mainImgClass} alt="${escapeHtml(altText)}" loading="lazy" />`;
+  } else if (isVid) {
+    return `<i data-lucide="video" class="type-icon video-icon"></i>`;
+  } else {
+    return `<i data-lucide="image" class="type-icon image-icon"></i>`;
+  }
+}
+
+function formatDigitalDuration(seconds) {
+  if (seconds == null) return "";
+  const secs = Math.round(seconds);
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}

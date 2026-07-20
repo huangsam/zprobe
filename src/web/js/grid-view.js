@@ -24,22 +24,8 @@ function renderGrid() {
 
     card.setAttribute("aria-label", `View details for ${fileBase}`);
 
-    const isVideo =
-      VIDEO_FORMATS.includes((row.format || "").toLowerCase()) ||
-      row.duration_sec !== null;
-
-    let thumbHtml = "";
-    if (row.has_thumbnail) {
-      const url = `/api/thumbnail?path=${encodeURIComponent(row.path)}`;
-      const animatedOverlay = row.has_animated
-        ? `<img src="/api/thumbnail?path=${encodeURIComponent(row.path)}&animated=1" class="animated-overlay" alt="" loading="lazy" aria-hidden="true" />`
-        : "";
-      thumbHtml = `${animatedOverlay}<img src="${escapeHtml(url)}" alt="${escapeHtml(fileBase)}" loading="lazy" />`;
-    } else if (isVideo) {
-      thumbHtml = `<i data-lucide="video" class="type-icon video-icon"></i>`;
-    } else {
-      thumbHtml = `<i data-lucide="image" class="type-icon image-icon"></i>`;
-    }
+    const isVid = isVideo(row);
+    const thumbHtml = renderThumbnailHtml(row, "", fileBase);
 
     const mediaClass = row.has_animated
       ? "grid-card-media has-animated"
@@ -52,19 +38,8 @@ function renderGrid() {
 
     // Permanent Video Badge with duration overlay if available
     let videoBadge = "";
-    if (isVideo) {
-      let durText = "";
-      if (row.duration_sec != null) {
-        const secs = Math.round(row.duration_sec);
-        const h = Math.floor(secs / 3600);
-        const m = Math.floor((secs % 3600) / 60);
-        const s = secs % 60;
-        if (h > 0) {
-          durText = `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-        } else {
-          durText = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-        }
-      }
+    if (isVid) {
+      const durText = formatDigitalDuration(row.duration_sec);
       videoBadge = `
         <div class="grid-card-video-badge" aria-hidden="true">
           <i data-lucide="video"></i>
