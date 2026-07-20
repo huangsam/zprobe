@@ -1456,13 +1456,18 @@ td.error-state,
 }
 
 .modal .charts-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 1.5rem;
 }
 
-.modal .charts-grid .chart-container {
-  width: 100%;
+@media (min-width: 576px) {
+  .modal .charts-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .modal .charts-grid .chart-container:last-child {
+    grid-column: span 2;
+  }
 }
 
 .modal .chart-container {
@@ -1473,6 +1478,7 @@ td.error-state,
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  min-width: 0;
 }
 
 .modal .chart-container h3 {

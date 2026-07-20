@@ -1596,7 +1596,9 @@ function renderImageCharts() {
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: "right" } },
+          plugins: {
+            legend: { position: window.innerWidth < 640 ? "bottom" : "right" },
+          },
         },
       });
     }
@@ -1690,8 +1692,25 @@ function renderImageCharts() {
           indexAxis: "y",
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: (items) => items[0]?.label || "",
+              },
+            },
+          },
+          scales: {
+            x: { beginAtZero: true, ticks: { precision: 0 } },
+            y: {
+              ticks: {
+                callback: function (val) {
+                  const label = this.getLabelForValue(val);
+                  return label.length > 15 ? label.slice(0, 12) + "..." : label;
+                },
+              },
+            },
+          },
         },
       });
     }
@@ -1783,7 +1802,9 @@ function renderVideoCharts() {
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: "right" } },
+          plugins: {
+            legend: { position: window.innerWidth < 640 ? "bottom" : "right" },
+          },
         },
       });
     }
