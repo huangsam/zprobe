@@ -18,24 +18,16 @@ function getDatePresetValues(preset) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   switch (preset) {
-    case "today":
-      return { from: toIsoDate(today), to: toIsoDate(today) };
-    case "yesterday": {
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      return { from: toIsoDate(yesterday), to: toIsoDate(yesterday) };
+    case "last7": {
+      const last7 = new Date(today);
+      last7.setDate(today.getDate() - 7);
+      return { from: toIsoDate(last7), to: toIsoDate(now) };
     }
-    case "week": {
-      const dayOfWeek = today.getDay(); // 0 is Sunday
-      const startOfWeek = new Date(today);
-      startOfWeek.setDate(today.getDate() - dayOfWeek);
-      return { from: toIsoDate(startOfWeek), to: toIsoDate(now) };
-    }
-    case "month": {
+    case "this-month": {
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       return { from: toIsoDate(startOfMonth), to: toIsoDate(now) };
     }
-    case "year": {
+    case "this-year": {
       const startOfYear = new Date(today.getFullYear(), 0, 1);
       return { from: toIsoDate(startOfYear), to: toIsoDate(now) };
     }
