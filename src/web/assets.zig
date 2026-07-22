@@ -23,8 +23,9 @@ const js_filters = @embedFile("js/filters.js");
 const js_api = @embedFile("js/api.js");
 const js_table = @embedFile("js/table-view.js");
 const js_grid = @embedFile("js/grid-view.js");
+const js_notes = @embedFile("js/notes.js");
 const js_drawer = @embedFile("js/drawer.js");
 const js_insights = @embedFile("js/insights.js");
 const js_main = @embedFile("js/main.js");
 
-pub const app_js = js_state ++ js_utils ++ js_filters ++ js_api ++ js_table ++ js_grid ++ js_drawer ++ js_insights ++ js_main;
+pub const app_js = js_state ++ js_utils ++ js_filters ++ js_api ++ js_table ++ js_grid ++ js_notes ++ js_drawer ++ js_insights ++ js_main;

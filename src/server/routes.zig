@@ -55,6 +55,11 @@ pub fn handleRequest(
     const base_path = if (query_index) |idx| target_path[0..idx] else target_path;
     const query_string = if (query_index) |idx| target_path[idx + 1 ..] else "";
 
+    if (std.mem.eql(u8, base_path, "/api/notes")) {
+        try handlers.handleNotes(allocator, io, request, database, query_string);
+        return;
+    }
+
     if (method != .GET) {
         try request.respond("Method Not Allowed", .{
             .status = .method_not_allowed,

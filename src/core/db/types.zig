@@ -18,6 +18,7 @@ pub const DbRecord = struct {
     has_thumbnail: bool = false,
     has_animated: bool = false,
     file_hash: ?[]const u8 = null,
+    notes: ?[]const u8 = null,
 
     /// Free heap-allocated strings stored within DbRecord.
     pub fn deinit(self: *const DbRecord, allocator: std.mem.Allocator) void {
@@ -25,6 +26,7 @@ pub const DbRecord = struct {
         if (self.camera_make) |s| allocator.free(s);
         if (self.camera_model) |s| allocator.free(s);
         if (self.file_hash) |s| allocator.free(s);
+        if (self.notes) |s| allocator.free(s);
     }
 };
 

@@ -51,6 +51,7 @@ pub const Db = struct {
     pub const insertMedia = query.insertMedia;
     pub const updateHasThumbnail = query.updateHasThumbnail;
     pub const updateHasAnimated = query.updateHasAnimated;
+    pub const updateNotes = query.updateNotes;
 
     pub const deletePath = query.deletePath;
     pub const pruneStalePaths = query.pruneStalePaths;

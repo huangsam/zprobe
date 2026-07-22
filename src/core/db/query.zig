@@ -21,7 +21,7 @@ pub fn invalidateStatsCache(self: *Db, io: std.Io) void {
     self.stats_cache_arena = std.heap.ArenaAllocator.init(self.allocator);
 }
 
-/// Deep copy a DbStats structure and its internal string allocations, required to safely 
+/// Deep copy a DbStats structure and its internal string allocations, required to safely
 /// pass cached dashboard aggregates across thread boundaries to TCP server handlers.
 fn cloneStats(allocator: std.mem.Allocator, src: DbStats) !DbStats {
     var image_formats: std.ArrayList(DbStats.FormatCount) = .empty;
@@ -166,10 +166,22 @@ fn fillMetadataFields(
     if (c.sqlite3_column_type(stmt, base_idx + 10) != c.SQLITE_NULL) {
         record.has_animated = c.sqlite3_column_int(stmt, base_idx + 10) != 0;
     }
-    if (has_hash and c.sqlite3_column_type(stmt, base_idx + 11) != c.SQLITE_NULL) {
+    if (has_hash and c.sqlite3_column_count(stmt) > base_idx + 11 and c.sqlite3_column_type(stmt, base_idx + 11) != c.SQLITE_NULL) {
         const raw = c.sqlite3_column_text(stmt, base_idx + 11);
         const len = c.sqlite3_column_bytes(stmt, base_idx + 11);
         record.file_hash = try allocator.dupe(u8, raw[0..@intCast(len)]);
+    }
+    errdefer {
+        if (record.file_hash) |fh| {
+            allocator.free(fh);
+            record.file_hash = null;
+        }
+    }
+    const notes_idx = if (has_hash) base_idx + 12 else base_idx + 11;
+    if (c.sqlite3_column_count(stmt) > notes_idx and c.sqlite3_column_type(stmt, notes_idx) != c.SQLITE_NULL) {
+        const raw = c.sqlite3_column_text(stmt, notes_idx);
+        const len = c.sqlite3_column_bytes(stmt, notes_idx);
+        record.notes = try allocator.dupe(u8, raw[0..@intCast(len)]);
     }
 }
 
@@ -184,7 +196,7 @@ pub fn queryCache(
     if (self.handle == null) return .{ .hit = false };
 
     const query_sql =
-        \\SELECT p.size, p.mtime, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.has_animated, m.file_hash
+        \\SELECT p.size, p.mtime, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.has_animated, m.file_hash, m.notes
         \\FROM media_paths p
         \\JOIN media_metadata m ON p.metadata_id = m.id
         \\WHERE p.path = ?;
@@ -238,7 +250,7 @@ pub fn queryMetadataByHash(
 ) !?DbRecord {
     if (self.handle == null) return error.DatabaseNotOpen;
     const sql =
-        \\SELECT format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail, has_animated
+        \\SELECT format, width, height, orientation, create_time, camera_make, camera_model, gps_latitude, gps_longitude, duration_sec, has_thumbnail, has_animated, notes
         \\FROM media_metadata
         \\WHERE file_hash = ?;
     ;
@@ -585,7 +597,7 @@ pub fn getAllRecords(self: *Db, allocator: std.mem.Allocator) ![]DbRecord {
     if (self.handle == null) return error.DatabaseNotOpen;
 
     const select_sql =
-        \\SELECT p.path, p.size, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.has_animated, m.file_hash
+        \\SELECT p.path, p.size, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.has_animated, m.file_hash, m.notes
         \\FROM media_paths p
         \\JOIN media_metadata m ON p.metadata_id = m.id;
     ;
@@ -832,8 +844,8 @@ pub fn getRecordsPaged(
 
     if (search) |_| {
         try writer.print(
-            " AND (p.path LIKE ?{d} OR m.camera_make LIKE ?{d} OR m.camera_model LIKE ?{d} OR m.format LIKE ?{d})",
-            .{ next_param, next_param, next_param, next_param },
+            " AND (p.path LIKE ?{d} OR m.camera_make LIKE ?{d} OR m.camera_model LIKE ?{d} OR m.format LIKE ?{d} OR m.notes LIKE ?{d})",
+            .{ next_param, next_param, next_param, next_param, next_param },
         );
         next_param += 1;
     }
@@ -971,7 +983,7 @@ pub fn getRecordsPaged(
     var select_buf: std.ArrayList(u8) = .empty;
     defer select_buf.deinit(allocator);
     var select_aw = std.Io.Writer.Allocating.fromArrayList(allocator, &select_buf);
-    try select_aw.writer.writeAll("SELECT p.path, p.size, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.has_animated, m.file_hash ");
+    try select_aw.writer.writeAll("SELECT p.path, p.size, m.format, m.width, m.height, m.orientation, m.create_time, m.camera_make, m.camera_model, m.gps_latitude, m.gps_longitude, m.duration_sec, m.has_thumbnail, m.has_animated, m.file_hash, m.notes ");
 
     try select_aw.writer.writeAll(base_where);
 
@@ -1101,4 +1113,34 @@ pub fn pathExists(self: *Db, path: []const u8) !bool {
         return true;
     }
     return false;
+}
+
+/// Update notes for a specific media item by content hash.
+pub fn updateNotes(self: *Db, file_hash: []const u8, notes: ?[]const u8) !void {
+    if (self.handle == null) return error.DatabaseNotOpen;
+    const sql = "UPDATE media_metadata SET notes = ? WHERE file_hash = ?;";
+    var stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK) {
+        return error.DatabasePrepareError;
+    }
+    defer _ = c.sqlite3_finalize(stmt);
+
+    if (notes) |n| {
+        if (n.len > 0) {
+            _ = c.sqlite3_bind_text(stmt, 1, n.ptr, @intCast(n.len), null);
+        } else {
+            _ = c.sqlite3_bind_null(stmt, 1);
+        }
+    } else {
+        _ = c.sqlite3_bind_null(stmt, 1);
+    }
+    _ = c.sqlite3_bind_text(stmt, 2, file_hash.ptr, @intCast(file_hash.len), null);
+
+    if (c.sqlite3_step(stmt) != c.SQLITE_DONE) {
+        return error.DatabaseExecuteError;
+    }
+
+    if (c.sqlite3_changes(self.handle) == 0) {
+        return error.RecordNotFound;
+    }
 }

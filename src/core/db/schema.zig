@@ -123,6 +123,9 @@ pub const migrations = [_][]const u8{
     ,
     // Version 4: Add has_animated column to track per-content-hash animated GIF previews
     \\ALTER TABLE media_metadata ADD COLUMN has_animated INTEGER DEFAULT 0;
+    ,
+    // Version 5: Add notes column for single free-form media notes
+    \\ALTER TABLE media_metadata ADD COLUMN notes TEXT;
 };
 
 /// Initialize SQLite connection, run migrations, and prepare statements.

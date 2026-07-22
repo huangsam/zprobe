@@ -557,3 +557,116 @@ pub fn handleMedia(
         },
     });
 }
+
+pub fn handleNotes(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    request: *std.http.Server.Request,
+    database: *Db,
+    query_string: []const u8,
+) !void {
+    _ = query_string;
+    const method = request.head.method;
+    if (method != .POST and method != .PUT) {
+        try request.respond("Method Not Allowed", .{
+            .status = .method_not_allowed,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "text/plain" },
+            },
+        });
+        return;
+    }
+
+    var internal_buf: [1024]u8 = undefined;
+    const body_reader = try request.readerExpectContinue(&internal_buf);
+
+    const body_slice = body_reader.allocRemaining(allocator, .limited(65536)) catch {
+        try request.respond("Bad Request: Failed to read request body", .{
+            .status = .bad_request,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "text/plain" },
+            },
+        });
+        return;
+    };
+    defer allocator.free(body_slice);
+
+    const NotesPayload = struct {
+        hash: []const u8,
+        notes: ?[]const u8 = null,
+    };
+
+    const parsed = std.json.parseFromSlice(NotesPayload, allocator, body_slice, .{
+        .ignore_unknown_fields = true,
+    }) catch {
+        try request.respond("Bad Request: Invalid JSON payload", .{
+            .status = .bad_request,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "text/plain" },
+            },
+        });
+        return;
+    };
+    defer parsed.deinit();
+
+    const payload = parsed.value;
+    if (payload.hash.len == 0) {
+        try request.respond("Bad Request: Missing hash field", .{
+            .status = .bad_request,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "text/plain" },
+            },
+        });
+        return;
+    }
+
+    if (payload.notes) |n| {
+        const char_count = std.unicode.utf8CountCodepoints(n) catch {
+            try request.respond("Bad Request: Invalid UTF-8 encoding in notes", .{
+                .status = .bad_request,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        };
+        if (char_count > 10000) {
+            try request.respond("Bad Request: Note content exceeds maximum length of 10,000 characters", .{
+                .status = .bad_request,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        }
+    }
+
+    database.lockWrite(io);
+    defer database.unlockWrite(io);
+
+    database.updateNotes(payload.hash, payload.notes) catch |err| {
+        if (err == error.RecordNotFound) {
+            try request.respond("Not Found: Hash not found in database", .{
+                .status = .not_found,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        }
+        try request.respond("Internal Server Error: Failed to update notes", .{
+            .status = .internal_server_error,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "text/plain" },
+            },
+        });
+        return;
+    };
+
+    try request.respond("{\"status\":\"ok\"}", .{
+        .status = .ok,
+        .extra_headers = &.{
+            .{ .name = "Content-Type", .value = "application/json" },
+        },
+    });
+}

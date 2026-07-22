@@ -38,6 +38,8 @@ function copyValue(btnElement) {
 
 // Close the details drawer and its backdrop
 function closeDrawer() {
+  handleNotesDrawerClose();
+
   const drawer = document.getElementById("details-drawer");
   drawer.classList.remove("open");
   drawer.setAttribute("inert", "");
@@ -62,6 +64,8 @@ function closeDrawer() {
 
 // Show metadata details side drawer
 function showDetails(row, triggerEl) {
+  handleNotesDrawerClose();
+
   const drawer = document.getElementById("details-drawer");
   const content = document.getElementById("drawer-content");
   drawerReturnFocus = triggerEl || document.activeElement;
@@ -126,6 +130,8 @@ function showDetails(row, triggerEl) {
           </div>
       `;
 
+  html += renderNotesSection(row);
+
   if (row.width && row.height) {
     html += `
               <div class="detail-section">
@@ -186,6 +192,8 @@ function showDetails(row, triggerEl) {
   }
 
   content.innerHTML = html;
+  bindNotesEvents(row, content);
+
   drawer.classList.add("open");
   drawer.removeAttribute("inert");
   drawer.setAttribute("aria-hidden", "false");

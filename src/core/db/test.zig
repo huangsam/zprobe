@@ -1128,3 +1128,57 @@ test "Db.pathExists checks if a path is in database" {
     try std.testing.expectEqual(true, try fixture.db.pathExists("/photos/c.png"));
     try std.testing.expectEqual(false, try fixture.db.pathExists("/nonexistent/file.png"));
 }
+
+test "Db.updateNotes updates notes field and search matches notes" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const hash = (try fixture.db.queryFileHashByPath(allocator, "/photos/a.jpg")).?;
+    defer allocator.free(hash);
+    try fixture.db.updateNotes(hash, "Family vacation portrait 2026");
+
+    const result = try fixture.db.getRecordsPaged(
+        allocator,
+        10,
+        0,
+        "portrait",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "path",
+        "asc",
+    );
+    defer freePaged(allocator, result);
+
+    try std.testing.expectEqual(@as(u32, 1), result.total);
+    try std.testing.expectEqualStrings("/photos/a.jpg", result.records[0].path);
+    try std.testing.expectEqualStrings("Family vacation portrait 2026", result.records[0].notes.?);
+}
+
+test "Db.updateNotes returns RecordNotFound for invalid hash" {
+    const allocator = std.testing.allocator;
+    var fixture = try testDb(allocator);
+    defer fixture.deinit(allocator);
+
+    const err = fixture.db.updateNotes("invalid_hash_123", "Some notes");
+    try std.testing.expectError(error.RecordNotFound, err);
+}
+
+test "std.unicode.utf8CountCodepoints accurately counts 6000 multibyte characters (12000 bytes)" {
+    const allocator = std.testing.allocator;
+    // 6000 2-byte UTF-8 characters (e.g. 'é' = 0xC3 0xA9) = 12,000 bytes
+    const multi_buf = try allocator.alloc(u8, 12000);
+    defer allocator.free(multi_buf);
+    for (0..6000) |i| {
+        multi_buf[i * 2] = 0xC3;
+        multi_buf[i * 2 + 1] = 0xA9;
+    }
+
+    const count = try std.unicode.utf8CountCodepoints(multi_buf);
+    try std.testing.expectEqual(@as(usize, 6000), count);
+    try std.testing.expectEqual(@as(usize, 12000), multi_buf.len);
+}
