@@ -3,6 +3,7 @@ const root = @import("../root.zig");
 const media_scan = root.media_scan;
 const test_utils = @import("../core/test_utils.zig");
 
+/// Check if a given file extension matches known core or extended video formats.
 pub fn isVideoExtension(ext: []const u8) bool {
     if (ext.len == 0 or ext.len > 16) return false;
     var ext_lower: [16]u8 = undefined;
@@ -126,6 +127,8 @@ pub fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, f
     return true;
 }
 
+/// Write in-memory thumbnail bytes to a content-keyed disk path.
+/// Atomically renames a per-thread temp file to prevent tearing between concurrent workers.
 pub fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, content_hash_hex: []const u8, thumb_dir: []const u8, bytes: []const u8) !bool {
     const thumb_path_jpg = root.utils.getThumbnailPath(allocator, thumb_dir, content_hash_hex) catch return false;
     defer allocator.free(thumb_path_jpg);
@@ -148,6 +151,7 @@ pub fn saveThumbnailBytes(io: std.Io, allocator: std.mem.Allocator, content_hash
     return true;
 }
 
+/// Verify existence of a content-keyed animated GIF preview on disk.
 pub fn checkAnimatedPreviewExists(io: std.Io, allocator: std.mem.Allocator, content_hash_hex: []const u8, thumb_dir: []const u8) bool {
     const preview_path = root.utils.getAnimatedPreviewPath(allocator, thumb_dir, content_hash_hex) catch return false;
     defer allocator.free(preview_path);
@@ -157,6 +161,7 @@ pub fn checkAnimatedPreviewExists(io: std.Io, allocator: std.mem.Allocator, cont
     return true;
 }
 
+/// Verify existence of a content-keyed JPEG thumbnail on disk.
 pub fn checkThumbnailExists(io: std.Io, allocator: std.mem.Allocator, content_hash_hex: []const u8, thumb_dir: []const u8) bool {
     const thumb_path_jpg = root.utils.getThumbnailPath(allocator, thumb_dir, content_hash_hex) catch return false;
     defer allocator.free(thumb_path_jpg);

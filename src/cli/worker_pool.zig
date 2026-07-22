@@ -71,6 +71,8 @@ pub const worker = struct {
         std.debug.print(fmt, args);
     }
 
+    /// Entrypoint for a background worker thread. Continuously pulls scan entries
+    /// from the shared queue, identifies the format, and processes them concurrently.
     pub fn workerMain(c_ctx: WorkerContext) void {
         var thread_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
         defer if (c_ctx.profile_metrics) |metrics| {
@@ -238,6 +240,8 @@ pub const worker = struct {
         return null;
     }
 
+    /// Parse headers from a media file and generate missing previews. Uses zero-copy
+    /// memory parsers for fixed headers and position-based streaming for dynamic chunks.
     fn parseMediaFile(c_ctx: WorkerContext, path: []const u8, size: u64, is_video: bool, file_hash: ?[]const u8, allocator: std.mem.Allocator) !db.DbRecord {
         var has_thumb = false;
         var has_animated = false;
@@ -327,6 +331,7 @@ pub const worker = struct {
         return record;
     }
 
+    /// Thread-safe insertion of a parsed metadata record into the SQLite database.
     fn saveRecordToDb(c_ctx: WorkerContext, record: *const db.DbRecord, mtime: i64) void {
         const d = c_ctx.db orelse return;
         d.lockWrite(c_ctx.io);
@@ -336,6 +341,8 @@ pub const worker = struct {
         };
     }
 
+    /// Coordinate the pipeline for a single file: stat, cache lookup, content hashing,
+    /// parsing, DB write, and output reporting. Allocations use a per-file arena.
     pub fn processFile(c_ctx: WorkerContext, entry: media_scan.ScanEntry, is_video: bool) !void {
         const file = std.Io.Dir.openFileAbsolute(c_ctx.io, entry.path, .{ .mode = .read_only }) catch |err| {
             printWarning(c_ctx, "Warning: failed to open '{s}': {s}\n", .{ entry.path, @errorName(err) });

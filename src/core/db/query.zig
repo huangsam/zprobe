@@ -11,6 +11,7 @@ const stats_cache_ttl_ns = types.stats_cache_ttl_ns;
 const is_image_pred_m = types.is_image_pred_m;
 const is_video_pred_m = types.is_video_pred_m;
 
+/// Safely clears and resets the short-TTL in-memory statistics cache.
 pub fn invalidateStatsCache(self: *Db, io: std.Io) void {
     self.stats_mutex.lockUncancelable(io);
     defer self.stats_mutex.unlock(io);
@@ -20,6 +21,8 @@ pub fn invalidateStatsCache(self: *Db, io: std.Io) void {
     self.stats_cache_arena = std.heap.ArenaAllocator.init(self.allocator);
 }
 
+/// Deep copy a DbStats structure and its internal string allocations, required to safely 
+/// pass cached dashboard aggregates across thread boundaries to TCP server handlers.
 fn cloneStats(allocator: std.mem.Allocator, src: DbStats) !DbStats {
     var image_formats: std.ArrayList(DbStats.FormatCount) = .empty;
     errdefer {
@@ -577,6 +580,7 @@ pub fn pruneStalePaths(self: *Db, io: std.Io, target_dirs: [][]const u8, active_
     return pruned_count;
 }
 
+/// Retrieve the entire catalog of paths and metadata joining the relational tables.
 pub fn getAllRecords(self: *Db, allocator: std.mem.Allocator) ![]DbRecord {
     if (self.handle == null) return error.DatabaseNotOpen;
 
