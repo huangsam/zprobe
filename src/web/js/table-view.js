@@ -50,6 +50,7 @@ function renderTable() {
   const tbody = document.getElementById("media-tbody");
 
   if (mediaData.length === 0) {
+    // Prevent prematurely showing the empty state during initial page hydration
     if (!initialFetchComplete) {
       renderSkeletons();
       return;

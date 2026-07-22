@@ -102,7 +102,7 @@ async function fetchMedia({
 
     mediaData = payload.records;
     totalRecords = payload.total;
-    initialFetchComplete = true;
+    initialFetchComplete = true; // Signal that the initial catalog load has finished
 
     const totalPages = Math.ceil(totalRecords / pageSize) || 1;
     if (currentPage > totalPages) {
@@ -120,7 +120,7 @@ async function fetchMedia({
   } catch (err) {
     if (err.name === "AbortError") return;
     console.error(err);
-    initialFetchComplete = true;
+    initialFetchComplete = true; // Ensure we don't get stuck in skeleton state on error
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="5" class="error-state">Failed to load media catalog: ${err.message}</td></tr>`;
     }

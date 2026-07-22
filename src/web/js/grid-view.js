@@ -4,6 +4,7 @@ function renderGrid() {
   if (!grid) return;
 
   if (mediaData.length === 0) {
+    // Prevent prematurely showing the empty state during initial page hydration
     if (!initialFetchComplete) {
       renderSkeletons();
       return;

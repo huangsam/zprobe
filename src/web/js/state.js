@@ -1,29 +1,40 @@
-let mediaData = [];
-let totalRecords = 0;
-let currentPage = 1;
-let pageSize = 25;
-let sortConfig = { key: "create_time", direction: "desc" };
-let activeModalTab = "images";
-let currentFetchController = null;
-let statsData = null;
-let activeDatePreset = null;
-let activeSizePresetMb = null;
-let drawerReturnFocus = null;
-let modalReturnFocus = null;
-let modalSessionId = 0;
-let initialFetchComplete = false;
+// Data State
+let mediaData = []; // Array containing the current page of media records
+let totalRecords = 0; // Total number of records matching the current filters
+let statsData = null; // Aggregate statistics data for the catalog
+let initialFetchComplete = false; // Flag to prevent UI from rendering empty state during hydration
 
-const FILTER_DEBOUNCE_MS = 500;
+// Pagination & Sorting State
+let currentPage = 1; // The current active page number (1-indexed)
+let pageSize = 25; // Number of records displayed per page
+let sortConfig = { key: "create_time", direction: "desc" }; // Current sorting configuration
 
+// UI & Modal State
+let activeModalTab = "images"; // Tracks which tab is active in the insights modal ('images' or 'videos')
+let drawerReturnFocus = null; // Stores the DOM element to return focus to when the details drawer closes
+let modalReturnFocus = null; // Stores the DOM element to return focus to when the insights modal closes
+let modalSessionId = 0; // Unique ID to ensure charts only render for the latest modal session
+
+// Filter State
+let activeDatePreset = null; // Currently active date filter preset (e.g., 'last7')
+let activeSizePresetMb = null; // Currently active size filter preset in MB
+const FILTER_DEBOUNCE_MS = 500; // Delay in ms before applying search/filter inputs
+
+// Network State
+let currentFetchController = null; // AbortController to cancel in-flight API requests when new ones are triggered
+
+// Chart.js Instances (Images)
 let imgFormatChart = null;
 let imgSizeChart = null;
 let imgCameraChart = null;
 
+// Chart.js Instances (Videos)
 let vidFormatChart = null;
 let vidSizeChart = null;
 let vidDurationChart = null;
 
-let chartJsLoadPromise = null;
+// Asset Loading
+let chartJsLoadPromise = null; // Promise tracking the dynamic loading of Chart.js library
 
 // ORIENTATION_LABELS maps EXIF orientation values to human readable descriptions.
 const ORIENTATION_LABELS = {
