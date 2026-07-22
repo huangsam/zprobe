@@ -1086,6 +1086,22 @@ select.select-sm {
   text-align: center;
 }
 
+@media (max-width: 576px) {
+  .pagination-container {
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .pagination-container .pagination-buttons .pagination-btn-text {
+    display: none;
+  }
+
+  .pagination-container .pagination-buttons button {
+    padding: 0.4rem;
+  }
+}
+
 /* ──────────────────────────────────────────────────────────────────────────
    UI Polish Styles: Clipboard Buttons, Search Highlight, & Skeleton Loaders
    ────────────────────────────────────────────────────────────────────────── */
