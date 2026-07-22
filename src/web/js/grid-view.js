@@ -4,6 +4,10 @@ function renderGrid() {
   if (!grid) return;
 
   if (mediaData.length === 0) {
+    if (!initialFetchComplete) {
+      renderSkeletons();
+      return;
+    }
     grid.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1">${buildEmptyStateHtml()}</div>`;
     return;
   }

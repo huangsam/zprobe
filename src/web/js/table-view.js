@@ -50,6 +50,10 @@ function renderTable() {
   const tbody = document.getElementById("media-tbody");
 
   if (mediaData.length === 0) {
+    if (!initialFetchComplete) {
+      renderSkeletons();
+      return;
+    }
     tbody.innerHTML = `<tr class="empty-state-row"><td colspan="5" class="empty-state">${buildEmptyStateHtml()}</td></tr>`;
     return;
   }

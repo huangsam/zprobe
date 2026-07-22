@@ -11,6 +11,7 @@ let activeSizePresetMb = null;
 let drawerReturnFocus = null;
 let modalReturnFocus = null;
 let modalSessionId = 0;
+let initialFetchComplete = false;
 
 const FILTER_DEBOUNCE_MS = 500;
 

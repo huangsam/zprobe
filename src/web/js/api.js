@@ -102,6 +102,7 @@ async function fetchMedia({
 
     mediaData = payload.records;
     totalRecords = payload.total;
+    initialFetchComplete = true;
 
     const totalPages = Math.ceil(totalRecords / pageSize) || 1;
     if (currentPage > totalPages) {
@@ -119,6 +120,7 @@ async function fetchMedia({
   } catch (err) {
     if (err.name === "AbortError") return;
     console.error(err);
+    initialFetchComplete = true;
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="5" class="error-state">Failed to load media catalog: ${err.message}</td></tr>`;
     }
