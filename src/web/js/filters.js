@@ -373,12 +373,17 @@ function handleEmptyStateAction(btn) {
 function setMoreFiltersExpanded(expanded) {
   const bar = document.querySelector(".filter-bar");
   const toggle = document.querySelector(".more-filters-toggle");
+  const advanced = document.getElementById("filter-bar-advanced");
   if (!bar || !toggle) return;
 
   if (expanded) {
     bar.classList.add("is-expanded");
     toggle.classList.add("active");
     toggle.setAttribute("aria-expanded", "true");
+    if (advanced) {
+      advanced.removeAttribute("inert");
+      advanced.setAttribute("aria-hidden", "false");
+    }
     localStorage.setItem("zprobe_advanced_filters_expanded", "true");
     // Move focus to first advanced input field when opening drawer panel
     document.getElementById("filter-date-from")?.focus();
@@ -386,6 +391,10 @@ function setMoreFiltersExpanded(expanded) {
     bar.classList.remove("is-expanded");
     toggle.classList.remove("active");
     toggle.setAttribute("aria-expanded", "false");
+    if (advanced) {
+      advanced.setAttribute("inert", "");
+      advanced.setAttribute("aria-hidden", "true");
+    }
     localStorage.setItem("zprobe_advanced_filters_expanded", "false");
   }
 }

@@ -40,6 +40,7 @@ function copyValue(btnElement) {
 function closeDrawer() {
   const drawer = document.getElementById("details-drawer");
   drawer.classList.remove("open");
+  drawer.setAttribute("inert", "");
   drawer.setAttribute("aria-hidden", "true");
   document.getElementById("drawer-backdrop").classList.remove("visible");
   document.removeEventListener("keydown", handleDrawerKeydown);
@@ -186,6 +187,7 @@ function showDetails(row, triggerEl) {
 
   content.innerHTML = html;
   drawer.classList.add("open");
+  drawer.removeAttribute("inert");
   drawer.setAttribute("aria-hidden", "false");
   document.getElementById("drawer-backdrop").classList.add("visible");
   if (

@@ -100,6 +100,7 @@ async function toggleModal(show) {
   if (show) {
     if (modal.classList.contains("open")) return;
     modal.classList.add("open");
+    modal.removeAttribute("inert");
     modal.setAttribute("aria-hidden", "false");
 
     modalSessionId++;
@@ -143,6 +144,7 @@ async function toggleModal(show) {
     if (!modal.classList.contains("open")) return;
     modalSessionId++; // Invalidate any ongoing loading session
     modal.classList.remove("open");
+    modal.setAttribute("inert", "");
     modal.setAttribute("aria-hidden", "true");
     destroyAllCharts(); // stop observers before modal is hidden
     document.removeEventListener("keydown", handleModalKeydown);
