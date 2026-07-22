@@ -365,8 +365,7 @@ tr.empty-state-row:hover td {
   background: transparent;
 }
 
-td.error-state,
-.metric-info p.error-state {
+td.error-state {
   color: var(--danger);
 }
 

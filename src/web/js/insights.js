@@ -1,44 +1,6 @@
 // Calculate and display metrics
 function populateStats() {
   if (!statsData) return;
-  const metricIds = [
-    "stat-total-files",
-    "stat-total-size",
-    "stat-images",
-    "stat-videos",
-  ];
-  metricIds.forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.classList.remove("error-state");
-    }
-  });
-  const filesVal = formatCount(statsData.total_files);
-  const sizeVal = formatBytes(statsData.total_size);
-  const imagesVal = formatCount(statsData.num_images);
-  const videosVal = formatCount(statsData.num_videos);
-
-  const filesEl = document.getElementById("stat-total-files");
-  if (filesEl) {
-    filesEl.textContent = filesVal;
-    filesEl.title = filesVal;
-  }
-  const sizeEl = document.getElementById("stat-total-size");
-  if (sizeEl) {
-    sizeEl.textContent = sizeVal;
-    sizeEl.title = sizeVal;
-  }
-  const imagesEl = document.getElementById("stat-images");
-  if (imagesEl) {
-    imagesEl.textContent = imagesVal;
-    imagesEl.title = imagesVal;
-  }
-  const videosEl = document.getElementById("stat-videos");
-  if (videosEl) {
-    videosEl.textContent = videosVal;
-    videosEl.title = videosVal;
-  }
-
   const summary = document.getElementById("stats-live-summary");
   if (summary) {
     summary.textContent = `Catalog: ${formatCount(statsData.total_files)} files, ${formatBytes(statsData.total_size)} total, ${formatCount(statsData.num_images)} images, ${formatCount(statsData.num_videos)} videos`;
