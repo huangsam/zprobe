@@ -9,6 +9,7 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+// Convert raw byte count into human-readable string representation
 function formatBytes(bytes) {
   if (bytes === 0) return "0 Bytes";
   const k = 1024;
@@ -20,6 +21,7 @@ function formatBytes(bytes) {
   return `${parseFloat(val.toFixed(decimals))} ${sizes[i]}`;
 }
 
+// Format a duration in seconds to a human-readable string (e.g. 1h 30m 15s)
 function formatDuration(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -67,6 +69,7 @@ function formatCaptureDate(createTime) {
   return `${day} ${months[monthIdx]} ${year}`;
 }
 
+// Format a Date object to an ISO date string (YYYY-MM-DD)
 function toIsoDate(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -74,6 +77,7 @@ function toIsoDate(date) {
   return `${y}-${m}-${d}`;
 }
 
+// Format an ISO date string for display in the filter UI
 function formatFilterDate(isoDate) {
   if (!isoDate) return "";
   const parts = isoDate.split("-");
@@ -98,6 +102,7 @@ function formatFilterDate(isoDate) {
   return `${parseInt(day, 10)} ${mLabel} ${year}`;
 }
 
+// Generate a human-readable size threshold label (e.g. >= 1 GB)
 function formatSizeMbLabel(mb) {
   if (mb >= 1024) {
     const gb = mb / 1024;
@@ -106,6 +111,7 @@ function formatSizeMbLabel(mb) {
   return `&ge; ${mb} MB`;
 }
 
+// Format numbers with locale grouping separators
 function formatCount(n) {
   return typeof n === "number" ? n.toLocaleString() : "0";
 }
@@ -158,6 +164,7 @@ function trapFocus(e, container) {
   }
 }
 
+// Determine if a media row represents a video based on format or duration
 function isVideo(row) {
   return (
     VIDEO_FORMATS.includes((row.format || "").toLowerCase()) ||
@@ -165,6 +172,7 @@ function isVideo(row) {
   );
 }
 
+// Generate HTML for the media thumbnail or an icon fallback
 function renderThumbnailHtml(row, imgClass = "", altText = "") {
   const isVid = isVideo(row);
   if (row.has_thumbnail) {
@@ -184,6 +192,7 @@ function renderThumbnailHtml(row, imgClass = "", altText = "") {
   }
 }
 
+// Format duration to digital clock format (e.g. 1:05:30)
 function formatDigitalDuration(seconds) {
   if (seconds == null) return "";
   const secs = Math.round(seconds);

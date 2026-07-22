@@ -7,6 +7,7 @@ function populateStats() {
   }
 }
 
+// Dynamically load the Chart.js library if it hasn't been loaded yet
 function loadChartJs() {
   if (window.Chart) return Promise.resolve();
   if (!chartJsLoadPromise) {
@@ -21,6 +22,7 @@ function loadChartJs() {
   return chartJsLoadPromise;
 }
 
+// Handle clicking outside the modal content to close it
 function handleModalBackdropClick(event) {
   const modal = document.getElementById("insights-modal");
   if (event.target === modal) {
@@ -28,6 +30,7 @@ function handleModalBackdropClick(event) {
   }
 }
 
+// Destroy all active Chart.js instances to free memory
 function destroyAllCharts() {
   if (imgFormatChart) {
     imgFormatChart.destroy();
@@ -55,6 +58,7 @@ function destroyAllCharts() {
   }
 }
 
+// Trigger a resize on all active charts to ensure they fit their containers
 function resizeActiveCharts() {
   if (activeModalTab === "images") {
     imgFormatChart?.resize();
@@ -90,6 +94,7 @@ function toggleChartPlaceholder(wrapperId, hasData, message) {
   }
 }
 
+// Open or close the insights modal and manage focus trapping
 async function toggleModal(show) {
   const modal = document.getElementById("insights-modal");
   if (show) {
@@ -564,6 +569,7 @@ function renderVideoCharts() {
   }
 }
 
+// Trap keyboard focus within the modal while it is open
 function handleModalKeydown(e) {
   const modal = document.getElementById("insights-modal");
   if (!modal.classList.contains("open")) return;
@@ -571,6 +577,7 @@ function handleModalKeydown(e) {
   if (dialog) trapFocus(e, dialog);
 }
 
+// Handle left/right arrow key navigation between modal tabs
 function handleModalTablistKeydown(e) {
   if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
   const modal = document.getElementById("insights-modal");

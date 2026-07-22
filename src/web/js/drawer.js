@@ -200,6 +200,7 @@ function showDetails(row, triggerEl) {
   });
 }
 
+// Handle keyboard interactions (focus trapping) within the open drawer
 function handleDrawerKeydown(e) {
   const drawer = document.getElementById("details-drawer");
   if (!drawer.classList.contains("open")) return;

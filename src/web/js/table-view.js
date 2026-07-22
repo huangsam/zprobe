@@ -176,6 +176,7 @@ function updatePaginationControls() {
   document.getElementById("next-page-btn").disabled = currentPage >= totalPages;
 }
 
+// Update ARIA attributes on table headers to reflect current sort state
 function updateSortAriaIndicators() {
   document.querySelectorAll("#media-table th[data-sort]").forEach((th) => {
     const key = th.getAttribute("data-sort");

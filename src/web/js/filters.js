@@ -1,5 +1,6 @@
 let activeEmptyStateActions = [];
 
+// Extract values from advanced filter input fields
 function getAdvancedFilterParams() {
   const dateFrom = document.getElementById("filter-date-from").value;
   const dateTo = document.getElementById("filter-date-to").value;
@@ -14,6 +15,7 @@ function getAdvancedFilterParams() {
   };
 }
 
+// Get the start and end dates for a given date preset
 function getDatePresetValues(preset) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -36,6 +38,7 @@ function getDatePresetValues(preset) {
   }
 }
 
+// Update UI active states for date preset buttons
 function updateDatePresetActiveState() {
   document.querySelectorAll("[data-date-preset]").forEach((btn) => {
     const preset = btn.getAttribute("data-date-preset");
@@ -49,16 +52,19 @@ function updateDatePresetActiveState() {
   });
 }
 
+// Set the currently active date preset
 function setActiveDatePreset(preset) {
   activeDatePreset = preset;
   updateDatePresetActiveState();
 }
 
+// Clear the active date preset selection
 function clearDatePresetActive() {
   activeDatePreset = null;
   updateDatePresetActiveState();
 }
 
+// Apply a date preset to the date filter inputs
 function applyDatePreset(preset) {
   const { from, to } = getDatePresetValues(preset);
   document.getElementById("filter-date-from").value = from;
@@ -66,6 +72,7 @@ function applyDatePreset(preset) {
   setActiveDatePreset(preset);
 }
 
+// Update UI active states for size preset buttons
 function updateSizePresetActiveState() {
   document.querySelectorAll("[data-size-min-mb]").forEach((btn) => {
     const minMb = parseInt(btn.getAttribute("data-size-min-mb"), 10);
@@ -79,22 +86,26 @@ function updateSizePresetActiveState() {
   });
 }
 
+// Set the currently active size preset
 function setActiveSizePreset(minMb) {
   activeSizePresetMb = minMb;
   updateSizePresetActiveState();
 }
 
+// Clear the active size preset selection
 function clearSizePresetActive() {
   activeSizePresetMb = null;
   updateSizePresetActiveState();
 }
 
+// Apply a size preset to the size filter inputs
 function applySizePreset(minMb) {
   document.getElementById("filter-size-min").value = String(minMb);
   document.getElementById("filter-size-max").value = "";
   setActiveSizePreset(minMb);
 }
 
+// Identify which filters are currently active
 function getActiveFilterKeys() {
   const keys = [];
   if (document.getElementById("search-input").value.trim()) {
@@ -112,6 +123,7 @@ function getActiveFilterKeys() {
   return keys;
 }
 
+// Construct an empty state title for a single active filter
 function buildSingleFilterEmptyTitle(filterKey) {
   switch (filterKey) {
     case "search": {
@@ -154,6 +166,7 @@ function buildSingleFilterEmptyTitle(filterKey) {
   }
 }
 
+// Describe the active date filter constraints
 function describeDateFilter() {
   const adv = getAdvancedFilterParams();
   if (adv.date_from && adv.date_to) {
@@ -167,6 +180,7 @@ function describeDateFilter() {
     : `before ${formatFilterDate(adv.date_to)}`;
 }
 
+// Describe the active size filter constraints
 function describeSizeFilter() {
   const adv = getAdvancedFilterParams();
   if (adv.size_min !== null && adv.size_max !== null) {
@@ -177,6 +191,7 @@ function describeSizeFilter() {
     : `&le; ${formatBytes(adv.size_max)}`;
 }
 
+// Construct a descriptive title for the empty state based on all active filters
 function buildEmptyStateTitle(filterKeys) {
   if (filterKeys.length === 1) {
     return buildSingleFilterEmptyTitle(filterKeys[0]);
@@ -207,6 +222,7 @@ function buildEmptyStateTitle(filterKeys) {
   return sentence.charAt(3).toUpperCase() + sentence.slice(4);
 }
 
+// Generate actionable suggestions to modify a specific filter
 function buildSuggestionsForFilter(filterKey) {
   switch (filterKey) {
     case "search": {
@@ -285,6 +301,7 @@ function buildSuggestionsForFilter(filterKey) {
   }
 }
 
+// Compile a list of suggestions for the empty state based on active filters
 function buildEmptyStateSuggestions(filterKeys) {
   const suggestions = [];
   filterKeys.forEach((k) => {
@@ -305,6 +322,7 @@ function buildEmptyStateSuggestions(filterKeys) {
   return suggestions;
 }
 
+// Format the empty state hint text with actionable buttons
 function formatEmptyStateHint(buttons) {
   if (buttons.length === 0) return "";
   if (buttons.length === 1) {
@@ -319,6 +337,7 @@ function formatEmptyStateHint(buttons) {
   return `Try one of the following adjustments: <ul style="list-style: none; padding: 0.5rem 0 0 0; display: flex; flex-direction: column; gap: 0.35rem; align-items: center;">${listItems}</ul>`;
 }
 
+// Construct the complete HTML for the catalog empty state
 function buildEmptyStateHtml() {
   const activeKeys = getActiveFilterKeys();
   if (activeKeys.length === 0) {
@@ -342,6 +361,7 @@ function buildEmptyStateHtml() {
   `;
 }
 
+// Execute the action associated with an empty state suggestion
 function handleEmptyStateAction(btn) {
   const idx = parseInt(btn.getAttribute("data-suggestion-idx"), 10);
   if (!Number.isNaN(idx) && activeEmptyStateActions[idx]) {
@@ -349,6 +369,7 @@ function handleEmptyStateAction(btn) {
   }
 }
 
+// Expand or collapse the advanced filters drawer
 function setMoreFiltersExpanded(expanded) {
   const bar = document.querySelector(".filter-bar");
   const toggle = document.querySelector(".more-filters-toggle");
@@ -369,6 +390,7 @@ function setMoreFiltersExpanded(expanded) {
   }
 }
 
+// Initialize the toggle button for advanced filters
 function initMoreFiltersToggle() {
   const toggle = document.querySelector(".more-filters-toggle");
   if (!toggle) return;
@@ -387,6 +409,7 @@ function initMoreFiltersToggle() {
   }
 }
 
+// Check if any advanced filters are currently populated
 function hasAdvancedFilters() {
   const adv = getAdvancedFilterParams();
   return (
@@ -445,6 +468,7 @@ function updateFormatFilterOptions() {
     : "";
 }
 
+// Determine if any filters (search, format, type, advanced) are active
 function hasActiveFilters() {
   const searchVal = document.getElementById("search-input").value.trim();
   const formatFilter = document.getElementById("filter-format").value;
@@ -457,6 +481,7 @@ function hasActiveFilters() {
   );
 }
 
+// Clear a specific filter by its key
 function removeFilterChip(key) {
   switch (key) {
     case "search":
@@ -484,6 +509,7 @@ function removeFilterChip(key) {
   fetchMedia();
 }
 
+// Update the UI with dismissible chips representing active filters
 function updateActiveFilterChips() {
   const container = document.getElementById("active-filters");
   if (!container) return;
@@ -545,6 +571,7 @@ function updateActiveFilterChips() {
   });
 }
 
+// Reset all filter inputs to their default empty states
 function clearAdvancedFilters() {
   document.getElementById("filter-date-from").value = "";
   document.getElementById("filter-date-to").value = "";
@@ -557,6 +584,7 @@ function clearAdvancedFilters() {
   clearSizePresetActive();
 }
 
+// Trigger a catalog reload starting from page 1
 function triggerFilterRefresh() {
   currentPage = 1;
   fetchMedia();
