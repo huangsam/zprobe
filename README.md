@@ -15,7 +15,7 @@ See the [User Guide](USERGUIDE.md) and [Developer & Agent Guide](AGENTS.md) to d
 
 ![zprobe dashboard showing scanned files, catalog size, and media filters](images/dashboard.png)
 
-> Live dashboard view backed by the SQLite metadata cache, with instant filters for format and media type.
+> Live dashboard view backed by the SQLite metadata cache, with instant search and extensive filters for format, media type, date, and file size.
 
 ## Usage
 
