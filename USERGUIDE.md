@@ -75,7 +75,7 @@ zig build -Dtarget=aarch64-macos -Doptimize=ReleaseFast
 
 ## Dashboard Web Server
 
-`zprobe` includes a self-contained web server (`zprobe-server`) that reads the SQLite cache database and displays a visual metadata dashboard (including metrics cards, interactive stats charts, and a catalog browser).
+`zprobe` includes a self-contained web server (`zprobe-server`) that reads the SQLite cache database and displays a visual metadata dashboard (including interactive stats charts and a catalog browser).
 
 ### Running the Server
 
