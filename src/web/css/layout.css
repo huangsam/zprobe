@@ -44,7 +44,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 1.25rem;
-  padding: 1.25rem 1.75rem;
+  padding: 1rem 1.25rem;
   flex-grow: 0;
   flex-shrink: 0;
 }
@@ -201,7 +201,7 @@
 }
 
 .metric-card {
-  padding: 1.25rem;
+  padding: 1rem 1.25rem;
   display: flex;
   align-items: center;
   gap: 1.25rem;

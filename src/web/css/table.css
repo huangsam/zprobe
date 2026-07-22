@@ -98,7 +98,7 @@ th:hover {
 }
 
 td {
-  padding: 1rem 1.5rem;
+  padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
 }
