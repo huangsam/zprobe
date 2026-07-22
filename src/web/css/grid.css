@@ -138,6 +138,8 @@
   z-index: 2;
 }
 
+.grid-card.has-animated:hover .animated-overlay,
+.grid-card.has-animated:focus-visible .animated-overlay,
 .grid-card-media.has-animated:hover .animated-overlay {
   opacity: 1;
 }

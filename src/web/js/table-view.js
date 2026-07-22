@@ -63,6 +63,9 @@ function renderTable() {
     tr.tabIndex = 0;
     tr.setAttribute("role", "button");
     tr.dataset.rowIndex = String(index);
+    if (row.has_animated) {
+      tr.classList.add("has-animated");
+    }
 
     const dims =
       row.width && row.height

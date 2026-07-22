@@ -241,6 +241,8 @@ td:nth-child(5) {
 }
 
 /* Poster keeps its natural z-index (auto / 0), overlay sits above it */
+tr.has-animated:hover .animated-overlay,
+tr.has-animated:focus-visible .animated-overlay,
 .thumbnail-wrapper.has-animated:hover .animated-overlay,
 .drawer-preview-container.has-animated:hover .animated-overlay {
   opacity: 1;

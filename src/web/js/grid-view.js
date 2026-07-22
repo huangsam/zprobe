@@ -15,6 +15,9 @@ function renderGrid() {
   mediaData.forEach((row, index) => {
     const card = document.createElement("div");
     card.className = "grid-card";
+    if (row.has_animated) {
+      card.classList.add("has-animated");
+    }
     card.tabIndex = 0;
     card.setAttribute("role", "button");
     card.dataset.rowIndex = String(index);
