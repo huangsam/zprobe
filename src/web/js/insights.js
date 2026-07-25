@@ -12,12 +12,28 @@ function populateStats() {
   if (imgSize)
     imgSize.textContent = formatBytes(statsData.image_total_size || 0);
 
+  const imgDupeCount = document.getElementById("stat-img-dupe-count");
+  if (imgDupeCount)
+    imgDupeCount.textContent = formatCount(statsData.image_dupe_count || 0);
+
+  const imgDupeSize = document.getElementById("stat-img-dupe-size");
+  if (imgDupeSize)
+    imgDupeSize.textContent = formatBytes(statsData.image_dupe_size || 0);
+
   const vidCount = document.getElementById("stat-vid-count");
   if (vidCount) vidCount.textContent = formatCount(statsData.num_videos || 0);
 
   const vidSize = document.getElementById("stat-vid-size");
   if (vidSize)
     vidSize.textContent = formatBytes(statsData.video_total_size || 0);
+
+  const vidDupeCount = document.getElementById("stat-vid-dupe-count");
+  if (vidDupeCount)
+    vidDupeCount.textContent = formatCount(statsData.video_dupe_count || 0);
+
+  const vidDupeSize = document.getElementById("stat-vid-dupe-size");
+  if (vidDupeSize)
+    vidDupeSize.textContent = formatBytes(statsData.video_dupe_size || 0);
 }
 
 // Dynamically load the Chart.js library if it hasn't been loaded yet

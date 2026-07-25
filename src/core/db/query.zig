@@ -69,8 +69,12 @@ fn cloneStats(allocator: std.mem.Allocator, src: DbStats) !DbStats {
         .total_size = src.total_size,
         .num_images = src.num_images,
         .image_total_size = src.image_total_size,
+        .image_dupe_count = src.image_dupe_count,
+        .image_dupe_size = src.image_dupe_size,
         .num_videos = src.num_videos,
         .video_total_size = src.video_total_size,
+        .video_dupe_count = src.video_dupe_count,
+        .video_dupe_size = src.video_dupe_size,
         .image_formats = try image_formats.toOwnedSlice(allocator),
         .video_formats = try video_formats.toOwnedSlice(allocator),
         .cameras = try cameras.toOwnedSlice(allocator),
@@ -375,7 +379,7 @@ pub fn insertMedia(
     const step_rc = c.sqlite3_step(insert_meta_stmt);
     if (step_rc == c.SQLITE_DONE) {
         metadata_id = c.sqlite3_last_insert_rowid(self.handle);
-    } else if (step_rc == c.SQLITE_CONSTRAINT or step_rc == c.SQLITE_CONSTRAINT_UNIQUE) {
+    } else if ((step_rc & 0xFF) == c.SQLITE_CONSTRAINT) {
         // Hash collision or exists. Retrieve its metadata_id
         const select_id_sql = "SELECT id FROM media_metadata WHERE file_hash = ?;";
         var select_id_stmt: ?*c.sqlite3_stmt = null;
@@ -672,8 +676,12 @@ pub fn getStats(self: *Db, allocator: std.mem.Allocator) !DbStats {
     var total_size: u64 = 0;
     var num_images: u32 = 0;
     var image_total_size: u64 = 0;
+    var image_dupe_count: u32 = 0;
+    var image_dupe_size: u64 = 0;
     var num_videos: u32 = 0;
     var video_total_size: u64 = 0;
+    var video_dupe_count: u32 = 0;
+    var video_dupe_size: u64 = 0;
     var img_sizes = DbStats.SizeTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
     var vid_sizes = DbStats.SizeTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
     var vid_durations = DbStats.DurationTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
@@ -802,13 +810,38 @@ pub fn getStats(self: *Db, allocator: std.mem.Allocator) !DbStats {
         }
     }
 
+    // 4. Duplicate statistics (count of extra path instances and wasted bytes)
+    const dupes_sql =
+        "SELECT " ++
+        "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " THEN (cnt - 1) ELSE 0 END), 0), " ++
+        "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " THEN (cnt - 1) * sz ELSE 0 END), 0), " ++
+        "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " THEN (cnt - 1) ELSE 0 END), 0), " ++
+        "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " THEN (cnt - 1) * sz ELSE 0 END), 0) " ++
+        "FROM (SELECT m.format AS format, m.duration_sec AS duration_sec, p.size AS sz, COUNT(p.path) AS cnt " ++
+        "FROM media_paths p JOIN media_metadata m ON p.metadata_id = m.id " ++
+        "GROUP BY p.metadata_id HAVING cnt > 1) m;";
+    var dupes_stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, dupes_sql, -1, &dupes_stmt, null) == c.SQLITE_OK) {
+        defer _ = c.sqlite3_finalize(dupes_stmt);
+        if (c.sqlite3_step(dupes_stmt) == c.SQLITE_ROW) {
+            image_dupe_count = @intCast(c.sqlite3_column_int(dupes_stmt, 0));
+            image_dupe_size = @intCast(c.sqlite3_column_int64(dupes_stmt, 1));
+            video_dupe_count = @intCast(c.sqlite3_column_int(dupes_stmt, 2));
+            video_dupe_size = @intCast(c.sqlite3_column_int64(dupes_stmt, 3));
+        }
+    }
+
     return DbStats{
         .total_files = total_files,
         .total_size = total_size,
         .num_images = num_images,
         .image_total_size = image_total_size,
+        .image_dupe_count = image_dupe_count,
+        .image_dupe_size = image_dupe_size,
         .num_videos = num_videos,
         .video_total_size = video_total_size,
+        .video_dupe_count = video_dupe_count,
+        .video_dupe_size = video_dupe_size,
         .image_formats = try img_formats.toOwnedSlice(allocator),
         .video_formats = try vid_formats.toOwnedSlice(allocator),
         .cameras = try cameras.toOwnedSlice(allocator),

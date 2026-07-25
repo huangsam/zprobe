@@ -706,6 +706,73 @@ test "getStats smoke after seeding (T19)" {
     try std.testing.expectEqual(@as(u64, 3_350_000), stats.image_total_size);
     try std.testing.expectEqual(@as(u64, 1_524_000_000), stats.video_total_size);
     try std.testing.expectEqual(stats.total_size, stats.image_total_size + stats.video_total_size);
+    try std.testing.expectEqual(@as(u32, 0), stats.image_dupe_count);
+    try std.testing.expectEqual(@as(u64, 0), stats.image_dupe_size);
+    try std.testing.expectEqual(@as(u32, 0), stats.video_dupe_count);
+    try std.testing.expectEqual(@as(u64, 0), stats.video_dupe_size);
+}
+
+test "getStats duplicate count and size calculations" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/dupe_stats_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    const img_rec = DbRecord{
+        .path = "/photos/orig.png",
+        .size = 100_000,
+        .format = "png",
+        .file_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    };
+    const img_dupe1 = DbRecord{
+        .path = "/photos/dupe1.png",
+        .size = 100_000,
+        .format = "png",
+        .file_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    };
+    const img_dupe2 = DbRecord{
+        .path = "/photos/dupe2.png",
+        .size = 100_000,
+        .format = "png",
+        .file_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    };
+    try database.insertMedia(io, &img_rec, 1);
+    try database.insertMedia(io, &img_dupe1, 2);
+    try database.insertMedia(io, &img_dupe2, 3);
+
+    const vid_rec = DbRecord{
+        .path = "/videos/orig.mp4",
+        .size = 50_000_000,
+        .format = "mp4",
+        .file_hash = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    };
+    const vid_dupe = DbRecord{
+        .path = "/videos/dupe.mp4",
+        .size = 50_000_000,
+        .format = "mp4",
+        .file_hash = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    };
+    try database.insertMedia(io, &vid_rec, 4);
+    try database.insertMedia(io, &vid_dupe, 5);
+
+    const stats = try database.getStats(allocator);
+    defer stats.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u32, 5), stats.total_files);
+    try std.testing.expectEqual(@as(u32, 3), stats.num_images);
+    try std.testing.expectEqual(@as(u32, 2), stats.num_videos);
+
+    try std.testing.expectEqual(@as(u32, 2), stats.image_dupe_count);
+    try std.testing.expectEqual(@as(u64, 200_000), stats.image_dupe_size);
+
+    try std.testing.expectEqual(@as(u32, 1), stats.video_dupe_count);
+    try std.testing.expectEqual(@as(u64, 50_000_000), stats.video_dupe_size);
 }
 
 test "getStats video tiers are mutually exclusive buckets" {
