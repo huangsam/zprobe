@@ -14,9 +14,34 @@ pub fn isVideoExtension(ext: []const u8) bool {
     return false;
 }
 
+/// Build a video filter (-vf) string prepending transpose/flip steps according to EXIF/matrix orientation.
+/// Orientation values per EXIF spec:
+/// 1: Normal (0°)
+/// 2: Flipped horizontally
+/// 3: Rotated 180° (transpose=1,transpose=1)
+/// 4: Flipped vertically
+/// 5: Rotated 90° CCW & flipped vertically (transpose=0)
+/// 6: Rotated 90° CW (transpose=1)
+/// 7: Rotated 90° CW & flipped vertically (transpose=3)
+/// 8: Rotated 270° CW / 90° CCW (transpose=2)
+pub fn buildOrientationFilter(allocator: std.mem.Allocator, orientation: ?u16, base_filter: []const u8) ![]u8 {
+    const orient = orientation orelse 1;
+    const prefix = switch (orient) {
+        2 => "hflip,",
+        3 => "transpose=1,transpose=1,",
+        4 => "vflip,",
+        5 => "transpose=0,",
+        6 => "transpose=1,",
+        7 => "transpose=3,",
+        8 => "transpose=2,",
+        else => "",
+    };
+    return std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, base_filter });
+}
+
 /// Write/check thumbs only under a validated 64-hex content hash. `original_path`
 /// remains the ffmpeg `-i` / EXIF source; the disk stem is never path-hashed.
-pub fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, content_hash_hex: []const u8, thumb_dir: []const u8, is_video: bool) !bool {
+pub fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, content_hash_hex: []const u8, thumb_dir: []const u8, is_video: bool, orientation: ?u16) !bool {
     const thumb_path_jpg = root.utils.getThumbnailPath(allocator, thumb_dir, content_hash_hex) catch return false;
     defer allocator.free(thumb_path_jpg);
     root.utils.ensureParentDirAbsolute(io, thumb_path_jpg) catch return false;
@@ -30,10 +55,16 @@ pub fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_
     var renamed = false;
     defer if (!renamed) std.Io.Dir.deleteFileAbsolute(io, tmp_path) catch {};
 
+    const vf_str = buildOrientationFilter(allocator, orientation, "scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih)") catch return false;
+    defer allocator.free(vf_str);
+
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
 
     try argv.appendSlice(allocator, &.{ ffmpeg_path, "-y", "-nostdin", "-threads", "1" });
+    if (orientation != null and orientation.? > 1) {
+        try argv.append(allocator, "-noautorotate");
+    }
     if (is_video) {
         try argv.appendSlice(allocator, &.{ "-skip_frame", "nokey", "-ss", "00:00:01" });
     }
@@ -45,7 +76,7 @@ pub fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_
     } else {
         try argv.appendSlice(allocator, &.{ "-update", "1" });
     }
-    try argv.appendSlice(allocator, &.{ "-vf", "scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih)", "-f", "image2", tmp_path });
+    try argv.appendSlice(allocator, &.{ "-vf", vf_str, "-f", "image2", tmp_path });
 
     var child = std.process.spawn(io, .{
         .argv = argv.items,
@@ -68,7 +99,7 @@ pub fn generateFfmpegThumbnail(io: std.Io, allocator: std.mem.Allocator, ffmpeg_
 /// Uses ffmpeg's built-in gif encoder (no external library) with a per-clip
 /// palettegen/paletteuse pass for good color fidelity. The shared ffmpeg_sem
 /// must be held by the caller before this. Disk key is content hash, not path.
-pub fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, content_hash_hex: []const u8, thumb_dir: []const u8) !bool {
+pub fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, ffmpeg_path: []const u8, original_path: []const u8, content_hash_hex: []const u8, thumb_dir: []const u8, orientation: ?u16) !bool {
     const preview_path = root.utils.getAnimatedPreviewPath(allocator, thumb_dir, content_hash_hex) catch return false;
     defer allocator.free(preview_path);
     root.utils.ensureParentDirAbsolute(io, preview_path) catch return false;
@@ -81,6 +112,10 @@ pub fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, f
     var renamed = false;
     defer if (!renamed) std.Io.Dir.deleteFileAbsolute(io, tmp_path) catch {};
 
+    const base_anim_filter = "fps=10,scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih):flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse";
+    const vf_str = buildOrientationFilter(allocator, orientation, base_anim_filter) catch return false;
+    defer allocator.free(vf_str);
+
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
 
@@ -88,12 +123,11 @@ pub fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, f
     // -f gif is explicit because the .tmp output name defeats ffmpeg's
     // extension-based muxer inference (which previously relied on the .gif
     // suffix of the final path).
+    try argv.appendSlice(allocator, &.{ ffmpeg_path, "-y", "-nostdin", "-threads", "1" });
+    if (orientation != null and orientation.? > 1) {
+        try argv.append(allocator, "-noautorotate");
+    }
     try argv.appendSlice(allocator, &.{
-        ffmpeg_path,
-        "-y",
-        "-nostdin",
-        "-threads",
-        "1",
         "-ss",
         "00:00:01",
         "-t",
@@ -101,7 +135,7 @@ pub fn generateFfmpegAnimatedPreview(io: std.Io, allocator: std.mem.Allocator, f
         "-i",
         original_path,
         "-vf",
-        "fps=10,scale=iw*min(320/iw\\,320/ih):ih*min(320/iw\\,320/ih):flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
+        vf_str,
         "-loop",
         "0",
         "-an",
@@ -262,4 +296,28 @@ test "two paths one content hash share one on-disk thumbnail" {
     defer allocator.free(p2);
     try std.testing.expectEqualStrings(p1, p2);
     try std.testing.expect(std.mem.indexOf(u8, p1, "01/23/") != null);
+}
+
+test "buildOrientationFilter filter mappings" {
+    const allocator = std.testing.allocator;
+
+    const f1 = try buildOrientationFilter(allocator, 1, "scale=320:320");
+    defer allocator.free(f1);
+    try std.testing.expectEqualStrings("scale=320:320", f1);
+
+    const f6 = try buildOrientationFilter(allocator, 6, "scale=320:320");
+    defer allocator.free(f6);
+    try std.testing.expectEqualStrings("transpose=1,scale=320:320", f6);
+
+    const f8 = try buildOrientationFilter(allocator, 8, "scale=320:320");
+    defer allocator.free(f8);
+    try std.testing.expectEqualStrings("transpose=2,scale=320:320", f8);
+
+    const f3 = try buildOrientationFilter(allocator, 3, "scale=320:320");
+    defer allocator.free(f3);
+    try std.testing.expectEqualStrings("transpose=1,transpose=1,scale=320:320", f3);
+
+    const fnull = try buildOrientationFilter(allocator, null, "scale=320:320");
+    defer allocator.free(fnull);
+    try std.testing.expectEqualStrings("scale=320:320", fnull);
 }

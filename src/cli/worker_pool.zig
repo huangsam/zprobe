@@ -189,14 +189,14 @@ pub const worker = struct {
                         defer lock.release();
                         if (need_thumb_gen) {
                             var timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
-                            has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, c_ctx.thumb_dir.?, is_video) catch false;
+                            has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, c_ctx.thumb_dir.?, is_video, rec.orientation) catch false;
                             if (c_ctx.profile_metrics) |metrics| {
                                 metrics.record(&metrics.ffmpeg_spawns_ns, timer.read());
                             }
                         }
                         if (need_anim_gen) {
                             var timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
-                            has_animated = cli.format_handler.generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, c_ctx.anim_dir.?) catch false;
+                            has_animated = cli.format_handler.generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, file_hash, c_ctx.anim_dir.?, rec.orientation) catch false;
                             if (c_ctx.profile_metrics) |metrics| {
                                 metrics.record(&metrics.ffmpeg_spawns_ns, timer.read());
                             }
@@ -274,14 +274,14 @@ pub const worker = struct {
                     defer lock.release();
                     if (need_thumb_gen) {
                         var ffmpeg_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
-                        has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.thumb_dir.?, true) catch false;
+                        has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.thumb_dir.?, true, res.orientation) catch false;
                         if (c_ctx.profile_metrics) |metrics| {
                             metrics.record(&metrics.ffmpeg_spawns_ns, ffmpeg_timer.read());
                         }
                     }
                     if (need_anim_gen) {
                         var ffmpeg_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
-                        has_animated = cli.format_handler.generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.anim_dir.?) catch false;
+                        has_animated = cli.format_handler.generateFfmpegAnimatedPreview(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, c_ctx.anim_dir.?, res.orientation) catch false;
                         if (c_ctx.profile_metrics) |metrics| {
                             metrics.record(&metrics.ffmpeg_spawns_ns, ffmpeg_timer.read());
                         }
@@ -304,13 +304,14 @@ pub const worker = struct {
                 if (content_hash) |ch| {
                     has_thumb = cli.format_handler.checkThumbnailExists(c_ctx.io, allocator, ch, thumb_dir);
                     if (!has_thumb) {
-                        if (res.thumbnail_data) |thumb_bytes| {
-                            has_thumb = cli.format_handler.saveThumbnailBytes(c_ctx.io, allocator, ch, thumb_dir, thumb_bytes) catch false;
+                        const is_normal_orient = res.orientation == null or res.orientation.? == 1;
+                        if (res.thumbnail_data != null and is_normal_orient) {
+                            has_thumb = cli.format_handler.saveThumbnailBytes(c_ctx.io, allocator, ch, thumb_dir, res.thumbnail_data.?) catch false;
                         } else if (c_ctx.has_ffmpeg) {
                             const lock = FfmpegLock.acquire(c_ctx.ffmpeg_sem, c_ctx.io);
                             defer lock.release();
                             var ffmpeg_timer = if (c_ctx.profile_metrics != null) cli.MonotonicTimer.start(c_ctx.io) else undefined;
-                            has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, thumb_dir, false) catch false;
+                            has_thumb = cli.format_handler.generateFfmpegThumbnail(c_ctx.io, allocator, c_ctx.ffmpeg_path, path, ch, thumb_dir, false, res.orientation) catch false;
                             if (c_ctx.profile_metrics) |metrics| {
                                 metrics.record(&metrics.ffmpeg_spawns_ns, ffmpeg_timer.read());
                             }
