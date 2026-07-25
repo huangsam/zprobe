@@ -703,6 +703,9 @@ test "getStats smoke after seeding (T19)" {
     try std.testing.expectEqual(@as(u32, 6), stats.total_files);
     try std.testing.expectEqual(@as(u32, 2), stats.num_videos);
     try std.testing.expectEqual(@as(u32, 4), stats.num_images);
+    try std.testing.expectEqual(@as(u64, 3_350_000), stats.image_total_size);
+    try std.testing.expectEqual(@as(u64, 1_524_000_000), stats.video_total_size);
+    try std.testing.expectEqual(stats.total_size, stats.image_total_size + stats.video_total_size);
 }
 
 test "getStats video tiers are mutually exclusive buckets" {

@@ -68,7 +68,9 @@ fn cloneStats(allocator: std.mem.Allocator, src: DbStats) !DbStats {
         .total_files = src.total_files,
         .total_size = src.total_size,
         .num_images = src.num_images,
+        .image_total_size = src.image_total_size,
         .num_videos = src.num_videos,
+        .video_total_size = src.video_total_size,
         .image_formats = try image_formats.toOwnedSlice(allocator),
         .video_formats = try video_formats.toOwnedSlice(allocator),
         .cameras = try cameras.toOwnedSlice(allocator),
@@ -669,7 +671,9 @@ pub fn getStats(self: *Db, allocator: std.mem.Allocator) !DbStats {
     var total_files: u32 = 0;
     var total_size: u64 = 0;
     var num_images: u32 = 0;
+    var image_total_size: u64 = 0;
     var num_videos: u32 = 0;
+    var video_total_size: u64 = 0;
     var img_sizes = DbStats.SizeTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
     var vid_sizes = DbStats.SizeTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
     var vid_durations = DbStats.DurationTiers{ .tier1 = 0, .tier2 = 0, .tier3 = 0, .tier4 = 0, .tier5 = 0 };
@@ -679,7 +683,9 @@ pub fn getStats(self: *Db, allocator: std.mem.Allocator) !DbStats {
         "COUNT(p.path), " ++
         "COALESCE(SUM(p.size), 0), " ++
         "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " THEN 1 ELSE 0 END), 0), " ++
+        "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " THEN p.size ELSE 0 END), 0), " ++
         "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " THEN 1 ELSE 0 END), 0), " ++
+        "COALESCE(SUM(CASE WHEN " ++ is_video_pred_m ++ " THEN p.size ELSE 0 END), 0), " ++
         "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " AND p.size < 1048576 THEN 1 ELSE 0 END), 0), " ++
         "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " AND p.size >= 1048576 AND p.size < 5242880 THEN 1 ELSE 0 END), 0), " ++
         "COALESCE(SUM(CASE WHEN " ++ is_image_pred_m ++ " AND p.size >= 5242880 AND p.size < 10485760 THEN 1 ELSE 0 END), 0), " ++
@@ -704,22 +710,24 @@ pub fn getStats(self: *Db, allocator: std.mem.Allocator) !DbStats {
             total_files = @intCast(c.sqlite3_column_int(overall_stmt, 0));
             total_size = @intCast(c.sqlite3_column_int64(overall_stmt, 1));
             num_images = @intCast(c.sqlite3_column_int(overall_stmt, 2));
-            num_videos = @intCast(c.sqlite3_column_int(overall_stmt, 3));
-            img_sizes.tier1 = @intCast(c.sqlite3_column_int(overall_stmt, 4));
-            img_sizes.tier2 = @intCast(c.sqlite3_column_int(overall_stmt, 5));
-            img_sizes.tier3 = @intCast(c.sqlite3_column_int(overall_stmt, 6));
-            img_sizes.tier4 = @intCast(c.sqlite3_column_int(overall_stmt, 7));
-            img_sizes.tier5 = @intCast(c.sqlite3_column_int(overall_stmt, 8));
-            vid_sizes.tier1 = @intCast(c.sqlite3_column_int(overall_stmt, 9));
-            vid_sizes.tier2 = @intCast(c.sqlite3_column_int(overall_stmt, 10));
-            vid_sizes.tier3 = @intCast(c.sqlite3_column_int(overall_stmt, 11));
-            vid_sizes.tier4 = @intCast(c.sqlite3_column_int(overall_stmt, 12));
-            vid_sizes.tier5 = @intCast(c.sqlite3_column_int(overall_stmt, 13));
-            vid_durations.tier1 = @intCast(c.sqlite3_column_int(overall_stmt, 14));
-            vid_durations.tier2 = @intCast(c.sqlite3_column_int(overall_stmt, 15));
-            vid_durations.tier3 = @intCast(c.sqlite3_column_int(overall_stmt, 16));
-            vid_durations.tier4 = @intCast(c.sqlite3_column_int(overall_stmt, 17));
-            vid_durations.tier5 = @intCast(c.sqlite3_column_int(overall_stmt, 18));
+            image_total_size = @intCast(c.sqlite3_column_int64(overall_stmt, 3));
+            num_videos = @intCast(c.sqlite3_column_int(overall_stmt, 4));
+            video_total_size = @intCast(c.sqlite3_column_int64(overall_stmt, 5));
+            img_sizes.tier1 = @intCast(c.sqlite3_column_int(overall_stmt, 6));
+            img_sizes.tier2 = @intCast(c.sqlite3_column_int(overall_stmt, 7));
+            img_sizes.tier3 = @intCast(c.sqlite3_column_int(overall_stmt, 8));
+            img_sizes.tier4 = @intCast(c.sqlite3_column_int(overall_stmt, 9));
+            img_sizes.tier5 = @intCast(c.sqlite3_column_int(overall_stmt, 10));
+            vid_sizes.tier1 = @intCast(c.sqlite3_column_int(overall_stmt, 11));
+            vid_sizes.tier2 = @intCast(c.sqlite3_column_int(overall_stmt, 12));
+            vid_sizes.tier3 = @intCast(c.sqlite3_column_int(overall_stmt, 13));
+            vid_sizes.tier4 = @intCast(c.sqlite3_column_int(overall_stmt, 14));
+            vid_sizes.tier5 = @intCast(c.sqlite3_column_int(overall_stmt, 15));
+            vid_durations.tier1 = @intCast(c.sqlite3_column_int(overall_stmt, 16));
+            vid_durations.tier2 = @intCast(c.sqlite3_column_int(overall_stmt, 17));
+            vid_durations.tier3 = @intCast(c.sqlite3_column_int(overall_stmt, 18));
+            vid_durations.tier4 = @intCast(c.sqlite3_column_int(overall_stmt, 19));
+            vid_durations.tier5 = @intCast(c.sqlite3_column_int(overall_stmt, 20));
         }
     }
 
@@ -798,7 +806,9 @@ pub fn getStats(self: *Db, allocator: std.mem.Allocator) !DbStats {
         .total_files = total_files,
         .total_size = total_size,
         .num_images = num_images,
+        .image_total_size = image_total_size,
         .num_videos = num_videos,
+        .video_total_size = video_total_size,
         .image_formats = try img_formats.toOwnedSlice(allocator),
         .video_formats = try vid_formats.toOwnedSlice(allocator),
         .cameras = try cameras.toOwnedSlice(allocator),

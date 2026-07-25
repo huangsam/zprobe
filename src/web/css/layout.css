@@ -976,6 +976,78 @@ select.select-sm {
   display: block;
 }
 
+.modal .modal-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.modal .stat-card {
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  transition:
+    transform var(--transition-fast),
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.modal .stat-card:hover {
+  border-color: var(--primary-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.modal .stat-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: var(--primary-light);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.modal .stat-card-icon .lucide {
+  width: 22px;
+  height: 22px;
+}
+
+.modal .stat-card-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.modal .stat-card-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.modal .stat-card-value {
+  font-family: var(--font-heading);
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.25;
+  margin-top: 2px;
+}
+
+@media (max-width: 520px) {
+  .modal .modal-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .modal .charts-grid {
   display: grid;
   grid-template-columns: 1fr;

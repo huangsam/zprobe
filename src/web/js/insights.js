@@ -5,6 +5,19 @@ function populateStats() {
   if (summary) {
     summary.textContent = `Catalog: ${formatCount(statsData.total_files)} files, ${formatBytes(statsData.total_size)} total, ${formatCount(statsData.num_images)} images, ${formatCount(statsData.num_videos)} videos`;
   }
+  const imgCount = document.getElementById("stat-img-count");
+  if (imgCount) imgCount.textContent = formatCount(statsData.num_images || 0);
+
+  const imgSize = document.getElementById("stat-img-size");
+  if (imgSize)
+    imgSize.textContent = formatBytes(statsData.image_total_size || 0);
+
+  const vidCount = document.getElementById("stat-vid-count");
+  if (vidCount) vidCount.textContent = formatCount(statsData.num_videos || 0);
+
+  const vidSize = document.getElementById("stat-vid-size");
+  if (vidSize)
+    vidSize.textContent = formatBytes(statsData.video_total_size || 0);
 }
 
 // Dynamically load the Chart.js library if it hasn't been loaded yet
