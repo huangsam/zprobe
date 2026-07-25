@@ -27,11 +27,13 @@ let currentFetchController = null; // AbortController to cancel in-flight API re
 let imgFormatChart = null;
 let imgSizeChart = null;
 let imgCameraChart = null;
+let imgTimelineChart = null;
 
 // Chart.js Instances (Videos)
 let vidFormatChart = null;
 let vidSizeChart = null;
 let vidDurationChart = null;
+let vidTimelineChart = null;
 
 // Asset Loading
 let chartJsLoadPromise = null; // Promise tracking the dynamic loading of Chart.js library

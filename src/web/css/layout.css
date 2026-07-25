@@ -1069,6 +1069,8 @@ select.select-sm {
   .modal .charts-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .modal .charts-grid .chart-container.timeline-container,
+  .modal .charts-grid .chart-container:nth-child(3),
   .modal .charts-grid .chart-container:last-child {
     grid-column: span 2;
   }

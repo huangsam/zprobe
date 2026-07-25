@@ -58,6 +58,7 @@ pub const Db = struct {
     pub const getAllRecords = query.getAllRecords;
     pub const freeAllRecords = query.freeAllRecords;
     pub const getStats = query.getStats;
+    pub const getTimelineBuckets = query.getTimelineBuckets;
     pub const getStatsCached = query.getStatsCached;
     pub const getRecordsPaged = query.getRecordsPaged;
     pub const pathExists = query.pathExists;

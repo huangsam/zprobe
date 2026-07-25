@@ -73,6 +73,10 @@ function destroyAllCharts() {
     imgCameraChart.destroy();
     imgCameraChart = null;
   }
+  if (imgTimelineChart) {
+    imgTimelineChart.destroy();
+    imgTimelineChart = null;
+  }
   if (vidFormatChart) {
     vidFormatChart.destroy();
     vidFormatChart = null;
@@ -85,6 +89,10 @@ function destroyAllCharts() {
     vidDurationChart.destroy();
     vidDurationChart = null;
   }
+  if (vidTimelineChart) {
+    vidTimelineChart.destroy();
+    vidTimelineChart = null;
+  }
 }
 
 // Trigger a resize on all active charts to ensure they fit their containers
@@ -93,10 +101,12 @@ function resizeActiveCharts() {
     imgFormatChart?.resize();
     imgSizeChart?.resize();
     imgCameraChart?.resize();
+    imgTimelineChart?.resize();
   } else {
     vidFormatChart?.resize();
     vidSizeChart?.resize();
     vidDurationChart?.resize();
+    vidTimelineChart?.resize();
   }
 }
 
@@ -234,6 +244,11 @@ function renderImageCharts() {
       false,
       "Failed to load catalog statistics",
     );
+    toggleChartPlaceholder(
+      "wrapper-img-timeline",
+      false,
+      "Failed to load catalog statistics",
+    );
     if (imgFormatChart) {
       imgFormatChart.destroy();
       imgFormatChart = null;
@@ -245,6 +260,10 @@ function renderImageCharts() {
     if (imgCameraChart) {
       imgCameraChart.destroy();
       imgCameraChart = null;
+    }
+    if (imgTimelineChart) {
+      imgTimelineChart.destroy();
+      imgTimelineChart = null;
     }
     return;
   }
@@ -416,6 +435,41 @@ function renderImageCharts() {
     imgCameraChart.destroy();
     imgCameraChart = null;
   }
+
+  // 4. IMAGE TIMELINE
+  const hasImgTimeline =
+    hasImages &&
+    statsData.image_timeline &&
+    statsData.image_timeline.length > 0;
+  toggleChartPlaceholder(
+    "wrapper-img-timeline",
+    hasImgTimeline,
+    "No timeline date metadata available for images",
+  );
+
+  if (hasImgTimeline) {
+    const labels = statsData.image_timeline.map((item) => item.date_key);
+    const data = statsData.image_timeline.map((item) => item.count);
+
+    if (imgTimelineChart) {
+      imgTimelineChart.data.labels = labels;
+      imgTimelineChart.data.datasets[0].data = data;
+      imgTimelineChart.update();
+    } else {
+      const timelineCtx = document
+        .getElementById("chart-img-timeline")
+        .getContext("2d");
+      imgTimelineChart = createTimelineChart(
+        timelineCtx,
+        labels,
+        data,
+        "#2b76db",
+      );
+    }
+  } else if (imgTimelineChart) {
+    imgTimelineChart.destroy();
+    imgTimelineChart = null;
+  }
 }
 
 // Render Video-Specific Statistics
@@ -436,6 +490,11 @@ function renderVideoCharts() {
       false,
       "Failed to load catalog statistics",
     );
+    toggleChartPlaceholder(
+      "wrapper-vid-timeline",
+      false,
+      "Failed to load catalog statistics",
+    );
     if (vidFormatChart) {
       vidFormatChart.destroy();
       vidFormatChart = null;
@@ -447,6 +506,10 @@ function renderVideoCharts() {
     if (vidDurationChart) {
       vidDurationChart.destroy();
       vidDurationChart = null;
+    }
+    if (vidTimelineChart) {
+      vidTimelineChart.destroy();
+      vidTimelineChart = null;
     }
     return;
   }
@@ -598,6 +661,93 @@ function renderVideoCharts() {
     vidDurationChart.destroy();
     vidDurationChart = null;
   }
+
+  // 4. VIDEO TIMELINE
+  const hasVidTimeline =
+    hasVideos &&
+    statsData.video_timeline &&
+    statsData.video_timeline.length > 0;
+  toggleChartPlaceholder(
+    "wrapper-vid-timeline",
+    hasVidTimeline,
+    "No timeline date metadata available for videos",
+  );
+
+  if (hasVidTimeline) {
+    const labels = statsData.video_timeline.map((item) => item.date_key);
+    const data = statsData.video_timeline.map((item) => item.count);
+
+    if (vidTimelineChart) {
+      vidTimelineChart.data.labels = labels;
+      vidTimelineChart.data.datasets[0].data = data;
+      vidTimelineChart.update();
+    } else {
+      const timelineCtx = document
+        .getElementById("chart-vid-timeline")
+        .getContext("2d");
+      vidTimelineChart = createTimelineChart(
+        timelineCtx,
+        labels,
+        data,
+        "#38bdf8",
+      );
+    }
+  } else if (vidTimelineChart) {
+    vidTimelineChart.destroy();
+    vidTimelineChart = null;
+  }
+}
+
+// Helper to create smooth timeline area chart
+function createTimelineChart(ctx, labels, data, colorHex) {
+  const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+  gradient.addColorStop(0, colorHex + "66");
+  gradient.addColorStop(1, colorHex + "05");
+
+  return new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: "Media Count",
+          data: data,
+          fill: true,
+          backgroundColor: gradient,
+          borderColor: colorHex,
+          borderWidth: 2,
+          tension: 0.3,
+          pointRadius: labels.length > 30 ? 2 : 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: colorHex,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          mode: "index",
+          intersect: false,
+          callbacks: {
+            label: (context) => ` Files: ${context.parsed.y}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12 },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { precision: 0 },
+        },
+      },
+    },
+  });
 }
 
 // Trap keyboard focus within the modal while it is open

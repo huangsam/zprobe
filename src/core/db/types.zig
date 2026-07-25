@@ -55,6 +55,9 @@ pub const DbStats = struct {
     video_sizes: SizeTiers,
     video_durations: DurationTiers,
 
+    image_timeline: []const TimelineBucket = &[_]TimelineBucket{},
+    video_timeline: []const TimelineBucket = &[_]TimelineBucket{},
+
     pub const FormatCount = struct {
         format: []const u8,
         count: u32,
@@ -63,6 +66,11 @@ pub const DbStats = struct {
     pub const CameraCount = struct {
         make: []const u8,
         model: []const u8,
+        count: u32,
+    };
+
+    pub const TimelineBucket = struct {
+        date_key: []const u8,
         count: u32,
     };
 
@@ -92,6 +100,10 @@ pub const DbStats = struct {
             allocator.free(item.model);
         }
         allocator.free(self.cameras);
+        for (self.image_timeline) |item| allocator.free(item.date_key);
+        allocator.free(self.image_timeline);
+        for (self.video_timeline) |item| allocator.free(item.date_key);
+        allocator.free(self.video_timeline);
     }
 };
 

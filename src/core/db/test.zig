@@ -710,6 +710,8 @@ test "getStats smoke after seeding (T19)" {
     try std.testing.expectEqual(@as(u64, 0), stats.image_dupe_size);
     try std.testing.expectEqual(@as(u32, 0), stats.video_dupe_count);
     try std.testing.expectEqual(@as(u64, 0), stats.video_dupe_size);
+    try std.testing.expect(stats.image_timeline.len > 0);
+    try std.testing.expect(stats.video_timeline.len > 0);
 }
 
 test "getStats duplicate count and size calculations" {

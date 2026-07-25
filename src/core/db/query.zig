@@ -64,6 +64,30 @@ fn cloneStats(allocator: std.mem.Allocator, src: DbStats) !DbStats {
         });
     }
 
+    var image_timeline: std.ArrayList(DbStats.TimelineBucket) = .empty;
+    errdefer {
+        for (image_timeline.items) |item| allocator.free(item.date_key);
+        image_timeline.deinit(allocator);
+    }
+    for (src.image_timeline) |item| {
+        try image_timeline.append(allocator, .{
+            .date_key = try allocator.dupe(u8, item.date_key),
+            .count = item.count,
+        });
+    }
+
+    var video_timeline: std.ArrayList(DbStats.TimelineBucket) = .empty;
+    errdefer {
+        for (video_timeline.items) |item| allocator.free(item.date_key);
+        video_timeline.deinit(allocator);
+    }
+    for (src.video_timeline) |item| {
+        try video_timeline.append(allocator, .{
+            .date_key = try allocator.dupe(u8, item.date_key),
+            .count = item.count,
+        });
+    }
+
     return DbStats{
         .total_files = src.total_files,
         .total_size = src.total_size,
@@ -81,6 +105,8 @@ fn cloneStats(allocator: std.mem.Allocator, src: DbStats) !DbStats {
         .image_sizes = src.image_sizes,
         .video_sizes = src.video_sizes,
         .video_durations = src.video_durations,
+        .image_timeline = try image_timeline.toOwnedSlice(allocator),
+        .video_timeline = try video_timeline.toOwnedSlice(allocator),
     };
 }
 
@@ -831,6 +857,18 @@ pub fn getStats(self: *Db, allocator: std.mem.Allocator) !DbStats {
         }
     }
 
+    // 5. Timeline statistics (auto-bucketed chronologically)
+    const img_timeline = try self.getTimelineBuckets(allocator, false);
+    errdefer {
+        for (img_timeline) |item| allocator.free(item.date_key);
+        allocator.free(img_timeline);
+    }
+    const vid_timeline = try self.getTimelineBuckets(allocator, true);
+    errdefer {
+        for (vid_timeline) |item| allocator.free(item.date_key);
+        allocator.free(vid_timeline);
+    }
+
     return DbStats{
         .total_files = total_files,
         .total_size = total_size,
@@ -848,7 +886,118 @@ pub fn getStats(self: *Db, allocator: std.mem.Allocator) !DbStats {
         .image_sizes = img_sizes,
         .video_sizes = vid_sizes,
         .video_durations = vid_durations,
+        .image_timeline = img_timeline,
+        .video_timeline = vid_timeline,
     };
+}
+
+pub fn getTimelineBuckets(self: *Db, allocator: std.mem.Allocator, is_video: bool) ![]DbStats.TimelineBucket {
+    const pred = if (is_video) is_video_pred_m else is_image_pred_m;
+    const sql = try std.fmt.allocPrint(allocator, "SELECT " ++
+        "COALESCE(NULLIF(SUBSTR(REPLACE(m.create_time, ':', '-'), 1, 10), ''), strftime('%Y-%m-%d', p.mtime, 'unixepoch', 'localtime')) AS day_key, " ++
+        "COUNT(*) " ++
+        "FROM media_paths p JOIN media_metadata m ON p.metadata_id = m.id " ++
+        "WHERE {s} AND day_key IS NOT NULL AND LENGTH(day_key) = 10 " ++
+        "GROUP BY day_key " ++
+        "ORDER BY day_key ASC;", .{pred});
+    defer allocator.free(sql);
+
+    const RawDay = struct {
+        date_key: []const u8,
+        count: u32,
+    };
+    var raw_days: std.ArrayList(RawDay) = .empty;
+    defer {
+        for (raw_days.items) |d| allocator.free(d.date_key);
+        raw_days.deinit(allocator);
+    }
+
+    var stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, sql.ptr, -1, &stmt, null) == c.SQLITE_OK) {
+        defer _ = c.sqlite3_finalize(stmt);
+        while (c.sqlite3_step(stmt) == c.SQLITE_ROW) {
+            const key_raw = c.sqlite3_column_text(stmt, 0);
+            const key_len = c.sqlite3_column_bytes(stmt, 0);
+            const cnt = @as(u32, @intCast(c.sqlite3_column_int(stmt, 1)));
+            if (key_len == 10) {
+                try raw_days.append(allocator, .{
+                    .date_key = try allocator.dupe(u8, key_raw[0..@intCast(key_len)]),
+                    .count = cnt,
+                });
+            }
+        }
+    }
+
+    if (raw_days.items.len == 0) {
+        return try allocator.alloc(DbStats.TimelineBucket, 0);
+    }
+
+    const first_key = raw_days.items[0].date_key;
+    const last_key = raw_days.items[raw_days.items.len - 1].date_key;
+
+    const start_year = std.fmt.parseInt(u32, first_key[0..4], 10) catch 2024;
+    const end_year = std.fmt.parseInt(u32, last_key[0..4], 10) catch 2024;
+    const start_month = std.fmt.parseInt(u32, first_key[5..7], 10) catch 1;
+    const end_month = std.fmt.parseInt(u32, last_key[5..7], 10) catch 1;
+
+    const total_years = if (end_year >= start_year) end_year - start_year else 0;
+    const total_years_i32 = @as(i32, @intCast(total_years));
+    const total_months = total_years_i32 * 12 + @as(i32, @intCast(end_month)) - @as(i32, @intCast(start_month));
+
+    var buckets: std.ArrayList(DbStats.TimelineBucket) = .empty;
+    errdefer {
+        for (buckets.items) |b| allocator.free(b.date_key);
+        buckets.deinit(allocator);
+    }
+
+    if (total_years >= 3) {
+        var y: u32 = start_year;
+        while (y <= end_year) : (y += 1) {
+            var year_buf: [4]u8 = undefined;
+            const year_str = try std.fmt.bufPrint(&year_buf, "{d:0>4}", .{y});
+            var sum: u32 = 0;
+            for (raw_days.items) |d| {
+                if (std.mem.startsWith(u8, d.date_key, year_str)) {
+                    sum += d.count;
+                }
+            }
+            try buckets.append(allocator, .{
+                .date_key = try allocator.dupe(u8, year_str),
+                .count = sum,
+            });
+        }
+    } else if (total_months >= 2 or raw_days.items.len > 60) {
+        var y: u32 = start_year;
+        var m: u32 = start_month;
+        while (y < end_year or (y == end_year and m <= end_month)) {
+            var ym_buf: [7]u8 = undefined;
+            const ym_str = try std.fmt.bufPrint(&ym_buf, "{d:0>4}-{d:0>2}", .{ y, m });
+            var sum: u32 = 0;
+            for (raw_days.items) |d| {
+                if (std.mem.startsWith(u8, d.date_key, ym_str)) {
+                    sum += d.count;
+                }
+            }
+            try buckets.append(allocator, .{
+                .date_key = try allocator.dupe(u8, ym_str),
+                .count = sum,
+            });
+            m += 1;
+            if (m > 12) {
+                m = 1;
+                y += 1;
+            }
+        }
+    } else {
+        for (raw_days.items) |d| {
+            try buckets.append(allocator, .{
+                .date_key = try allocator.dupe(u8, d.date_key),
+                .count = d.count,
+            });
+        }
+    }
+
+    return try buckets.toOwnedSlice(allocator);
 }
 
 /// SQL expression that normalizes EXIF "YYYY:MM:DD ..." to "YYYY-MM-DD ...".
