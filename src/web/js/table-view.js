@@ -208,37 +208,12 @@ function updateSortModalUI() {
     }
   }
 
-  // Contextual labels for sort direction buttons
+  // Direction labels for sort direction buttons
   const ascLabel = document.getElementById("sort-dir-asc-label");
   const descLabel = document.getElementById("sort-dir-desc-label");
   if (ascLabel && descLabel) {
-    switch (sortConfig.key) {
-      case "create_time":
-        ascLabel.textContent = "Ascending (Oldest)";
-        descLabel.textContent = "Descending (Newest)";
-        break;
-      case "size":
-        ascLabel.textContent = "Ascending (Smallest)";
-        descLabel.textContent = "Descending (Largest)";
-        break;
-      case "duration_sec":
-        ascLabel.textContent = "Ascending (Shortest)";
-        descLabel.textContent = "Descending (Longest)";
-        break;
-      case "path":
-      case "format":
-        ascLabel.textContent = "Ascending (A–Z)";
-        descLabel.textContent = "Descending (Z–A)";
-        break;
-      case "dimensions":
-        ascLabel.textContent = "Ascending (Smallest)";
-        descLabel.textContent = "Descending (Largest)";
-        break;
-      default:
-        ascLabel.textContent = "Ascending";
-        descLabel.textContent = "Descending";
-        break;
-    }
+    ascLabel.textContent = "Ascending";
+    descLabel.textContent = "Descending";
   }
 
   // Update header sort button icon
