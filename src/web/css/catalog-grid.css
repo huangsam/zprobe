@@ -15,6 +15,30 @@
   color: var(--text-primary);
 }
 
+.catalog-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sort-modal-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  height: 38px;
+  padding: 0 0.85rem;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.sort-modal-btn .btn-icon.lucide {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 .view-toggle {
   display: flex;
   background: var(--bg-main);

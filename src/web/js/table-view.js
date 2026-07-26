@@ -184,17 +184,183 @@ function updatePaginationControls() {
   document.getElementById("next-page-btn").disabled = currentPage >= totalPages;
 }
 
-// Update ARIA attributes on table headers to reflect current sort state
+// Synchronize UI elements in the Sort Modal (radio inputs, direction buttons, contextual labels)
+function updateSortModalUI() {
+  const radio = document.querySelector(
+    `input[name="sort-field"][value="${sortConfig.key}"]`,
+  );
+  if (radio) radio.checked = true;
+
+  const ascBtn = document.getElementById("sort-dir-asc-btn");
+  const descBtn = document.getElementById("sort-dir-desc-btn");
+
+  if (ascBtn && descBtn) {
+    if (sortConfig.direction === "asc") {
+      ascBtn.classList.add("active");
+      ascBtn.setAttribute("aria-pressed", "true");
+      descBtn.classList.remove("active");
+      descBtn.setAttribute("aria-pressed", "false");
+    } else {
+      descBtn.classList.add("active");
+      descBtn.setAttribute("aria-pressed", "true");
+      ascBtn.classList.remove("active");
+      ascBtn.setAttribute("aria-pressed", "false");
+    }
+  }
+
+  // Contextual labels for sort direction buttons
+  const ascLabel = document.getElementById("sort-dir-asc-label");
+  const descLabel = document.getElementById("sort-dir-desc-label");
+  if (ascLabel && descLabel) {
+    switch (sortConfig.key) {
+      case "create_time":
+        ascLabel.textContent = "Ascending (Oldest)";
+        descLabel.textContent = "Descending (Newest)";
+        break;
+      case "size":
+        ascLabel.textContent = "Ascending (Smallest)";
+        descLabel.textContent = "Descending (Largest)";
+        break;
+      case "duration_sec":
+        ascLabel.textContent = "Ascending (Shortest)";
+        descLabel.textContent = "Descending (Longest)";
+        break;
+      case "path":
+      case "format":
+        ascLabel.textContent = "Ascending (A–Z)";
+        descLabel.textContent = "Descending (Z–A)";
+        break;
+      case "dimensions":
+        ascLabel.textContent = "Ascending (Smallest)";
+        descLabel.textContent = "Descending (Largest)";
+        break;
+      default:
+        ascLabel.textContent = "Ascending";
+        descLabel.textContent = "Descending";
+        break;
+    }
+  }
+
+  // Update header sort button icon
+  const sortBtnIcon = document.querySelector("#sort-modal-btn .btn-icon");
+  if (sortBtnIcon) {
+    const newIconName =
+      sortConfig.direction === "asc"
+        ? "arrow-up-narrow-wide"
+        : "arrow-down-wide-narrow";
+    if (sortBtnIcon.getAttribute("data-lucide") !== newIconName) {
+      sortBtnIcon.setAttribute("data-lucide", newIconName);
+      if (
+        typeof lucide !== "undefined" &&
+        typeof lucide.createIcons === "function"
+      ) {
+        lucide.createIcons({ root: document.getElementById("sort-modal-btn") });
+      }
+    }
+  }
+}
+
+// Update ARIA attributes and classes on table headers & sort controls to reflect current sort state
 function updateSortAriaIndicators() {
   document.querySelectorAll("#media-table th[data-sort]").forEach((th) => {
     const key = th.getAttribute("data-sort");
+    th.classList.remove("sort-asc", "sort-desc");
     if (key === sortConfig.key) {
       th.setAttribute(
         "aria-sort",
         sortConfig.direction === "asc" ? "ascending" : "descending",
       );
+      th.classList.add(
+        sortConfig.direction === "asc" ? "sort-asc" : "sort-desc",
+      );
     } else {
       th.setAttribute("aria-sort", "none");
     }
   });
+
+  updateSortModalUI();
+}
+
+function handleSortModalBackdropClick(event) {
+  const modal = document.getElementById("sort-modal");
+  if (event.target === modal) {
+    toggleSortModal(false);
+  }
+}
+
+function handleSortModalKeydown(event) {
+  const modal = document.getElementById("sort-modal");
+  if (!modal || !modal.classList.contains("open")) return;
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleSortModal(false);
+    return;
+  }
+
+  if (event.key === "Tab") {
+    const focusables = modal.querySelectorAll(
+      'button:not([disabled]), input[type="radio"]:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+}
+
+function toggleSortModal(show) {
+  const modal = document.getElementById("sort-modal");
+  const sortBtn = document.getElementById("sort-modal-btn");
+  if (!modal) return;
+
+  if (show) {
+    if (modal.classList.contains("open")) return;
+    sortModalReturnFocus = document.activeElement;
+    updateSortModalUI();
+    modal.classList.add("open");
+    modal.removeAttribute("inert");
+    modal.setAttribute("aria-hidden", "false");
+    sortBtn?.setAttribute("aria-expanded", "true");
+
+    document.removeEventListener("keydown", handleSortModalKeydown);
+    window.removeEventListener("click", handleSortModalBackdropClick);
+
+    document.addEventListener("keydown", handleSortModalKeydown);
+    window.addEventListener("click", handleSortModalBackdropClick);
+
+    requestAnimationFrame(() => {
+      const activeRadio = modal.querySelector(
+        'input[name="sort-field"]:checked',
+      );
+      if (activeRadio) {
+        activeRadio.focus();
+      } else {
+        document.getElementById("close-sort-modal-btn")?.focus();
+      }
+    });
+  } else {
+    if (!modal.classList.contains("open")) return;
+    modal.classList.remove("open");
+    modal.setAttribute("inert", "");
+    modal.setAttribute("aria-hidden", "true");
+    sortBtn?.setAttribute("aria-expanded", "false");
+
+    document.removeEventListener("keydown", handleSortModalKeydown);
+    window.removeEventListener("click", handleSortModalBackdropClick);
+
+    const returnFocus = sortModalReturnFocus;
+    sortModalReturnFocus = null;
+    if (returnFocus && typeof returnFocus.focus === "function") {
+      returnFocus.focus();
+    }
+  }
 }

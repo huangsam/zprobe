@@ -29,16 +29,56 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("drawer-backdrop")
     .addEventListener("click", closeDrawer);
 
-  // Escape key: close modal first, then drawer
+  // Escape key: close sort modal first, then insights modal, then drawer
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    const sortModal = document.getElementById("sort-modal");
     const modal = document.getElementById("insights-modal");
-    if (modal.classList.contains("open")) {
+    if (sortModal && sortModal.classList.contains("open")) {
+      toggleSortModal(false);
+    } else if (modal && modal.classList.contains("open")) {
       toggleModal(false);
     } else {
       closeDrawer();
     }
   });
+
+  // Sort modal toggle & close handlers
+  document.getElementById("sort-modal-btn")?.addEventListener("click", () => {
+    toggleSortModal(true);
+  });
+
+  document
+    .getElementById("close-sort-modal-btn")
+    ?.addEventListener("click", () => toggleSortModal(false));
+
+  // Sort field radio button change handlers
+  document.querySelectorAll('input[name="sort-field"]').forEach((radio) => {
+    radio.addEventListener("change", (e) => {
+      if (e.target.checked) {
+        sortConfig.key = e.target.value;
+        updateSortAriaIndicators();
+        currentPage = 1;
+        fetchMedia({ showSkeleton: false });
+      }
+    });
+  });
+
+  // Sort direction toggle button handlers
+  const handleDirToggle = (dir) => {
+    if (sortConfig.direction === dir) return;
+    sortConfig.direction = dir;
+    updateSortAriaIndicators();
+    currentPage = 1;
+    fetchMedia({ showSkeleton: false });
+  };
+
+  document
+    .getElementById("sort-dir-asc-btn")
+    ?.addEventListener("click", () => handleDirToggle("asc"));
+  document
+    .getElementById("sort-dir-desc-btn")
+    ?.addEventListener("click", () => handleDirToggle("desc"));
 
   // Close modal button
   document
@@ -219,11 +259,6 @@ document.addEventListener("DOMContentLoaded", () => {
       sortConfig.direction = "asc";
     }
 
-    // Update UI sorting indicator
-    document
-      .querySelectorAll("#media-table th")
-      .forEach((el) => el.classList.remove("sort-asc", "sort-desc"));
-    th.classList.add(sortConfig.direction === "asc" ? "sort-asc" : "sort-desc");
     updateSortAriaIndicators();
 
     currentPage = 1;

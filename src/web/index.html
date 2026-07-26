@@ -244,27 +244,45 @@
         >
           <div class="catalog-header">
             <h2 class="catalog-title">Catalog</h2>
-            <div class="view-toggle" role="group" aria-label="View toggle">
+            <div class="catalog-header-actions">
               <button
                 type="button"
-                id="view-list-btn"
-                class="btn btn-secondary btn-sm active"
-                title="List View"
-                aria-pressed="true"
+                id="sort-modal-btn"
+                class="btn btn-secondary btn-sm sort-modal-btn"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="sort-modal"
+                title="Sort Catalog"
               >
-                <i data-lucide="list" aria-hidden="true"></i>
-                <span class="visually-hidden">List View</span>
+                <i
+                  data-lucide="arrow-down-wide-narrow"
+                  class="btn-icon"
+                  aria-hidden="true"
+                ></i>
+                <span>Sort</span>
               </button>
-              <button
-                type="button"
-                id="view-grid-btn"
-                class="btn btn-secondary btn-sm"
-                title="Grid View"
-                aria-pressed="false"
-              >
-                <i data-lucide="layout-grid" aria-hidden="true"></i>
-                <span class="visually-hidden">Grid View</span>
-              </button>
+              <div class="view-toggle" role="group" aria-label="View toggle">
+                <button
+                  type="button"
+                  id="view-list-btn"
+                  class="btn btn-secondary btn-sm active"
+                  title="List View"
+                  aria-pressed="true"
+                >
+                  <i data-lucide="list" aria-hidden="true"></i>
+                  <span class="visually-hidden">List View</span>
+                </button>
+                <button
+                  type="button"
+                  id="view-grid-btn"
+                  class="btn btn-secondary btn-sm"
+                  title="Grid View"
+                  aria-pressed="false"
+                >
+                  <i data-lucide="layout-grid" aria-hidden="true"></i>
+                  <span class="visually-hidden">Grid View</span>
+                </button>
+              </div>
             </div>
           </div>
           <div class="table-container" aria-busy="false">
@@ -748,6 +766,111 @@
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sort Modal Overlay -->
+      <div
+        id="sort-modal"
+        class="modal sort-modal-overlay"
+        inert
+        aria-hidden="true"
+      >
+        <div
+          class="modal-content surface sort-modal-content"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sort-modal-title"
+        >
+          <div class="modal-header">
+            <h2 id="sort-modal-title">
+              <i
+                data-lucide="arrow-down-wide-narrow"
+                class="inline-icon"
+                aria-hidden="true"
+              ></i>
+              Sort Catalog
+            </h2>
+            <button
+              id="close-sort-modal-btn"
+              class="close-btn"
+              aria-label="Close sort modal"
+            >
+              <i data-lucide="x" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="modal-body sort-modal-body">
+            <fieldset class="sort-group">
+              <legend class="sort-group-title">Sort Field</legend>
+              <div
+                class="sort-options-grid"
+                role="radiogroup"
+                aria-label="Sort Field"
+              >
+                <label class="sort-option-card">
+                  <input type="radio" name="sort-field" value="create_time" />
+                  <span class="sort-option-label">Date</span>
+                </label>
+                <label class="sort-option-card">
+                  <input type="radio" name="sort-field" value="path" />
+                  <span class="sort-option-label">File Path</span>
+                </label>
+                <label class="sort-option-card">
+                  <input type="radio" name="sort-field" value="size" />
+                  <span class="sort-option-label">Size</span>
+                </label>
+                <label class="sort-option-card">
+                  <input type="radio" name="sort-field" value="format" />
+                  <span class="sort-option-label">Format</span>
+                </label>
+                <label class="sort-option-card">
+                  <input type="radio" name="sort-field" value="dimensions" />
+                  <span class="sort-option-label">Dimensions</span>
+                </label>
+                <label class="sort-option-card">
+                  <input type="radio" name="sort-field" value="duration_sec" />
+                  <span class="sort-option-label">Duration</span>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset class="sort-group">
+              <legend class="sort-group-title">Order</legend>
+              <div
+                class="sort-direction-toggle"
+                role="group"
+                aria-label="Sort Direction"
+              >
+                <button
+                  type="button"
+                  id="sort-dir-asc-btn"
+                  class="btn btn-secondary btn-sm sort-dir-btn"
+                  data-dir="asc"
+                  aria-pressed="false"
+                >
+                  <i
+                    data-lucide="arrow-up"
+                    class="btn-icon"
+                    aria-hidden="true"
+                  ></i>
+                  <span id="sort-dir-asc-label">Ascending</span>
+                </button>
+                <button
+                  type="button"
+                  id="sort-dir-desc-btn"
+                  class="btn btn-secondary btn-sm sort-dir-btn"
+                  data-dir="desc"
+                  aria-pressed="false"
+                >
+                  <i
+                    data-lucide="arrow-down"
+                    class="btn-icon"
+                    aria-hidden="true"
+                  ></i>
+                  <span id="sort-dir-desc-label">Descending</span>
+                </button>
+              </div>
+            </fieldset>
           </div>
         </div>
       </div>
