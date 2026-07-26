@@ -1,0 +1,299 @@
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn.btn-primary {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.btn.btn-primary:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.btn.btn-secondary {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.btn.btn-secondary:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-color-hover);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn.btn-sm {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.82rem;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+select {
+  background: var(--bg-input);
+  padding: 0.75rem 2.15rem 0.75rem 1.1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-width: min(160px, 100%);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%23666' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: 0.95rem 0.95rem;
+  background-position: right 0.85rem center;
+}
+
+select.select-sm {
+  padding: 0.35rem 1.75rem 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  background-color: var(--bg-surface);
+}
+
+:is(
+  #search-input,
+  select,
+  .filter-inputs input[type="date"],
+  .filter-inputs input[type="number"]
+) {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  outline: none;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+:is(
+  #search-input,
+  select,
+  .filter-inputs input[type="date"],
+  .filter-inputs input[type="number"]
+):is(:focus, :focus-visible) {
+  border-color: var(--primary);
+  box-shadow: var(--focus-ring);
+}
+
+:is(
+  #search-input,
+  .filter-inputs input[type="date"],
+  .filter-inputs input[type="number"]
+):is(:focus, :focus-visible) {
+  background-color: var(--bg-surface);
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 2rem;
+  cursor: pointer;
+  line-height: 1;
+  transition: color var(--transition-fast);
+}
+
+.close-btn:hover {
+  color: var(--text-primary);
+}
+
+.close-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Lucide Vector Icons Styling */
+.lucide {
+  stroke-width: 2px;
+  display: inline-block;
+  vertical-align: middle;
+}
+.logo-icon .lucide {
+  width: 28px;
+  height: 28px;
+  color: var(--primary);
+}
+.btn-icon.lucide {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  margin-top: -2px;
+}
+
+.pagination-buttons .btn-icon.lucide {
+  width: 14px;
+  height: 14px;
+  margin-top: 0;
+  vertical-align: middle;
+}
+
+.pagination-buttons #prev-page-btn .btn-icon.lucide {
+  margin-right: 4px;
+}
+
+.pagination-buttons #next-page-btn .btn-icon.lucide {
+  margin-right: 0;
+  margin-left: 4px;
+}
+.search-icon .lucide {
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+}
+.close-btn .lucide {
+  width: 22px;
+  height: 22px;
+}
+.inline-icon.lucide {
+  width: 14px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: -2px;
+}
+
+/* UI Polish Styles: Clipboard Buttons, Search Highlight, & Skeleton Loaders */
+
+/* Copy Action Button in Drawer values */
+.value-with-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+}
+
+.copy-btn {
+  position: relative;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.copy-btn:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--primary);
+}
+
+.copy-btn:active {
+  transform: scale(0.9);
+}
+
+.copy-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.copy-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.copy-btn.copied {
+  color: var(--success);
+}
+
+.copy-btn.copied::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-6px) scale(1);
+}
+
+.copy-btn.copied::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(2px) scale(1);
+}
+
+.copy-btn::after {
+  content: "Copied!";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-6px) scale(0.85);
+  background-color: #1e293b;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  font-family: var(--font-sans);
+}
+
+.copy-btn::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(2px) scale(0.85);
+  border: 4px solid transparent;
+  border-top-color: #1e293b;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
+}
+
+/* Search Term Highlight */
+.search-highlight {
+  background-color: rgba(43, 118, 219, 0.18);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* Ensure the text value inside value-with-action wraps correctly on small widths */
+.value-with-action .value {
+  flex: 1;
+  text-align: right;
+}

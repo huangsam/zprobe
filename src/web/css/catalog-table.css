@@ -1,3 +1,9 @@
+.date-cell {
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Media Table / File Station look */
 .catalog-section {
   overflow: hidden;
@@ -222,7 +228,6 @@ td:nth-child(5) {
 }
 
 /* Animated GIF hover-reveal overlay
- * ─────────────────────────────────────────────────────────────────────────────
  * The animated GIF img (.animated-overlay) is stacked on top of the JPEG
  * poster using absolute positioning.  It starts transparent and cross-fades in
  * on hover of the parent container.  Works for both the 44 px table cell
@@ -372,4 +377,114 @@ td.error-state {
 :is(#media-table th, #media-table tbody tr[role="button"]):focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
+}
+/* Pagination controls styling */
+.pagination-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  flex-wrap: wrap;
+  gap: 1rem;
+  flex-grow: 0;
+  flex-shrink: 0;
+}
+
+.pagination-container .pagination-info {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.pagination-container .pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.pagination-container .pagination-buttons button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.pagination-container #page-current {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 100px;
+  text-align: center;
+}
+
+@media (max-width: 576px) {
+  .pagination-container {
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .pagination-container .pagination-buttons .pagination-btn-text {
+    display: none;
+  }
+
+  .pagination-container .pagination-buttons button {
+    padding: 0.4rem;
+  }
+}
+
+/* Skeleton Loading Screens */
+@keyframes skeleton-pulse {
+  0% {
+    background-color: #f1f5f9;
+  }
+  50% {
+    background-color: #e2e8f0;
+  }
+  100% {
+    background-color: #f1f5f9;
+  }
+}
+
+.skeleton-row td {
+  pointer-events: none;
+}
+
+.skeleton-bar {
+  display: inline-block;
+  height: 0.9rem;
+  border-radius: 4px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+.skeleton-bar.name {
+  width: 55%;
+}
+.skeleton-bar.date {
+  width: 72%;
+}
+.skeleton-bar.size {
+  width: 60px;
+}
+.skeleton-bar.format {
+  width: 40px;
+}
+.skeleton-bar.dimensions {
+  width: 80px;
+}
+
+.skeleton-bar.dir {
+  width: 35%;
+  height: 0.7rem;
+  margin-top: 4px;
+  display: block;
+}
+
+.skeleton-bar.thumbnail-bar {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  display: block;
 }

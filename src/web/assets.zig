@@ -11,10 +11,14 @@ pub const font_pj_600 = @embedFile("fonts/plus-jakarta-600.woff2");
 
 // CSS components compiled at compile time
 const css_var = @embedFile("css/variables.css");
+const css_base = @embedFile("css/base.css");
+const css_comp = @embedFile("css/components.css");
 const css_lay = @embedFile("css/layout.css");
-const css_tbl = @embedFile("css/table.css");
-const css_grd = @embedFile("css/grid.css");
-pub const styles_css = css_var ++ css_lay ++ css_tbl ++ css_grd;
+const css_filt = @embedFile("css/filters.css");
+const css_tbl = @embedFile("css/catalog-table.css");
+const css_grd = @embedFile("css/catalog-grid.css");
+const css_ovl = @embedFile("css/overlays.css");
+pub const styles_css = css_var ++ css_base ++ css_comp ++ css_lay ++ css_filt ++ css_tbl ++ css_grd ++ css_ovl;
 
 // JS components compiled at compile time
 const js_state = @embedFile("js/state.js");

@@ -1,0 +1,107 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Support sticky footer layout */
+html,
+body {
+  box-sizing: border-box;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Spinner Animation for loading/refresh actions */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 0.5s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .details-drawer,
+  .drawer-backdrop,
+  .modal,
+  .modal-content,
+  .skeleton-bar,
+  .details-drawer.open .detail-section,
+  .spin {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  z-index: 2000;
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-surface);
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+  border: 2px solid var(--primary);
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+.surface {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
