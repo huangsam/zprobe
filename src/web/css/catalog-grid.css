@@ -36,7 +36,9 @@
   color: var(--text-secondary);
   border-radius: 4px;
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
   box-shadow: none;
 }
 
