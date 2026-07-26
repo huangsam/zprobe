@@ -17,8 +17,9 @@ const css_lay = @embedFile("css/layout.css");
 const css_filt = @embedFile("css/filters.css");
 const css_tbl = @embedFile("css/catalog-table.css");
 const css_grd = @embedFile("css/catalog-grid.css");
-const css_ovl = @embedFile("css/overlays.css");
-pub const styles_css = css_var ++ css_base ++ css_comp ++ css_lay ++ css_filt ++ css_tbl ++ css_grd ++ css_ovl;
+const css_mdl = @embedFile("css/modal.css");
+const css_drw = @embedFile("css/drawer.css");
+pub const styles_css = css_var ++ css_base ++ css_comp ++ css_lay ++ css_filt ++ css_tbl ++ css_grd ++ css_mdl ++ css_drw;
 
 // JS components compiled at compile time
 const js_state = @embedFile("js/state.js");
