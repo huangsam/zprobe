@@ -60,10 +60,10 @@
 }
 
 /* Catalog View Layout Switch */
-#catalog-table[data-view-layout="list"] .grid-container {
+.catalog-section[data-view-layout="list"] .grid-container {
   display: none;
 }
-#catalog-table[data-view-layout="grid"] .table-container {
+.catalog-section[data-view-layout="grid"] .table-container {
   display: none;
 }
 

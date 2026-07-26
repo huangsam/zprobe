@@ -49,7 +49,7 @@ function bindNotesEvents(row, container) {
     : document.getElementById("notes-textarea");
   if (!textarea) return;
 
-  initialNotesValue = textarea.value.trim();
+  initialNotesValue = (row.notes ?? "").trim();
 
   // Save on blur
   textarea.addEventListener("blur", () => {
@@ -107,6 +107,9 @@ function saveNotesIfDirty() {
   const targetHash = targetRecord.file_hash;
   const notesToSave = currentValue;
 
+  // Mark clean synchronously to prevent duplicate saves from blur & closeDrawer in same tick
+  initialNotesValue = currentValue;
+
   // Cancel any active save request (last-write-wins)
   if (activeNotesSaveController) {
     activeNotesSaveController.abort();
@@ -140,7 +143,6 @@ function saveNotesIfDirty() {
       targetRecord.notes = notesToSave;
 
       if (activeNotesRecord === targetRecord) {
-        initialNotesValue = notesToSave;
         showNotesStatus("Saved", "success");
       }
     })

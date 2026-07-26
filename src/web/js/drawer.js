@@ -16,8 +16,12 @@ async function copyToClipboard(text, btnElement) {
       if (!successful) throw new Error("Fallback copy command failed");
     }
     btnElement.classList.add("copied");
-    setTimeout(() => {
+    if (btnElement._copyTimeout) {
+      clearTimeout(btnElement._copyTimeout);
+    }
+    btnElement._copyTimeout = setTimeout(() => {
       btnElement.classList.remove("copied");
+      btnElement._copyTimeout = null;
     }, 1500);
   } catch (err) {
     console.error("Failed to copy text:", err);

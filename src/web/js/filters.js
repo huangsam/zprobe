@@ -218,8 +218,8 @@ function buildEmptyStateTitle(filterKeys) {
   if (filterKeys.includes("size")) {
     parts.push(`sized ${describeSizeFilter()}`);
   }
-  const sentence = `No ${parts.join(" ")} found matching your criteria`;
-  return sentence.charAt(3).toUpperCase() + sentence.slice(4);
+  const sentence = `No ${parts.join(" ")}`;
+  return sentence;
 }
 
 // Generate actionable suggestions to modify a specific filter
@@ -391,9 +391,14 @@ function setMoreFiltersExpanded(expanded) {
     bar.classList.remove("is-expanded");
     toggle.classList.remove("active");
     toggle.setAttribute("aria-expanded", "false");
+    const focusWasInside =
+      advanced && advanced.contains(document.activeElement);
     if (advanced) {
       advanced.setAttribute("inert", "");
       advanced.setAttribute("aria-hidden", "true");
+    }
+    if (focusWasInside) {
+      toggle.focus();
     }
     localStorage.setItem("zprobe_advanced_filters_expanded", "false");
   }

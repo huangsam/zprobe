@@ -208,29 +208,35 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
   // Sort headers
+  const handleSortClick = (th) => {
+    const key = th.getAttribute("data-sort");
+    if (!key) return;
+
+    if (sortConfig.key === key) {
+      sortConfig.direction = sortConfig.direction === "asc" ? "desc" : "asc";
+    } else {
+      sortConfig.key = key;
+      sortConfig.direction = "asc";
+    }
+
+    // Update UI sorting indicator
+    document
+      .querySelectorAll("#media-table th")
+      .forEach((el) => el.classList.remove("sort-asc", "sort-desc"));
+    th.classList.add(sortConfig.direction === "asc" ? "sort-asc" : "sort-desc");
+    updateSortAriaIndicators();
+
+    currentPage = 1;
+    fetchMedia({ showSkeleton: false });
+  };
+
   document.querySelectorAll("#media-table th").forEach((th) => {
-    th.addEventListener("click", () => {
-      const key = th.getAttribute("data-sort");
-      if (!key) return;
-
-      if (sortConfig.key === key) {
-        sortConfig.direction = sortConfig.direction === "asc" ? "desc" : "asc";
-      } else {
-        sortConfig.key = key;
-        sortConfig.direction = "asc";
+    th.addEventListener("click", () => handleSortClick(th));
+    th.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        handleSortClick(th);
       }
-
-      // Update UI sorting indicator
-      document
-        .querySelectorAll("#media-table th")
-        .forEach((el) => el.classList.remove("sort-asc", "sort-desc"));
-      th.classList.add(
-        sortConfig.direction === "asc" ? "sort-asc" : "sort-desc",
-      );
-      updateSortAriaIndicators();
-
-      currentPage = 1;
-      fetchMedia({ showSkeleton: false });
     });
   });
 
