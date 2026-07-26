@@ -251,8 +251,8 @@ select.select-sm {
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%) translateY(-6px) scale(0.85);
-  background-color: #1e293b;
-  color: #ffffff;
+  background-color: var(--slate-800);
+  color: var(--white);
   font-size: 0.72rem;
   font-weight: 500;
   padding: 4px 8px;
@@ -275,7 +275,7 @@ select.select-sm {
   left: 50%;
   transform: translateX(-50%) translateY(2px) scale(0.85);
   border: 4px solid transparent;
-  border-top-color: #1e293b;
+  border-top-color: var(--slate-800);
   opacity: 0;
   pointer-events: none;
   transition:

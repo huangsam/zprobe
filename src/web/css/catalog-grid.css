@@ -162,7 +162,7 @@
   text-transform: uppercase;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.6);
-  color: #ffffff;
+  color: var(--white);
   backdrop-filter: blur(4px);
 }
 
@@ -180,7 +180,7 @@
   font-weight: 500;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.7);
-  color: #ffffff;
+  color: var(--white);
   backdrop-filter: blur(4px);
 }
 

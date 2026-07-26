@@ -52,6 +52,17 @@
   --orange: #d97706;
   --orange-light: color-mix(in srgb, var(--orange) 8%, transparent);
 
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-800: #1e293b;
+  --emerald-500: #10b981;
+  --amber-100: #fef3c7;
+  --gray-100: #edf2f7;
+
+  --black: #000000;
+  --white: #ffffff;
+
   --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   --font-heading: "Outfit", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;

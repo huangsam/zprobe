@@ -86,7 +86,7 @@
   user-select: all;
   font-family: var(--font-mono);
   font-size: 0.85rem;
-  color: #1e293b;
+  color: var(--slate-800);
 }
 
 .details-drawer .map-link {
@@ -366,8 +366,8 @@
 }
 
 .modal .stat-card-icon.warning {
-  background: #fef3c7;
-  color: #d97706;
+  background: var(--amber-100);
+  color: var(--orange);
 }
 
 .modal .stat-card-icon .lucide {
