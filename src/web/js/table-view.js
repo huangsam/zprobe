@@ -117,10 +117,18 @@ function renderTable() {
 // Master rendering function determined by view mode preference
 function renderMediaCatalog() {
   const activeLayout = localStorage.getItem("zprobe_view_layout") || "list";
-  if (activeLayout === "grid") {
-    renderGrid();
+  const updateDOM = () => {
+    if (activeLayout === "grid") {
+      renderGrid();
+    } else {
+      renderTable();
+    }
+  };
+
+  if (document.startViewTransition && initialFetchComplete) {
+    document.startViewTransition(updateDOM);
   } else {
-    renderTable();
+    updateDOM();
   }
 }
 

@@ -131,7 +131,7 @@ async function fetchMedia({
   } finally {
     if (controller === currentFetchController) {
       const elapsedTime = Date.now() - startTime;
-      const minDuration = showRefreshSpinner ? 500 : 0;
+      const minDuration = showRefreshSpinner ? 500 : 150;
       const remainingTime = Math.max(0, minDuration - elapsedTime);
 
       setTimeout(() => {
