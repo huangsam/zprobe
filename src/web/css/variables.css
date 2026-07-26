@@ -63,6 +63,16 @@
   --black: #000000;
   --white: #ffffff;
 
+  /* Z-Index Stacking Context Scale */
+  --z-overlay: 1;
+  --z-elevated: 2;
+  --z-active: 3;
+  --z-tooltip: 10;
+  --z-backdrop: 999;
+  --z-drawer: 1000;
+  --z-modal: 1050;
+  --z-skip-link: 2000;
+
   --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   --font-heading: "Outfit", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;

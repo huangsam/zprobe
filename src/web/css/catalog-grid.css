@@ -135,7 +135,7 @@
   object-fit: cover;
   opacity: 0;
   transition: opacity var(--transition-normal);
-  z-index: 2;
+  z-index: var(--z-elevated);
 }
 
 .grid-card.has-animated:hover .animated-overlay,
@@ -155,7 +155,7 @@
   position: absolute;
   top: 8px;
   right: 8px;
-  z-index: 3;
+  z-index: var(--z-active);
   padding: 0.2rem 0.4rem;
   font-size: 0.7rem;
   font-weight: 600;
@@ -171,7 +171,7 @@
   position: absolute;
   bottom: 8px;
   right: 8px;
-  z-index: 3;
+  z-index: var(--z-active);
   display: inline-flex;
   align-items: center;
   gap: 4px;
