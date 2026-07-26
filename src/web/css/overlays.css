@@ -11,7 +11,7 @@
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.06);
   z-index: var(--z-drawer);
   transform: translateX(100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform var(--transition-drawer);
   display: flex;
   flex-direction: column;
 }
@@ -210,8 +210,8 @@
   opacity: 0;
   visibility: hidden;
   transition:
-    opacity 0.25s ease,
-    visibility 0.25s ease;
+    opacity var(--transition-normal),
+    visibility var(--transition-normal);
 }
 
 .modal.open {
@@ -231,7 +231,7 @@
   display: flex;
   flex-direction: column;
   transform: scale(0.95);
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform var(--transition-normal);
   overflow: hidden;
 }
 
@@ -477,7 +477,7 @@
 }
 
 .details-drawer.open .detail-section {
-  animation: fade-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fade-up var(--transition-bounce) forwards;
   opacity: 0;
 }
 

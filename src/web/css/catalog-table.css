@@ -240,7 +240,7 @@ td:nth-child(5) {
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--transition-normal);
   /* Ensure the poster .row-thumbnail/.drawer-preview-image beneath is visible */
   z-index: var(--z-overlay);
 }
