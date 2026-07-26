@@ -82,7 +82,7 @@ select.select-sm {
 }
 
 :is(
-  #search-input,
+  .search-input,
   select,
   .filter-inputs input[type="date"],
   .filter-inputs input[type="number"]
@@ -99,7 +99,7 @@ select.select-sm {
 }
 
 :is(
-  #search-input,
+  .search-input,
   select,
   .filter-inputs input[type="date"],
   .filter-inputs input[type="number"]
@@ -109,7 +109,7 @@ select.select-sm {
 }
 
 :is(
-  #search-input,
+  .search-input,
   .filter-inputs input[type="date"],
   .filter-inputs input[type="number"]
 ):is(:focus, :focus-visible) {
@@ -161,11 +161,11 @@ select.select-sm {
   vertical-align: middle;
 }
 
-.pagination-buttons #prev-page-btn .btn-icon.lucide {
+.pagination-buttons .prev-page-btn .btn-icon.lucide {
   margin-right: 4px;
 }
 
-.pagination-buttons #next-page-btn .btn-icon.lucide {
+.pagination-buttons .next-page-btn .btn-icon.lucide {
   margin-right: 0;
   margin-left: 4px;
 }

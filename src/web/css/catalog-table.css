@@ -83,8 +83,8 @@ th:hover {
   }
 }
 
-#media-table th.sort-asc::after,
-#media-table th.sort-desc::after {
+.media-table th.sort-asc::after,
+.media-table th.sort-desc::after {
   content: "";
   display: inline-block;
   width: 0;
@@ -95,11 +95,11 @@ th:hover {
   border-right: 4px solid transparent;
 }
 
-#media-table th.sort-asc::after {
+.media-table th.sort-asc::after {
   border-bottom: 5px solid var(--text-secondary);
 }
 
-#media-table th.sort-desc::after {
+.media-table th.sort-desc::after {
   border-top: 5px solid var(--text-secondary);
 }
 
@@ -117,7 +117,7 @@ tr:hover td {
   background: var(--bg-surface-hover);
 }
 
-#media-table tbody tr[role="button"]:focus-visible td {
+.media-table tbody tr[role="button"]:focus-visible td {
   background: var(--bg-surface-hover);
 }
 
@@ -374,7 +374,7 @@ td.error-state {
   color: var(--danger);
 }
 
-:is(#media-table th, #media-table tbody tr[role="button"]):focus-visible {
+:is(.media-table th, .media-table tbody tr[role="button"]):focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
 }
@@ -410,7 +410,7 @@ td.error-state {
   font-size: 0.85rem;
 }
 
-.pagination-container #page-current {
+.pagination-container .page-current {
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--text-primary);

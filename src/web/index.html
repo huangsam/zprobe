@@ -66,6 +66,7 @@
               <input
                 type="text"
                 id="search-input"
+                class="search-input"
                 placeholder="Search path, camera, format, or notes..."
               />
             </div>
@@ -227,7 +228,7 @@
               <button
                 type="button"
                 id="clear-filters-btn"
-                class="btn btn-secondary btn-sm"
+                class="btn btn-secondary btn-sm clear-filters-btn"
               >
                 Clear filters
               </button>
@@ -267,7 +268,7 @@
             </div>
           </div>
           <div class="table-container" aria-busy="false">
-            <table id="media-table">
+            <table id="media-table" class="media-table">
               <caption class="visually-hidden">
                 Media catalog — sortable list of scanned files
               </caption>
@@ -419,7 +420,7 @@
             <div class="pagination-buttons">
               <button
                 id="prev-page-btn"
-                class="btn btn-secondary btn-sm"
+                class="btn btn-secondary btn-sm prev-page-btn"
                 disabled
               >
                 <i
@@ -429,10 +430,10 @@
                 ></i>
                 <span class="pagination-btn-text">Previous</span>
               </button>
-              <span id="page-current">Page 1 of 1</span>
+              <span id="page-current" class="page-current">Page 1 of 1</span>
               <button
                 id="next-page-btn"
-                class="btn btn-secondary btn-sm"
+                class="btn btn-secondary btn-sm next-page-btn"
                 disabled
               >
                 <span class="pagination-btn-text">Next</span>

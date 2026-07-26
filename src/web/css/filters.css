@@ -45,7 +45,7 @@
   color: var(--text-muted);
 }
 
-.filter-bar .search-wrapper #search-input {
+.filter-bar .search-wrapper .search-input {
   width: 100%;
   background: var(--bg-input);
   padding: 0.75rem 1rem 0.75rem 2.75rem;
@@ -228,7 +228,7 @@
     align-items: stretch;
   }
 
-  .filter-bar #clear-filters-btn {
+  .filter-bar .clear-filters-btn {
     width: 100%;
     justify-content: center;
   }
