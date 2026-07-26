@@ -23,9 +23,11 @@ function formatBytes(bytes) {
 
 // Format a duration in seconds to a human-readable string (e.g. 1h 30m 15s)
 function formatDuration(seconds) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.round(seconds % 60);
+  if (seconds == null || seconds < 0) return "0s";
+  const totalSecs = Math.round(seconds);
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
 
   const parts = [];
   if (h > 0) parts.push(`${h}h`);
@@ -36,11 +38,14 @@ function formatDuration(seconds) {
 
 // Helper: Calculate aspect ratio
 function calculateAspectRatio(w, h) {
+  if (!w || !h || w <= 0 || h <= 0) return "—";
+  const intW = Math.round(w);
+  const intH = Math.round(h);
   function gcd(a, b) {
-    return b == 0 ? a : gcd(b, a % b);
+    return b === 0 ? a : gcd(b, a % b);
   }
-  const r = gcd(w, h);
-  return `${w / r}:${h / r}`;
+  const r = gcd(intW, intH);
+  return `${intW / r}:${intH / r}`;
 }
 
 // Helper: Format create_time for table display
