@@ -28,14 +28,6 @@ jobs:
         with:
           version: 0.16.0
 
-      - name: Cache Zig build cache
-        uses: actions/cache@v6
-        with:
-          path: .zig-cache
-          key: zig-cache-${{ runner.os }}-${{ hashFiles('build.zig', 'build.zig.zon', 'deps/sqlite/sqlite3.c') }}
-          restore-keys: |
-            zig-cache-${{ runner.os }}-
-
       - name: Build zprobe (Debug)
         run: zig build -Doptimize=Debug
 
@@ -54,15 +46,6 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
-
-      - name: Cache Zig build cache
-        uses: actions/cache@v6
-        with:
-          path: .zig-cache
-          key: zig-cache-${{ runner.os }}-release-${{ hashFiles('build.zig', 'build.zig.zon', 'deps/sqlite/sqlite3.c') }}
-          restore-keys: |
-            zig-cache-${{ runner.os }}-release-
-            zig-cache-${{ runner.os }}-
 
       - name: Run cross-compilation for all release targets
         run: zig build release-all
