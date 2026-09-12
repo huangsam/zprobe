@@ -16,7 +16,7 @@ SQLITE_DIR = ROOT / "deps" / "sqlite"
 VENDOR_DIR = ROOT / "src" / "web" / "js" / "vendor"
 
 DEFAULT_SQLITE_VERSION = "3.53.4"
-DEFAULT_LUCIDE_VERSION = "1.23.0"
+DEFAULT_LUCIDE_VERSION = "1.45.0"
 DEFAULT_CHART_VERSION = "4.5.1"
 
 
