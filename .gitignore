@@ -2,6 +2,10 @@
 .zig-cache/
 zig-out/
 
+# Python artifacts
+__pycache__/
+*.py[cod]
+
 # Agent & IDE directories
 .claude/
 .vscode/
