@@ -1,0 +1,468 @@
+const std = @import("std");
+
+const usage =
+    \\Usage:
+    \\  zprobe-deploy <command> [options]
+    \\
+    \\Commands:
+    \\  build             Build target release binaries
+    \\  service           Generate a systemd unit file for the server
+    \\  install           Build, upload, and install the remote service and CLI
+    \\  help              Show this help text
+    \\
+    \\Options:
+    \\  --host <user@host> Remote SSH host (required for install)
+    \\  --user <username>  Systemd service user (default: parsed from host, or sunbunbun)
+    \\  --remote-dir <path> Remote staging directory (default: /volume1/docker/zprobe)
+    \\  --port <port>      Server listen port (default: 8085)
+    \\  --db <path>        Path to SQLite cache DB on remote host
+    \\                     (default: /volume1/docker/zprobe/zprobe_cache.db)
+    \\  --output <path>    Output file for 'service' command (- for stdout)
+    \\  --target <name>    Target architecture name (default: synology-arm64)
+    \\
+    \\Examples:
+    \\  zprobe-deploy build
+    \\  zprobe-deploy service --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db
+    \\  zprobe-deploy install --host sunbunbun@sunnybunny.local --remote-dir /volume1/docker/zprobe
+    \\
+;
+
+pub const default_target = "synology-arm64";
+pub const default_remote_dir = "/volume1/docker/zprobe";
+pub const default_port: u16 = 8085;
+pub const default_db_path = "/volume1/docker/zprobe/zprobe_cache.db";
+pub const default_output = "-";
+pub const default_user = "sunbunbun";
+
+pub const Command = enum {
+    build,
+    service,
+    install,
+    help,
+
+    pub fn fromString(s: []const u8) ?Command {
+        if (std.mem.eql(u8, s, "build")) return .build;
+        if (std.mem.eql(u8, s, "service")) return .service;
+        if (std.mem.eql(u8, s, "install")) return .install;
+        if (std.mem.eql(u8, s, "help") or std.mem.eql(u8, s, "-h") or std.mem.eql(u8, s, "--help")) return .help;
+        return null;
+    }
+};
+
+pub const DeployError = error{
+    UnknownCommand,
+    UnknownArgument,
+    MissingHostValue,
+    MissingUserValue,
+    MissingRemoteDirValue,
+    MissingPortValue,
+    MissingDbValue,
+    MissingOutputValue,
+    MissingTargetValue,
+    InvalidPortNumber,
+    BinaryNotFound,
+    BuildFailed,
+    SyncFailed,
+    RemoteExecutionFailed,
+    CommandFailed,
+};
+
+pub const ParsedArgs = struct {
+    command: Command,
+    host: []const u8,
+    user: ?[]const u8,
+    remote_dir: []const u8,
+    port: u16,
+    db: []const u8,
+    output: []const u8,
+    target: []const u8,
+};
+
+pub fn printUsage(io: std.Io) !void {
+    var stdout_buf: [4096]u8 = undefined;
+    var writer = std.Io.File.Writer.init(.stdout(), io, &stdout_buf);
+    try writer.interface.writeAll(usage);
+    try writer.flush();
+}
+
+pub fn extractUserFromHost(host: []const u8) []const u8 {
+    if (std.mem.indexOfScalar(u8, host, '@')) |idx| {
+        if (idx > 0) {
+            return host[0..idx];
+        }
+    }
+    return default_user;
+}
+
+pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
+    var result: ParsedArgs = .{
+        .command = .help,
+        .host = "",
+        .user = null,
+        .remote_dir = default_remote_dir,
+        .port = default_port,
+        .db = default_db_path,
+        .output = default_output,
+        .target = default_target,
+    };
+
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+
+        if (Command.fromString(arg)) |cmd| {
+            result.command = cmd;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--host")) {
+            i += 1;
+            if (i >= args.len) return error.MissingHostValue;
+            result.host = args[i];
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--user")) {
+            i += 1;
+            if (i >= args.len) return error.MissingUserValue;
+            result.user = args[i];
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--remote-dir")) {
+            i += 1;
+            if (i >= args.len) return error.MissingRemoteDirValue;
+            result.remote_dir = args[i];
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--port")) {
+            i += 1;
+            if (i >= args.len) return error.MissingPortValue;
+            result.port = std.fmt.parseInt(u16, args[i], 10) catch return error.InvalidPortNumber;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--db")) {
+            i += 1;
+            if (i >= args.len) return error.MissingDbValue;
+            result.db = args[i];
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--output")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOutputValue;
+            result.output = args[i];
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--target")) {
+            i += 1;
+            if (i >= args.len) return error.MissingTargetValue;
+            result.target = args[i];
+            continue;
+        }
+
+        return error.UnknownArgument;
+    }
+
+    return result;
+}
+
+fn runCommand(io: std.Io, argv: []const []const u8) !void {
+    var child = std.process.spawn(io, .{
+        .argv = argv,
+        .cwd = .inherit,
+        .stdin = .inherit,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    }) catch |err| {
+        std.debug.print("Failed to start command '{s}': {s}\n", .{ argv[0], @errorName(err) });
+        return err;
+    };
+
+    const term = try child.wait(io);
+    switch (term) {
+        .exited => |code| {
+            if (code != 0) {
+                std.debug.print("Command failed with exit code {d}: {s}\n", .{ code, argv[0] });
+                return error.CommandFailed;
+            }
+        },
+        else => {
+            std.debug.print("Command terminated unexpectedly: {s}\n", .{argv[0]});
+            return error.CommandFailed;
+        },
+    }
+}
+
+pub fn resolveBinaryPath(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    target: []const u8,
+    base_name: []const u8,
+) ![]const u8 {
+    const candidate_names = [_][]const u8{
+        try std.fmt.allocPrint(allocator, "{s}-{s}", .{ base_name, target }),
+        try allocator.dupe(u8, base_name),
+    };
+    defer {
+        for (candidate_names) |c| allocator.free(c);
+    }
+
+    for (candidate_names) |cand| {
+        const full_path = try std.fs.path.resolve(allocator, &.{ "zig-out", "bin", cand });
+        errdefer allocator.free(full_path);
+
+        if (std.Io.Dir.openFileAbsolute(io, full_path, .{ .mode = .read_only })) |file| {
+            std.Io.File.close(file, io);
+            return full_path;
+        } else |_| {
+            allocator.free(full_path);
+        }
+    }
+
+    return error.BinaryNotFound;
+}
+
+pub fn generateServiceUnitContent(
+    allocator: std.mem.Allocator,
+    user: []const u8,
+    working_dir: []const u8,
+    port: u16,
+    db_path: []const u8,
+) ![]const u8 {
+    return std.fmt.allocPrint(
+        allocator,
+        \\[Unit]
+        \\Description=zprobe Insights Server
+        \\After=network.target
+        \\
+        \\[Service]
+        \\Type=simple
+        \\User={s}
+        \\WorkingDirectory={s}
+        \\ExecStart=/usr/local/bin/zprobe-server --port {d} --db {s}
+        \\Restart=on-failure
+        \\RestartSec=5
+        \\
+        \\[Install]
+        \\WantedBy=multi-user.target
+        \\
+    ,
+        .{ user, working_dir, port, db_path },
+    );
+}
+
+fn writeServiceFile(io: std.Io, allocator: std.mem.Allocator, output_path: []const u8, content: []const u8) !void {
+    if (std.mem.eql(u8, output_path, "-")) {
+        var stdout_buf: [8192]u8 = undefined;
+        var writer = std.Io.File.Writer.init(.stdout(), io, &stdout_buf);
+        try writer.interface.writeAll(content);
+        try writer.flush();
+        return;
+    }
+
+    const abs_path = try std.fs.path.resolve(allocator, &.{output_path});
+    defer allocator.free(abs_path);
+
+    if (std.fs.path.dirname(abs_path)) |parent| {
+        if (std.Io.Dir.openDirAbsolute(io, parent, .{})) |d| {
+            std.Io.Dir.close(d, io);
+        } else |_| {
+            try std.Io.Dir.createDirPath(std.Io.Dir.cwd(), io, parent);
+        }
+    }
+
+    const file = try std.Io.Dir.createFileAbsolute(io, abs_path, .{ .truncate = true, .read = false });
+    defer std.Io.File.close(file, io);
+    try std.Io.File.writePositionalAll(file, io, content, 0);
+}
+
+fn runBuild(io: std.Io, target: []const u8) !void {
+    std.debug.print("[deploy] Building release targets for: {s}\n", .{target});
+    const argv = [_][]const u8{ "zig", "build", "release-all" };
+    runCommand(io, &argv) catch return error.BuildFailed;
+    std.debug.print("[deploy] Build complete.\n", .{});
+}
+
+fn runService(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    user: []const u8,
+    remote_dir: []const u8,
+    port: u16,
+    db_path: []const u8,
+    output: []const u8,
+) !void {
+    const unit = try generateServiceUnitContent(allocator, user, remote_dir, port, db_path);
+    defer allocator.free(unit);
+
+    try writeServiceFile(io, allocator, output, unit);
+    if (!std.mem.eql(u8, output, "-")) {
+        std.debug.print("[deploy] Service file generated at {s}\n", .{output});
+    }
+}
+
+fn runInstall(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    host: []const u8,
+    opt_user: ?[]const u8,
+    remote_dir: []const u8,
+    port: u16,
+    db_path: []const u8,
+    target: []const u8,
+) !void {
+    const service_user = if (opt_user) |u| u else extractUserFromHost(host);
+
+    try runBuild(io, target);
+
+    const cli_binary_path = try resolveBinaryPath(allocator, io, target, "zprobe");
+    defer allocator.free(cli_binary_path);
+
+    const server_binary_path = try resolveBinaryPath(allocator, io, target, "zprobe-server");
+    defer allocator.free(server_binary_path);
+
+    std.debug.print("[deploy] Found CLI binary: {s}\n", .{cli_binary_path});
+    std.debug.print("[deploy] Found server binary: {s}\n", .{server_binary_path});
+
+    // 1. Single pre-flight SSH step: ensure remote staging directory exists and stop running service
+    std.debug.print("[deploy] Pre-flight: preparing remote staging directory and stopping existing service...\n", .{});
+    const preflight_cmd = try std.fmt.allocPrint(
+        allocator,
+        "mkdir -p \"{s}\" && (sudo systemctl stop zprobe-server.service 2>/dev/null || true)",
+        .{remote_dir},
+    );
+    defer allocator.free(preflight_cmd);
+    _ = runCommand(io, &.{ "ssh", "-t", host, preflight_cmd }) catch {};
+
+    // 2. Generate service unit and stage locally to a temporary file
+    const service_unit = try generateServiceUnitContent(allocator, service_user, remote_dir, port, db_path);
+    defer allocator.free(service_unit);
+
+    const local_service_path = try std.fs.path.resolve(allocator, &.{ "zig-out", "zprobe-server.service" });
+    defer allocator.free(local_service_path);
+
+    try writeServiceFile(io, allocator, local_service_path, service_unit);
+    defer std.Io.Dir.deleteFileAbsolute(io, local_service_path) catch {};
+
+    // 3. Rsync all 3 deployment artifacts (CLI, server, service unit) to remote staging directory
+    const rsync_dest = try std.fmt.allocPrint(allocator, "{s}:{s}/", .{ host, remote_dir });
+    defer allocator.free(rsync_dest);
+
+    std.debug.print("[deploy] Syncing binaries and service unit to {s}...\n", .{rsync_dest});
+    runCommand(io, &.{ "rsync", "-avz", "--progress", cli_binary_path, server_binary_path, local_service_path, rsync_dest }) catch return error.SyncFailed;
+
+    // 4. Remote installation script (no inline heredocs)
+    const db_dir = std.fs.path.dirname(db_path) orelse remote_dir;
+
+    const remote_script = try std.fmt.allocPrint(
+        allocator,
+        \\sudo mkdir -p /usr/local/bin /etc/systemd/system "{s}" && \
+        \\sudo install -m 755 "{s}/zprobe" /usr/local/bin/zprobe && \
+        \\sudo install -m 755 "{s}/zprobe-server" /usr/local/bin/zprobe-server && \
+        \\sudo install -m 644 "{s}/zprobe-server.service" /etc/systemd/system/zprobe-server.service && \
+        \\sudo systemctl daemon-reload && \
+        \\sudo systemctl enable --now zprobe-server.service && \
+        \\sudo systemctl restart zprobe-server.service && \
+        \\sudo systemctl is-active --quiet zprobe-server.service
+    ,
+        .{ db_dir, remote_dir, remote_dir, remote_dir },
+    );
+    defer allocator.free(remote_script);
+
+    std.debug.print("[deploy] Installing binaries and activating systemd service on {s}...\n", .{host});
+    runCommand(io, &.{ "ssh", "-t", host, remote_script }) catch return error.RemoteExecutionFailed;
+
+    std.debug.print("[deploy] Verification succeeded; zprobe-server is active.\n", .{});
+}
+
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const allocator = init.gpa;
+    const args = try init.minimal.args.toSlice(allocator);
+    defer allocator.free(args);
+
+    const parsed = parseArgs(args) catch |err| {
+        std.debug.print("Error: {s}\n\n", .{@errorName(err)});
+        printUsage(io) catch {};
+        std.process.exit(1);
+    };
+
+    switch (parsed.command) {
+        .help => try printUsage(io),
+        .build => try runBuild(io, parsed.target),
+        .service => {
+            const service_user = parsed.user orelse default_user;
+            try runService(io, allocator, service_user, parsed.remote_dir, parsed.port, parsed.db, parsed.output);
+        },
+        .install => {
+            if (parsed.host.len == 0) {
+                std.debug.print("Error: install requires --host <user@host>\n", .{});
+                std.process.exit(1);
+            }
+            try runInstall(io, allocator, parsed.host, parsed.user, parsed.remote_dir, parsed.port, parsed.db, parsed.target);
+        },
+    }
+}
+
+test "extractUserFromHost extracts username or falls back to default" {
+    try std.testing.expectEqualStrings("sunbunbun", extractUserFromHost("sunbunbun@sunnybunny.local"));
+    try std.testing.expectEqualStrings("admin", extractUserFromHost("admin@192.168.1.100"));
+    try std.testing.expectEqualStrings("sunbunbun", extractUserFromHost("sunnybunny.local"));
+    try std.testing.expectEqualStrings("sunbunbun", extractUserFromHost("@sunnybunny.local"));
+}
+
+test "parseArgs parses flags and defaults correctly" {
+    const args = [_][:0]const u8{
+        "zprobe-deploy",
+        "install",
+        "--host",
+        "sunbunbun@sunnybunny.local",
+        "--user",
+        "customuser",
+        "--port",
+        "9000",
+        "--db",
+        "/custom/path.db",
+        "--remote-dir",
+        "/volume1/app",
+        "--target",
+        "synology-x86_64",
+    };
+
+    const parsed = try parseArgs(&args);
+    try std.testing.expectEqual(Command.install, parsed.command);
+    try std.testing.expectEqualStrings("sunbunbun@sunnybunny.local", parsed.host);
+    try std.testing.expectEqualStrings("customuser", parsed.user.?);
+    try std.testing.expectEqual(@as(u16, 9000), parsed.port);
+    try std.testing.expectEqualStrings("/custom/path.db", parsed.db);
+    try std.testing.expectEqualStrings("/volume1/app", parsed.remote_dir);
+    try std.testing.expectEqualStrings("synology-x86_64", parsed.target);
+}
+
+test "parseArgs handles missing flag values and invalid numbers" {
+    const args_missing_host = [_][:0]const u8{ "zprobe-deploy", "install", "--host" };
+    try std.testing.expectError(error.MissingHostValue, parseArgs(&args_missing_host));
+
+    const args_unknown = [_][:0]const u8{ "zprobe-deploy", "--unknown-flag" };
+    try std.testing.expectError(error.UnknownArgument, parseArgs(&args_unknown));
+
+    const args_invalid_port = [_][:0]const u8{ "zprobe-deploy", "service", "--port", "invalid" };
+    try std.testing.expectError(error.InvalidPortNumber, parseArgs(&args_invalid_port));
+}
+
+test "generateServiceUnitContent creates expected systemd unit structure" {
+    const allocator = std.testing.allocator;
+    const unit = try generateServiceUnitContent(allocator, "sunbunbun", "/volume1/docker/zprobe", 8085, "/volume1/docker/zprobe/zprobe_cache.db");
+    defer allocator.free(unit);
+
+    try std.testing.expect(std.mem.indexOf(u8, unit, "Description=zprobe Insights Server") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unit, "User=sunbunbun") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unit, "WorkingDirectory=/volume1/docker/zprobe") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unit, "ExecStart=/usr/local/bin/zprobe-server --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unit, "Restart=on-failure") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unit, "WantedBy=multi-user.target") != null);
+}

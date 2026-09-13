@@ -109,6 +109,18 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(server_exe);
 
+    const deploy_exe = b.addExecutable(.{
+        .name = "zprobe-deploy",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/deploy.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const deploy_step = b.step("zprobe-deploy", "Build the zprobe deployment helper");
+    const install_deploy = b.addInstallArtifact(deploy_exe, .{});
+    deploy_step.dependOn(&install_deploy.step);
+
     // release-all step for building Apple Silicon and Synology NAS variants
     const release_all_step = b.step("release-all", "Build all production variants of zprobe");
 
@@ -221,8 +233,14 @@ pub fn build(b: *std.Build) void {
 
     const run_server_tests = b.addRunArtifact(server_tests);
 
+    const deploy_tests = b.addTest(.{
+        .root_module = deploy_exe.root_module,
+    });
+    const run_deploy_tests = b.addRunArtifact(deploy_tests);
+
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_server_tests.step);
+    test_step.dependOn(&run_deploy_tests.step);
 }
