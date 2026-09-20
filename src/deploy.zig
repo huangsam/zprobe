@@ -13,7 +13,7 @@ const usage =
     \\
     \\Options:
     \\  --host <user@host> Remote SSH host (required for install)
-    \\  --user <username>  Systemd service user (default: parsed from host, or sunbunbun)
+    \\  --user <username>  Systemd service user (default: parsed from --host, required for service)
     \\  --remote-dir <path> Remote staging directory (default: /volume1/docker/zprobe)
     \\  --port <port>      Server listen port (default: 8085)
     \\  --db <path>        Path to SQLite cache DB on remote host
@@ -23,8 +23,8 @@ const usage =
     \\
     \\Examples:
     \\  zprobe-deploy build
-    \\  zprobe-deploy service --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db
-    \\  zprobe-deploy install --host sunbunbun@sunnybunny.local --remote-dir /volume1/docker/zprobe
+    \\  zprobe-deploy service --user admin --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db
+    \\  zprobe-deploy install --host admin@nas.local --remote-dir /volume1/docker/zprobe
     \\
 ;
 
@@ -33,7 +33,6 @@ pub const default_remote_dir = "/volume1/docker/zprobe";
 pub const default_port: u16 = 8085;
 pub const default_db_path = "/volume1/docker/zprobe/zprobe_cache.db";
 pub const default_output = "-";
-pub const default_user = "sunbunbun";
 
 pub const Command = enum {
     build,
@@ -86,13 +85,13 @@ pub fn printUsage(io: std.Io) !void {
     try writer.flush();
 }
 
-pub fn extractUserFromHost(host: []const u8) []const u8 {
+pub fn extractUserFromHost(host: []const u8) ?[]const u8 {
     if (std.mem.indexOfScalar(u8, host, '@')) |idx| {
         if (idx > 0) {
             return host[0..idx];
         }
     }
-    return default_user;
+    return null;
 }
 
 pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
@@ -310,14 +309,12 @@ fn runInstall(
     io: std.Io,
     allocator: std.mem.Allocator,
     host: []const u8,
-    opt_user: ?[]const u8,
+    service_user: []const u8,
     remote_dir: []const u8,
     port: u16,
     db_path: []const u8,
     target: []const u8,
 ) !void {
-    const service_user = if (opt_user) |u| u else extractUserFromHost(host);
-
     try runBuild(io, target);
 
     const cli_binary_path = try resolveBinaryPath(allocator, io, target, "zprobe");
@@ -399,24 +396,34 @@ pub fn main(init: std.process.Init) !void {
         .help => try printUsage(io),
         .build => try runBuild(io, parsed.target),
         .service => {
-            const service_user = parsed.user orelse default_user;
+            const service_user = parsed.user orelse {
+                std.debug.print("Error: service command requires --user <username>\n\n", .{});
+                printUsage(io) catch {};
+                std.process.exit(1);
+            };
             try runService(io, allocator, service_user, parsed.remote_dir, parsed.port, parsed.db, parsed.output);
         },
         .install => {
             if (parsed.host.len == 0) {
-                std.debug.print("Error: install requires --host <user@host>\n", .{});
+                std.debug.print("Error: install requires --host <user@host>\n\n", .{});
+                printUsage(io) catch {};
                 std.process.exit(1);
             }
-            try runInstall(io, allocator, parsed.host, parsed.user, parsed.remote_dir, parsed.port, parsed.db, parsed.target);
+            const service_user = parsed.user orelse (extractUserFromHost(parsed.host) orelse {
+                std.debug.print("Error: user could not be determined. Please specify --user <username> or provide --host <user@host>\n\n", .{});
+                printUsage(io) catch {};
+                std.process.exit(1);
+            });
+            try runInstall(io, allocator, parsed.host, service_user, parsed.remote_dir, parsed.port, parsed.db, parsed.target);
         },
     }
 }
 
-test "extractUserFromHost extracts username or falls back to default" {
-    try std.testing.expectEqualStrings("sunbunbun", extractUserFromHost("sunbunbun@sunnybunny.local"));
-    try std.testing.expectEqualStrings("admin", extractUserFromHost("admin@192.168.1.100"));
-    try std.testing.expectEqualStrings("sunbunbun", extractUserFromHost("sunnybunny.local"));
-    try std.testing.expectEqualStrings("sunbunbun", extractUserFromHost("@sunnybunny.local"));
+test "extractUserFromHost extracts username or returns null" {
+    try std.testing.expectEqualStrings("admin", extractUserFromHost("admin@nas.local").?);
+    try std.testing.expectEqualStrings("admin", extractUserFromHost("admin@192.168.1.100").?);
+    try std.testing.expect(extractUserFromHost("nas.local") == null);
+    try std.testing.expect(extractUserFromHost("@nas.local") == null);
 }
 
 test "parseArgs parses flags and defaults correctly" {
@@ -424,7 +431,7 @@ test "parseArgs parses flags and defaults correctly" {
         "zprobe-deploy",
         "install",
         "--host",
-        "sunbunbun@sunnybunny.local",
+        "admin@nas.local",
         "--user",
         "customuser",
         "--port",
@@ -439,7 +446,7 @@ test "parseArgs parses flags and defaults correctly" {
 
     const parsed = try parseArgs(&args);
     try std.testing.expectEqual(Command.install, parsed.command);
-    try std.testing.expectEqualStrings("sunbunbun@sunnybunny.local", parsed.host);
+    try std.testing.expectEqualStrings("admin@nas.local", parsed.host);
     try std.testing.expectEqualStrings("customuser", parsed.user.?);
     try std.testing.expectEqual(@as(u16, 9000), parsed.port);
     try std.testing.expectEqualStrings("/custom/path.db", parsed.db);
@@ -460,11 +467,11 @@ test "parseArgs handles missing flag values and invalid numbers" {
 
 test "generateServiceUnitContent creates expected systemd unit structure" {
     const allocator = std.testing.allocator;
-    const unit = try generateServiceUnitContent(allocator, "sunbunbun", "/volume1/docker/zprobe", 8085, "/volume1/docker/zprobe/zprobe_cache.db");
+    const unit = try generateServiceUnitContent(allocator, "admin", "/volume1/docker/zprobe", 8085, "/volume1/docker/zprobe/zprobe_cache.db");
     defer allocator.free(unit);
 
     try std.testing.expect(std.mem.indexOf(u8, unit, "Description=zprobe Insights Server") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "User=sunbunbun") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unit, "User=admin") != null);
     try std.testing.expect(std.mem.indexOf(u8, unit, "WorkingDirectory=/volume1/docker/zprobe") != null);
     try std.testing.expect(std.mem.indexOf(u8, unit, "ExecStart=/usr/local/bin/zprobe-server --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db") != null);
     try std.testing.expect(std.mem.indexOf(u8, unit, "Restart=on-failure") != null);

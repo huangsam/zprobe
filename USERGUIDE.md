@@ -149,7 +149,7 @@ Alternatively, you can run `zprobe-server` inside a lightweight container:
      -p 8085:8085 \
      -e ZPROBE_AUTH_USER=admin \
      -e ZPROBE_AUTH_PASS=secretpassword \
-     -v /volume1/homes/sunbunbun/Tools:/app/data \
+     -v /volume1/docker/zprobe:/app/data \
      --name zprobe-server \
      zprobe-server
    ```
