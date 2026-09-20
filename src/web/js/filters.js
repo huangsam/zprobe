@@ -495,17 +495,6 @@ function initMoreFiltersToggle() {
   updateAdvancedFilterBadge();
 }
 
-// Check if any advanced filters are currently populated
-function hasAdvancedFilters() {
-  const adv = getAdvancedFilterParams();
-  return (
-    adv.date_from !== null ||
-    adv.date_to !== null ||
-    adv.size_min !== null ||
-    adv.size_max !== null
-  );
-}
-
 // Populate format filter options dynamically based on selected type
 function updateFormatFilterOptions() {
   const select = document.getElementById("filter-format");
@@ -552,19 +541,6 @@ function updateFormatFilterOptions() {
   select.value = sortedFormats.includes(currentVal.toUpperCase())
     ? currentVal
     : "";
-}
-
-// Determine if any filters (search, format, type, advanced) are active
-function hasActiveFilters() {
-  const searchVal = document.getElementById("search-input").value.trim();
-  const formatFilter = document.getElementById("filter-format").value;
-  const typeFilter = document.getElementById("filter-type").value;
-  return (
-    searchVal.length > 0 ||
-    formatFilter.length > 0 ||
-    typeFilter.length > 0 ||
-    hasAdvancedFilters()
-  );
 }
 
 // Clear a specific filter by its key
