@@ -9,7 +9,7 @@ The project ships as two focused binaries: `zprobe` for fast CLI scanning and me
 
 Unlike bloated media indexers, `zprobe` is built specifically for constrained environments like a NAS or Raspberry Pi. By reading raw binary headers and leveraging SQLite for caching, it enables near-instant incremental scans and visual filtering without the heavy overhead. The result is two self-contained binaries, in the spirit of classic Unix utilities like `ls` or `grep`.
 
-See the [User Guide](USERGUIDE.md) and [Developer & Agent Guide](AGENTS.md) to dive deeper.
+See the [User Guide](USERGUIDE.md), [Developer & Agent Guide](AGENTS.md), and [Architecture Documentation](docs/README.md) to dive deeper.
 
 ## Dashboard Preview
 
