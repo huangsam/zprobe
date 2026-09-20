@@ -9,7 +9,13 @@ pub fn main(init: std.process.Init) !void {
 
     const env_user = init.environ_map.get("ZPROBE_AUTH_USER");
     const env_pass = init.environ_map.get("ZPROBE_AUTH_PASS");
-    const has_auth = env_user != null and env_pass != null;
+    const user_set = if (env_user) |u| u.len > 0 else false;
+    const pass_set = if (env_pass) |p| p.len > 0 else false;
+    if (user_set != pass_set) {
+        std.debug.print("Error: Both ZPROBE_AUTH_USER and ZPROBE_AUTH_PASS must be set to enable authentication.\n", .{});
+        std.process.exit(1);
+    }
+    const has_auth = user_set and pass_set;
     const auth_user = if (has_auth) env_user else null;
     const auth_pass = if (has_auth) env_pass else null;
 

@@ -17,7 +17,13 @@ pub fn generateServiceUnit(
     allocator: std.mem.Allocator,
     config: ServiceConfig,
 ) ![]u8 {
-    if (config.auth_user != null and config.auth_pass != null) {
+    const user_set = if (config.auth_user) |u| u.len > 0 else false;
+    const pass_set = if (config.auth_pass) |p| p.len > 0 else false;
+    if (user_set != pass_set) {
+        return error.IncompleteAuth;
+    }
+
+    if (user_set and pass_set) {
         return std.fmt.allocPrint(
             allocator,
             \\[Unit]
@@ -112,4 +118,25 @@ test "generateServiceUnit injects Environment directives when auth configured" {
     try std.testing.expect(std.mem.indexOf(u8, unit, "Environment=\"ZPROBE_AUTH_USER=webadmin\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, unit, "Environment=\"ZPROBE_AUTH_PASS=topsecret\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, unit, "ExecStart=/opt/zprobe/bin/zprobe-server --port 9000 --db /volume1/docker/zprobe/cache.db") != null);
+}
+
+test "generateServiceUnit returns IncompleteAuth on partial auth" {
+    const allocator = std.testing.allocator;
+    const res1 = generateServiceUnit(allocator, .{
+        .user = "admin",
+        .working_dir = "/volume1/docker/zprobe",
+        .db_path = "/volume1/docker/zprobe/cache.db",
+        .auth_user = "webadmin",
+        .auth_pass = null,
+    });
+    try std.testing.expectError(error.IncompleteAuth, res1);
+
+    const res2 = generateServiceUnit(allocator, .{
+        .user = "admin",
+        .working_dir = "/volume1/docker/zprobe",
+        .db_path = "/volume1/docker/zprobe/cache.db",
+        .auth_user = null,
+        .auth_pass = "topsecret",
+    });
+    try std.testing.expectError(error.IncompleteAuth, res2);
 }

@@ -137,6 +137,14 @@ pub fn extractUserFromHost(host: []const u8) ?[]const u8 {
     return null;
 }
 
+pub fn validateAuth(auth_user: ?[]const u8, auth_pass: ?[]const u8) error{IncompleteAuth}!void {
+    const user_set = if (auth_user) |u| u.len > 0 else false;
+    const pass_set = if (auth_pass) |p| p.len > 0 else false;
+    if (user_set != pass_set) {
+        return error.IncompleteAuth;
+    }
+}
+
 pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
     var result: ParsedArgs = .{
         .command = .help,
@@ -478,6 +486,12 @@ pub fn main(init: std.process.Init) !void {
     const auth_user = parsed.auth_user orelse env_auth_user;
     const auth_pass = parsed.auth_pass orelse env_auth_pass;
 
+    validateAuth(auth_user, auth_pass) catch {
+        std.debug.print("Error: Both auth user and auth password must be provided to enable authentication\n\n", .{});
+        printUsage(io) catch {};
+        std.process.exit(1);
+    };
+
     switch (parsed.command) {
         .help => try printUsage(io),
         .build => try runBuild(io, parsed.target),
@@ -633,4 +647,13 @@ test "writeServiceFile writes content and creates parent directories for relativ
     var buf: [64]u8 = undefined;
     const bytes_read = try std.Io.File.readPositionalAll(file, io, &buf, 0);
     try std.testing.expectEqualStrings(test_content, buf[0..bytes_read]);
+}
+
+test "validateAuth requires both credentials or neither" {
+    try validateAuth(null, null);
+    try validateAuth("admin", "secret");
+    try std.testing.expectError(error.IncompleteAuth, validateAuth("admin", null));
+    try std.testing.expectError(error.IncompleteAuth, validateAuth(null, "secret"));
+    try std.testing.expectError(error.IncompleteAuth, validateAuth("", "secret"));
+    try std.testing.expectError(error.IncompleteAuth, validateAuth("admin", ""));
 }
