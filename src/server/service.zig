@@ -1,3 +1,5 @@
+//! Shared systemd service unit generator for zprobe-server.
+
 const std = @import("std");
 
 /// Configuration parameters for generating a systemd service unit.

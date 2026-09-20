@@ -1,3 +1,8 @@
+//! Deployment automation CLI for cross-compiling, staging, and configuring zprobe services.
+//!
+//! Provides automated builds, systemd service unit generation, and remote SSH/rsync
+//! deployment workflows targeting remote hosts and Synology NAS devices.
+
 const std = @import("std");
 const test_utils = @import("core/test_utils.zig");
 const service = @import("server/service.zig");
@@ -32,19 +37,27 @@ const usage =
     \\
 ;
 
+/// Default target architecture for release builds and remote installation.
 pub const default_target = "synology-arm64";
+/// Default remote directory path for staging binaries and unit files.
 pub const default_remote_dir = "/volume1/docker/zprobe";
+/// Default HTTP server listen port.
 pub const default_port: u16 = 8085;
+/// Default remote SSH connection port.
 pub const default_ssh_port: u16 = 22;
+/// Default SQLite cache database path on the remote host.
 pub const default_db_path = "/volume1/docker/zprobe/zprobe_cache.db";
+/// Default output path for service file generation ('-' specifies stdout).
 pub const default_output = "-";
 
+/// Deployment CLI subcommands.
 pub const Command = enum {
     build,
     service,
     install,
     help,
 
+    /// Parses a command-line subcommand string into a `Command` enum variant.
     pub fn fromString(s: []const u8) ?Command {
         if (std.mem.eql(u8, s, "build")) return .build;
         if (std.mem.eql(u8, s, "service")) return .service;
@@ -54,6 +67,7 @@ pub const Command = enum {
     }
 };
 
+/// Errors that can occur during deployment preparation, building, or remote execution.
 pub const DeployError = error{
     UnknownCommand,
     UnknownArgument,
@@ -77,6 +91,7 @@ pub const DeployError = error{
     CommandFailed,
 };
 
+/// Target architectures supported for cross-compilation and automated deployment.
 pub const supported_targets = [_][]const u8{
     "synology-arm64",
     "synology-x86_64",
@@ -84,6 +99,7 @@ pub const supported_targets = [_][]const u8{
     "windows-x86_64",
 };
 
+/// Checks whether the provided target name matches a supported release architecture.
 pub fn isValidTarget(target: []const u8) bool {
     for (supported_targets) |t| {
         if (std.mem.eql(u8, t, target)) return true;
@@ -91,6 +107,7 @@ pub fn isValidTarget(target: []const u8) bool {
     return false;
 }
 
+/// Structured command-line arguments parsed from process invocation.
 pub const ParsedArgs = struct {
     command: Command,
     host: []const u8,
@@ -105,6 +122,7 @@ pub const ParsedArgs = struct {
     auth_pass: ?[]const u8,
 };
 
+/// Prints CLI usage and available options to stdout.
 pub fn printUsage(io: std.Io) !void {
     var stdout_buf: [4096]u8 = undefined;
     var writer = std.Io.File.Writer.init(.stdout(), io, &stdout_buf);
@@ -112,11 +130,13 @@ pub fn printUsage(io: std.Io) !void {
     try writer.flush();
 }
 
+/// Parsed remote SSH host and optional custom port.
 pub const HostAndPort = struct {
     host: []const u8,
     port: ?u16,
 };
 
+/// Splits a host string into hostname and optional port (e.g. "admin@nas.local:2222").
 pub fn splitHostAndPort(host_str: []const u8) HostAndPort {
     if (std.mem.lastIndexOfScalar(u8, host_str, ':')) |idx| {
         if (idx > 0 and idx + 1 < host_str.len) {
@@ -128,6 +148,7 @@ pub fn splitHostAndPort(host_str: []const u8) HostAndPort {
     return .{ .host = host_str, .port = null };
 }
 
+/// Extracts the username component from a "user@host" string, if present.
 pub fn extractUserFromHost(host: []const u8) ?[]const u8 {
     if (std.mem.indexOfScalar(u8, host, '@')) |idx| {
         if (idx > 0) {
@@ -137,6 +158,7 @@ pub fn extractUserFromHost(host: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Validates that HTTP basic auth credentials are provided as a complete pair (or both omitted).
 pub fn validateAuth(auth_user: ?[]const u8, auth_pass: ?[]const u8) error{IncompleteAuth}!void {
     const user_set = if (auth_user) |u| u.len > 0 else false;
     const pass_set = if (auth_pass) |p| p.len > 0 else false;
@@ -145,6 +167,7 @@ pub fn validateAuth(auth_user: ?[]const u8, auth_pass: ?[]const u8) error{Incomp
     }
 }
 
+/// Parses command-line arguments into structured `ParsedArgs`.
 pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
     var result: ParsedArgs = .{
         .command = .help,
@@ -283,6 +306,7 @@ fn runCommand(io: std.Io, argv: []const []const u8) !void {
     }
 }
 
+/// Resolves the filesystem path to a built release binary, checking architecture-suffixed and generic names.
 pub fn resolveBinaryPath(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -313,6 +337,7 @@ pub fn resolveBinaryPath(
     return error.BinaryNotFound;
 }
 
+/// Generates systemd service unit file content for the server daemon.
 pub fn generateServiceUnitContent(
     allocator: std.mem.Allocator,
     user: []const u8,
@@ -469,6 +494,7 @@ fn runInstall(
     std.debug.print("[deploy] Verification succeeded; zprobe-server is active.\n", .{});
 }
 
+/// Main entrypoint for the `zprobe-deploy` executable.
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const allocator = init.gpa;

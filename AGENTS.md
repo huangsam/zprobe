@@ -13,6 +13,7 @@ For detailed architecture decision records and deep dives, see the [`docs/`](doc
 
 - `zig build test` for logic correctness
 - `zig build release-all` for cross-compile correctness
+- `zig build deploy` for deployment helper correctness
 - `zig fmt --check src/` for backend code style
 - `prettier --check src/web` for frontend code style
 - `chrome-devtools-mcp` or builtin browser for UI styles

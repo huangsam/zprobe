@@ -1,8 +1,11 @@
+//! Web server daemon providing interactive dashboard and REST APIs for zprobe SQLite cache.
+
 const std = @import("std");
 const zprobe = @import("zprobe");
 const Db = zprobe.db.Db;
 const pool = @import("server/pool.zig");
 
+/// Main entrypoint for the `zprobe-server` executable.
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
