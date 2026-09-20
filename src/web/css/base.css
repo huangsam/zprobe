@@ -4,6 +4,12 @@
   padding: 0;
 }
 
+/* Prevent layout shift between loading and loaded states */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 /* Support sticky footer layout */
 html,
 body {
