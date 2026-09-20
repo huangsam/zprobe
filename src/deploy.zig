@@ -1,4 +1,5 @@
 const std = @import("std");
+const test_utils = @import("core/test_utils.zig");
 
 const usage =
     \\Usage:
@@ -211,11 +212,12 @@ pub fn resolveBinaryPath(
         for (candidate_names) |c| allocator.free(c);
     }
 
+    const cwd = std.Io.Dir.cwd();
     for (candidate_names) |cand| {
-        const full_path = try std.fs.path.resolve(allocator, &.{ "zig-out", "bin", cand });
+        const full_path = try std.fs.path.join(allocator, &.{ "zig-out", "bin", cand });
         errdefer allocator.free(full_path);
 
-        if (std.Io.Dir.openFileAbsolute(io, full_path, .{ .mode = .read_only })) |file| {
+        if (std.Io.Dir.openFile(cwd, io, full_path, .{ .mode = .read_only })) |file| {
             std.Io.File.close(file, io);
             return full_path;
         } else |_| {
@@ -256,6 +258,7 @@ pub fn generateServiceUnitContent(
 }
 
 fn writeServiceFile(io: std.Io, allocator: std.mem.Allocator, output_path: []const u8, content: []const u8) !void {
+    _ = allocator;
     if (std.mem.eql(u8, output_path, "-")) {
         var stdout_buf: [8192]u8 = undefined;
         var writer = std.Io.File.Writer.init(.stdout(), io, &stdout_buf);
@@ -264,18 +267,16 @@ fn writeServiceFile(io: std.Io, allocator: std.mem.Allocator, output_path: []con
         return;
     }
 
-    const abs_path = try std.fs.path.resolve(allocator, &.{output_path});
-    defer allocator.free(abs_path);
-
-    if (std.fs.path.dirname(abs_path)) |parent| {
-        if (std.Io.Dir.openDirAbsolute(io, parent, .{})) |d| {
-            std.Io.Dir.close(d, io);
-        } else |_| {
-            try std.Io.Dir.createDirPath(std.Io.Dir.cwd(), io, parent);
+    const cwd = std.Io.Dir.cwd();
+    if (std.fs.path.dirname(output_path)) |parent| {
+        if (parent.len > 0) {
+            std.Io.Dir.createDirPath(cwd, io, parent) catch |err| {
+                if (err != error.PathAlreadyExists and err != error.DirExists) return err;
+            };
         }
     }
 
-    const file = try std.Io.Dir.createFileAbsolute(io, abs_path, .{ .truncate = true, .read = false });
+    const file = try std.Io.Dir.createFile(cwd, io, output_path, .{ .truncate = true, .read = false });
     defer std.Io.File.close(file, io);
     try std.Io.File.writePositionalAll(file, io, content, 0);
 }
@@ -342,11 +343,11 @@ fn runInstall(
     const service_unit = try generateServiceUnitContent(allocator, service_user, remote_dir, port, db_path);
     defer allocator.free(service_unit);
 
-    const local_service_path = try std.fs.path.resolve(allocator, &.{ "zig-out", "zprobe-server.service" });
+    const local_service_path = try std.fs.path.join(allocator, &.{ "zig-out", "zprobe-server.service" });
     defer allocator.free(local_service_path);
 
     try writeServiceFile(io, allocator, local_service_path, service_unit);
-    defer std.Io.Dir.deleteFileAbsolute(io, local_service_path) catch {};
+    defer std.Io.Dir.deleteFile(std.Io.Dir.cwd(), io, local_service_path) catch {};
 
     // 3. Rsync all 3 deployment artifacts (CLI, server, service unit) to remote staging directory
     const rsync_dest = try std.fmt.allocPrint(allocator, "{s}:{s}/", .{ host, remote_dir });
@@ -357,19 +358,22 @@ fn runInstall(
 
     // 4. Remote installation script (no inline heredocs)
     const db_dir = std.fs.path.dirname(db_path) orelse remote_dir;
+    const cli_file_name = std.fs.path.basename(cli_binary_path);
+    const server_file_name = std.fs.path.basename(server_binary_path);
+    const service_file_name = std.fs.path.basename(local_service_path);
 
     const remote_script = try std.fmt.allocPrint(
         allocator,
         \\sudo mkdir -p /usr/local/bin /etc/systemd/system "{s}" && \
-        \\sudo install -m 755 "{s}/zprobe" /usr/local/bin/zprobe && \
-        \\sudo install -m 755 "{s}/zprobe-server" /usr/local/bin/zprobe-server && \
-        \\sudo install -m 644 "{s}/zprobe-server.service" /etc/systemd/system/zprobe-server.service && \
+        \\sudo install -m 755 "{s}/{s}" /usr/local/bin/zprobe && \
+        \\sudo install -m 755 "{s}/{s}" /usr/local/bin/zprobe-server && \
+        \\sudo install -m 644 "{s}/{s}" /etc/systemd/system/zprobe-server.service && \
         \\sudo systemctl daemon-reload && \
-        \\sudo systemctl enable --now zprobe-server.service && \
+        \\sudo systemctl enable zprobe-server.service && \
         \\sudo systemctl restart zprobe-server.service && \
         \\sudo systemctl is-active --quiet zprobe-server.service
     ,
-        .{ db_dir, remote_dir, remote_dir, remote_dir },
+        .{ db_dir, remote_dir, cli_file_name, remote_dir, server_file_name, remote_dir, service_file_name },
     );
     defer allocator.free(remote_script);
 
@@ -465,4 +469,40 @@ test "generateServiceUnitContent creates expected systemd unit structure" {
     try std.testing.expect(std.mem.indexOf(u8, unit, "ExecStart=/usr/local/bin/zprobe-server --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db") != null);
     try std.testing.expect(std.mem.indexOf(u8, unit, "Restart=on-failure") != null);
     try std.testing.expect(std.mem.indexOf(u8, unit, "WantedBy=multi-user.target") != null);
+}
+
+test "resolveBinaryPath resolves existing binary or reports not found without panicking" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    // Nonexistent binary fails gracefully with error.BinaryNotFound
+    const err = resolveBinaryPath(allocator, io, "synology-arm64", "nonexistent-tool");
+    try std.testing.expectError(error.BinaryNotFound, err);
+
+    // Existing binary (if built in zig-out/bin) resolves without panicking on assert(isAbsolute)
+    if (resolveBinaryPath(allocator, io, "synology-arm64", "zprobe")) |path| {
+        defer allocator.free(path);
+        try std.testing.expect(std.mem.endsWith(u8, path, "zprobe-synology-arm64") or std.mem.endsWith(u8, path, "zprobe"));
+    } else |_| {}
+}
+
+test "writeServiceFile writes content and creates parent directories for relative paths" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var temp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer temp_ctx.cleanup();
+
+    const test_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, "sub_dir", "test.service" });
+    defer allocator.free(test_path);
+
+    const test_content = "[Unit]\nDescription=Test\n";
+    try writeServiceFile(io, allocator, test_path, test_content);
+
+    const file = try std.Io.Dir.openFile(std.Io.Dir.cwd(), io, test_path, .{ .mode = .read_only });
+    defer std.Io.File.close(file, io);
+
+    var buf: [64]u8 = undefined;
+    const bytes_read = try std.Io.File.readPositionalAll(file, io, &buf, 0);
+    try std.testing.expectEqualStrings(test_content, buf[0..bytes_read]);
 }
