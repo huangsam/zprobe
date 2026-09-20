@@ -29,14 +29,9 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("drawer-backdrop")
     .addEventListener("click", closeDrawer);
 
-  // Escape key: close filter modal first, then sort modal, then insights modal, then drawer
+  // Escape key: close sort modal first, then insights modal, then drawer
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    const filterModal = document.getElementById("filter-modal");
-    if (filterModal && filterModal.classList.contains("open")) {
-      toggleFilterModal(false);
-      return;
-    }
     const sortModal = document.getElementById("sort-modal");
     const modal = document.getElementById("insights-modal");
     if (sortModal && sortModal.classList.contains("open")) {
