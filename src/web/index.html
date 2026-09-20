@@ -49,201 +49,221 @@
           aria-live="polite"
         ></p>
 
-        <!-- Unified Filter Bar -->
-        <section
-          class="filter-bar surface"
-          id="filter-bar"
-          aria-label="Filter media catalog"
-        >
-          <div class="filter-bar-primary">
-            <div class="search-wrapper">
-              <label class="visually-hidden" for="search-input"
-                >Search media</label
-              >
-              <span class="search-icon" aria-hidden="true"
-                ><i data-lucide="search"></i
-              ></span>
-              <input
-                type="text"
-                id="search-input"
-                class="search-input"
-                placeholder="Search path, camera, format, or notes..."
-              />
-            </div>
-            <div class="filters-wrapper">
-              <label class="visually-hidden" for="filter-format">Format</label>
-              <select id="filter-format" aria-label="Format">
-                <option value="">All Formats</option>
-              </select>
-              <label class="visually-hidden" for="filter-type"
-                >Media type</label
-              >
-              <select id="filter-type" aria-label="Media type">
-                <option value="">All Types</option>
-                <option value="image">Images Only</option>
-                <option value="video">Videos Only</option>
-              </select>
-              <button
-                type="button"
-                id="more-filters-toggle"
-                class="btn btn-secondary more-filters-toggle"
-                aria-expanded="false"
-                aria-controls="filter-bar-advanced"
-              >
-                More filters
-                <i
-                  data-lucide="chevron-down"
-                  class="more-filters-chevron"
-                  aria-hidden="true"
-                ></i>
-              </button>
-            </div>
-          </div>
-          <div
-            id="filter-bar-advanced"
-            class="filter-bar-advanced"
-            inert
-            aria-hidden="true"
-          >
-            <div class="filter-row">
-              <fieldset class="filter-group">
-                <legend class="filter-label">Date</legend>
-                <div class="filter-inputs">
-                  <label class="visually-hidden" for="filter-date-from"
-                    >Date from</label
-                  >
-                  <input type="date" id="filter-date-from" />
-                  <span class="filter-separator" aria-hidden="true">to</span>
-                  <label class="visually-hidden" for="filter-date-to"
-                    >Date to</label
-                  >
-                  <input type="date" id="filter-date-to" />
-                </div>
-                <div
-                  class="filter-presets"
-                  role="group"
-                  aria-label="Date presets"
-                >
-                  <button
-                    type="button"
-                    class="filter-preset"
-                    data-date-preset="last7"
-                    aria-pressed="false"
-                  >
-                    Last 7 days
-                  </button>
-                  <button
-                    type="button"
-                    class="filter-preset"
-                    data-date-preset="this-month"
-                    aria-pressed="false"
-                  >
-                    This month
-                  </button>
-                  <button
-                    type="button"
-                    class="filter-preset"
-                    data-date-preset="this-year"
-                    aria-pressed="false"
-                  >
-                    This year
-                  </button>
-                </div>
-              </fieldset>
-              <fieldset class="filter-group">
-                <legend class="filter-label">Size range</legend>
-                <div class="filter-inputs">
-                  <label class="visually-hidden" for="filter-size-min"
-                    >Minimum size in megabytes</label
-                  >
-                  <input
-                    type="number"
-                    id="filter-size-min"
-                    min="0"
-                    step="1"
-                    placeholder="Min MB"
-                  />
-                  <span class="filter-separator" aria-hidden="true">to</span>
-                  <label class="visually-hidden" for="filter-size-max"
-                    >Maximum size in megabytes</label
-                  >
-                  <input
-                    type="number"
-                    id="filter-size-max"
-                    min="0"
-                    step="1"
-                    placeholder="Max MB"
-                  />
-                </div>
-                <div
-                  class="filter-presets"
-                  role="group"
-                  aria-label="Size presets"
-                >
-                  <button
-                    type="button"
-                    class="filter-preset"
-                    data-size-min-mb="1"
-                    aria-pressed="false"
-                  >
-                    ≥ 1 MB
-                  </button>
-                  <button
-                    type="button"
-                    class="filter-preset"
-                    data-size-min-mb="10"
-                    aria-pressed="false"
-                  >
-                    ≥ 10 MB
-                  </button>
-                  <button
-                    type="button"
-                    class="filter-preset"
-                    data-size-min-mb="100"
-                    aria-pressed="false"
-                  >
-                    ≥ 100 MB
-                  </button>
-                </div>
-              </fieldset>
-            </div>
-            <div class="filter-actions">
-              <div
-                class="filter-actions-left"
-                id="filter-status"
-                aria-live="polite"
-                aria-atomic="true"
-              >
-                <div
-                  class="active-filters"
-                  id="active-filters"
-                  aria-label="Active filters"
-                ></div>
-                <span
-                  class="filter-result-count"
-                  id="filter-result-count"
-                  hidden
-                ></span>
-              </div>
-              <button
-                type="button"
-                id="clear-filters-btn"
-                class="btn btn-secondary btn-sm clear-filters-btn"
-              >
-                Clear filters
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <!-- Media Table / Grid -->
+        <!-- Media Table / Grid Section with Integrated Unified Toolbar -->
         <section
           class="catalog-section surface"
           id="catalog-table"
           data-view-layout="list"
         >
-          <div class="catalog-header">
-            <h2 class="catalog-title">Catalog</h2>
+          <!-- Unified Catalog Toolbar -->
+          <div class="catalog-toolbar" id="catalog-toolbar" aria-label="Catalog search and filters">
+            <div class="toolbar-search-filter">
+              <div class="search-wrapper">
+                <label class="visually-hidden" for="search-input"
+                  >Search media</label
+                >
+                <span class="search-icon" aria-hidden="true"
+                  ><i data-lucide="search"></i
+                ></span>
+                <input
+                  type="text"
+                  id="search-input"
+                  class="search-input"
+                  placeholder="Search path, camera, format, or notes..."
+                />
+                <button
+                  type="button"
+                  id="search-clear-btn"
+                  class="search-clear-btn"
+                  aria-label="Clear search"
+                  hidden
+                >
+                  <i data-lucide="x" aria-hidden="true"></i>
+                </button>
+                <kbd
+                  class="search-shortcut-badge"
+                  id="search-shortcut-badge"
+                  title="Press / or ⌘K to search"
+                  aria-hidden="true"
+                  >/</kbd
+                >
+              </div>
+              <div class="filters-wrapper">
+                <label class="visually-hidden" for="filter-format">Format</label>
+                <select id="filter-format" aria-label="Format">
+                  <option value="">All Formats</option>
+                </select>
+                <label class="visually-hidden" for="filter-type"
+                  >Media type</label
+                >
+                <select id="filter-type" aria-label="Media type">
+                  <option value="">All Types</option>
+                  <option value="image">Images Only</option>
+                  <option value="video">Videos Only</option>
+                </select>
+                <div class="more-filters-container">
+                  <button
+                    type="button"
+                    id="more-filters-toggle"
+                    class="btn btn-secondary more-filters-toggle"
+                    aria-expanded="false"
+                    aria-controls="filter-bar-advanced"
+                    aria-haspopup="dialog"
+                  >
+                    <span>More filters</span>
+                    <span class="filter-count-badge" id="filter-count-badge" hidden></span>
+                    <i
+                      data-lucide="chevron-down"
+                      class="more-filters-chevron"
+                      aria-hidden="true"
+                    ></i>
+                  </button>
+
+                  <!-- Advanced filter popover (Date, Size range, presets) -->
+                  <div
+                    id="filter-bar-advanced"
+                    class="filter-bar-advanced popover-panel"
+                    role="dialog"
+                    aria-label="Advanced media filters"
+                    inert
+                    aria-hidden="true"
+                  >
+                    <div class="popover-header">
+                      <h3 class="popover-title">Filter Media</h3>
+                      <button
+                        type="button"
+                        id="close-advanced-filters-btn"
+                        class="btn-icon-close"
+                        aria-label="Close filter panel"
+                      >
+                        <i data-lucide="x" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                    <div class="popover-body">
+                      <div class="filter-row">
+                        <fieldset class="filter-group">
+                          <legend class="filter-label">Date</legend>
+                          <div class="filter-inputs">
+                            <label class="visually-hidden" for="filter-date-from"
+                              >Date from</label
+                            >
+                            <input type="date" id="filter-date-from" />
+                            <span class="filter-separator" aria-hidden="true">to</span>
+                            <label class="visually-hidden" for="filter-date-to"
+                              >Date to</label
+                            >
+                            <input type="date" id="filter-date-to" />
+                          </div>
+                          <div
+                            class="filter-presets"
+                            role="group"
+                            aria-label="Date presets"
+                          >
+                            <button
+                              type="button"
+                              class="filter-preset"
+                              data-date-preset="last7"
+                              aria-pressed="false"
+                            >
+                              Last 7 days
+                            </button>
+                            <button
+                              type="button"
+                              class="filter-preset"
+                              data-date-preset="this-month"
+                              aria-pressed="false"
+                            >
+                              This month
+                            </button>
+                            <button
+                              type="button"
+                              class="filter-preset"
+                              data-date-preset="this-year"
+                              aria-pressed="false"
+                            >
+                              This year
+                            </button>
+                          </div>
+                        </fieldset>
+                        <fieldset class="filter-group">
+                          <legend class="filter-label">Size range</legend>
+                          <div class="filter-inputs">
+                            <label class="visually-hidden" for="filter-size-min"
+                              >Minimum size in megabytes</label
+                            >
+                            <input
+                              type="number"
+                              id="filter-size-min"
+                              min="0"
+                              step="1"
+                              placeholder="Min MB"
+                            />
+                            <span class="filter-separator" aria-hidden="true">to</span>
+                            <label class="visually-hidden" for="filter-size-max"
+                              >Maximum size in megabytes</label
+                            >
+                            <input
+                              type="number"
+                              id="filter-size-max"
+                              min="0"
+                              step="1"
+                              placeholder="Max MB"
+                            />
+                          </div>
+                          <div
+                            class="filter-presets"
+                            role="group"
+                            aria-label="Size presets"
+                          >
+                            <button
+                              type="button"
+                              class="filter-preset"
+                              data-size-min-mb="1"
+                              aria-pressed="false"
+                            >
+                              ≥ 1 MB
+                            </button>
+                            <button
+                              type="button"
+                              class="filter-preset"
+                              data-size-min-mb="10"
+                              aria-pressed="false"
+                            >
+                              ≥ 10 MB
+                            </button>
+                            <button
+                              type="button"
+                              class="filter-preset"
+                              data-size-min-mb="100"
+                              aria-pressed="false"
+                            >
+                              ≥ 100 MB
+                            </button>
+                          </div>
+                        </fieldset>
+                      </div>
+                    </div>
+                    <div class="popover-footer">
+                      <button
+                        type="button"
+                        id="reset-advanced-filters-btn"
+                        class="btn btn-secondary btn-sm"
+                      >
+                        Reset
+                      </button>
+                      <button
+                        type="button"
+                        id="apply-advanced-filters-btn"
+                        class="btn btn-primary btn-sm"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="catalog-header-actions">
               <button
                 type="button"
@@ -284,6 +304,35 @@
                 </button>
               </div>
             </div>
+          </div>
+
+          <!-- Active filters strip -->
+          <div class="active-filters-bar" id="active-filters-bar" hidden>
+            <div
+              class="active-filters-left"
+              id="filter-status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <span class="active-filters-heading">Active:</span>
+              <div
+                class="active-filters"
+                id="active-filters"
+                aria-label="Active filters"
+              ></div>
+              <span
+                class="filter-result-count"
+                id="filter-result-count"
+                hidden
+              ></span>
+            </div>
+            <button
+              type="button"
+              id="clear-filters-btn"
+              class="btn btn-secondary btn-sm clear-filters-btn"
+            >
+              Clear filters
+            </button>
           </div>
           <div class="table-container" aria-busy="false">
             <table id="media-table" class="media-table">

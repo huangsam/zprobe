@@ -369,26 +369,27 @@ function handleEmptyStateAction(btn) {
   }
 }
 
-// Expand or collapse the advanced filters drawer
+// Expand or collapse the advanced filters popover
 function setMoreFiltersExpanded(expanded) {
-  const bar = document.querySelector(".filter-bar");
+  const container = document.querySelector(".more-filters-container");
   const toggle = document.querySelector(".more-filters-toggle");
   const advanced = document.getElementById("filter-bar-advanced");
-  if (!bar || !toggle) return;
+  if (!toggle) return;
 
   if (expanded) {
-    bar.classList.add("is-expanded");
+    container?.classList.add("is-expanded");
     toggle.classList.add("active");
     toggle.setAttribute("aria-expanded", "true");
     if (advanced) {
       advanced.removeAttribute("inert");
       advanced.setAttribute("aria-hidden", "false");
     }
-    localStorage.setItem("zprobe_advanced_filters_expanded", "true");
-    // Move focus to first advanced input field when opening drawer panel
-    document.getElementById("filter-date-from")?.focus();
+    // Move focus to first advanced input field when opening popover
+    setTimeout(() => {
+      document.getElementById("filter-date-from")?.focus();
+    }, 50);
   } else {
-    bar.classList.remove("is-expanded");
+    container?.classList.remove("is-expanded");
     toggle.classList.remove("active");
     toggle.setAttribute("aria-expanded", "false");
     const focusWasInside =
@@ -400,8 +401,41 @@ function setMoreFiltersExpanded(expanded) {
     if (focusWasInside) {
       toggle.focus();
     }
-    localStorage.setItem("zprobe_advanced_filters_expanded", "false");
   }
+}
+
+// Update the badge count on the more filters button
+function updateAdvancedFilterBadge() {
+  const adv = getAdvancedFilterParams();
+  let count = 0;
+  if (adv.date_from || adv.date_to) count++;
+  if (adv.size_min !== null || adv.size_max !== null) count++;
+
+  const badge = document.getElementById("filter-count-badge");
+  const toggle = document.getElementById("more-filters-toggle");
+  if (!badge || !toggle) return;
+
+  if (count > 0) {
+    badge.textContent = String(count);
+    badge.removeAttribute("hidden");
+    toggle.classList.add("has-active-filters");
+  } else {
+    badge.textContent = "";
+    badge.setAttribute("hidden", "");
+    toggle.classList.remove("has-active-filters");
+  }
+}
+
+// Reset only the advanced filter inputs (date and size)
+function resetAdvancedFilterInputs() {
+  document.getElementById("filter-date-from").value = "";
+  document.getElementById("filter-date-to").value = "";
+  document.getElementById("filter-size-min").value = "";
+  document.getElementById("filter-size-max").value = "";
+  clearDatePresetActive();
+  clearSizePresetActive();
+  updateAdvancedFilterBadge();
+  triggerFilterRefresh();
 }
 
 // Initialize the toggle button for advanced filters
@@ -409,18 +443,16 @@ function initMoreFiltersToggle() {
   const toggle = document.querySelector(".more-filters-toggle");
   if (!toggle) return;
 
-  toggle.addEventListener("click", () => {
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
     const isExpanded =
       document
-        .querySelector(".filter-bar")
+        .querySelector(".more-filters-container")
         ?.classList.contains("is-expanded") ?? false;
     setMoreFiltersExpanded(!isExpanded);
   });
 
-  const savedState = localStorage.getItem("zprobe_advanced_filters_expanded");
-  if (savedState === "true") {
-    setMoreFiltersExpanded(true);
-  }
+  updateAdvancedFilterBadge();
 }
 
 // Check if any advanced filters are currently populated
@@ -500,6 +532,7 @@ function removeFilterChip(key) {
   switch (key) {
     case "search":
       document.getElementById("search-input").value = "";
+      updateSearchInputControls();
       break;
     case "format":
       document.getElementById("filter-format").value = "";
@@ -583,6 +616,52 @@ function updateActiveFilterChips() {
     `;
     container.appendChild(div);
   });
+
+  const activeBar = document.getElementById("active-filters-bar");
+  if (activeBar) {
+    if (filterChips.length > 0) {
+      activeBar.removeAttribute("hidden");
+    } else {
+      activeBar.setAttribute("hidden", "");
+    }
+  }
+
+  const countEl = document.getElementById("filter-result-count");
+  if (countEl) {
+    if (filterChips.length > 0 && typeof totalRecords === "number") {
+      countEl.textContent = `(${totalRecords.toLocaleString()} ${totalRecords === 1 ? "file" : "files"})`;
+      countEl.removeAttribute("hidden");
+    } else {
+      countEl.setAttribute("hidden", "");
+    }
+  }
+
+  updateAdvancedFilterBadge();
+  updateSearchInputControls();
+}
+
+// Toggle quick-clear button and shortcut badge in search input
+function updateSearchInputControls() {
+  const input = document.getElementById("search-input");
+  const clearBtn = document.getElementById("search-clear-btn");
+  const shortcutBadge = document.getElementById("search-shortcut-badge");
+  if (!input) return;
+
+  const hasValue = input.value.trim().length > 0;
+  if (clearBtn) {
+    if (hasValue) {
+      clearBtn.removeAttribute("hidden");
+    } else {
+      clearBtn.setAttribute("hidden", "");
+    }
+  }
+  if (shortcutBadge) {
+    if (hasValue) {
+      shortcutBadge.setAttribute("hidden", "");
+    } else {
+      shortcutBadge.removeAttribute("hidden");
+    }
+  }
 }
 
 // Reset all filter inputs to their default empty states
@@ -596,6 +675,8 @@ function clearAdvancedFilters() {
   document.getElementById("search-input").value = "";
   clearDatePresetActive();
   clearSizePresetActive();
+  updateAdvancedFilterBadge();
+  updateSearchInputControls();
 }
 
 // Trigger a catalog reload starting from page 1

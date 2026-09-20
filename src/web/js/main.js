@@ -29,9 +29,14 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("drawer-backdrop")
     .addEventListener("click", closeDrawer);
 
-  // Escape key: close sort modal first, then insights modal, then drawer
+  // Escape key: close filter popover first, then sort modal, then insights modal, then drawer
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    const filterContainer = document.querySelector(".more-filters-container");
+    if (filterContainer && filterContainer.classList.contains("is-expanded")) {
+      setMoreFiltersExpanded(false);
+      return;
+    }
     const sortModal = document.getElementById("sort-modal");
     const modal = document.getElementById("insights-modal");
     if (sortModal && sortModal.classList.contains("open")) {
@@ -40,6 +45,46 @@ document.addEventListener("DOMContentLoaded", () => {
       toggleModal(false);
     } else {
       closeDrawer();
+    }
+  });
+
+  // Global search shortcuts: '/' and Cmd+K / Ctrl+K to jump to search
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      const searchEl = document.getElementById("search-input");
+      if (searchEl) {
+        searchEl.focus();
+        searchEl.select();
+      }
+      return;
+    }
+
+    if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const target = e.target;
+      const isInput =
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable;
+      if (!isInput) {
+        e.preventDefault();
+        const searchEl = document.getElementById("search-input");
+        if (searchEl) {
+          searchEl.focus();
+          searchEl.select();
+        }
+      }
+    }
+  });
+
+  // Light dismiss: close more-filters popover on outside click
+  document.addEventListener("click", (e) => {
+    const filterContainer = document.querySelector(".more-filters-container");
+    if (filterContainer && filterContainer.classList.contains("is-expanded")) {
+      if (!filterContainer.contains(e.target)) {
+        setMoreFiltersExpanded(false);
+      }
     }
   });
 
@@ -140,12 +185,24 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  document.getElementById("clear-filters-btn").addEventListener("click", () => {
+  document.getElementById("clear-filters-btn")?.addEventListener("click", () => {
     clearAdvancedFilters();
     updateFormatFilterOptions();
     currentPage = 1;
     fetchMedia();
   });
+
+  document
+    .getElementById("close-advanced-filters-btn")
+    ?.addEventListener("click", () => setMoreFiltersExpanded(false));
+
+  document
+    .getElementById("apply-advanced-filters-btn")
+    ?.addEventListener("click", () => setMoreFiltersExpanded(false));
+
+  document
+    .getElementById("reset-advanced-filters-btn")
+    ?.addEventListener("click", resetAdvancedFilterInputs);
 
   document.getElementById("active-filters")?.addEventListener("click", (e) => {
     const btn = e.target.closest(".filter-chip-dismiss");
@@ -218,12 +275,42 @@ document.addEventListener("DOMContentLoaded", () => {
     setViewLayout("grid");
   });
 
-  // Search input with 500ms debounce
+  // Search input with 500ms debounce, quick-clear, and Escape handling
   let searchTimeout;
-  document.getElementById("search-input").addEventListener("input", () => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(triggerFilterRefresh, FILTER_DEBOUNCE_MS);
-  });
+  const searchInput = document.getElementById("search-input");
+  const searchClearBtn = document.getElementById("search-clear-btn");
+
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      updateSearchInputControls();
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(triggerFilterRefresh, FILTER_DEBOUNCE_MS);
+    });
+
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        if (searchInput.value) {
+          e.stopPropagation();
+          searchInput.value = "";
+          updateSearchInputControls();
+          triggerFilterRefresh();
+        } else {
+          searchInput.blur();
+        }
+      }
+    });
+  }
+
+  if (searchClearBtn) {
+    searchClearBtn.addEventListener("click", () => {
+      if (searchInput) {
+        searchInput.value = "";
+        updateSearchInputControls();
+        triggerFilterRefresh();
+        searchInput.focus();
+      }
+    });
+  }
 
   // Pagination buttons
   document.getElementById("prev-page-btn").addEventListener("click", () => {
@@ -297,4 +384,5 @@ document.addEventListener("DOMContentLoaded", () => {
   updateDatePresetActiveState();
   updateSizePresetActiveState();
   initMoreFiltersToggle();
+  updateSearchInputControls();
 });
