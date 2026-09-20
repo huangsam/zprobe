@@ -369,37 +369,81 @@ function handleEmptyStateAction(btn) {
   }
 }
 
-// Expand or collapse the advanced filters popover
-function setMoreFiltersExpanded(expanded) {
-  const container = document.querySelector(".more-filters-container");
-  const toggle = document.querySelector(".more-filters-toggle");
-  const advanced = document.getElementById("filter-bar-advanced");
-  if (!toggle) return;
+let filterModalReturnFocus = null;
 
-  if (expanded) {
-    container?.classList.add("is-expanded");
-    toggle.classList.add("active");
-    toggle.setAttribute("aria-expanded", "true");
-    if (advanced) {
-      advanced.removeAttribute("inert");
-      advanced.setAttribute("aria-hidden", "false");
+function handleFilterModalBackdropClick(event) {
+  const modal = document.getElementById("filter-modal");
+  if (event.target === modal) {
+    toggleFilterModal(false);
+  }
+}
+
+function handleFilterModalKeydown(event) {
+  const modal = document.getElementById("filter-modal");
+  if (!modal || !modal.classList.contains("open")) return;
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleFilterModal(false);
+    return;
+  }
+
+  if (event.key === "Tab") {
+    const focusables = modal.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
-    // Move focus to first advanced input field when opening popover
-    setTimeout(() => {
+  }
+}
+
+// Open or close the advanced filters modal
+function toggleFilterModal(show) {
+  const modal = document.getElementById("filter-modal");
+  const toggle = document.getElementById("more-filters-toggle");
+  if (!modal) return;
+
+  if (show) {
+    if (modal.classList.contains("open")) return;
+    filterModalReturnFocus = document.activeElement;
+    modal.classList.add("open");
+    modal.removeAttribute("inert");
+    modal.setAttribute("aria-hidden", "false");
+    toggle?.setAttribute("aria-expanded", "true");
+
+    document.removeEventListener("keydown", handleFilterModalKeydown);
+    window.removeEventListener("click", handleFilterModalBackdropClick);
+
+    document.addEventListener("keydown", handleFilterModalKeydown);
+    window.addEventListener("click", handleFilterModalBackdropClick);
+
+    requestAnimationFrame(() => {
       document.getElementById("filter-date-from")?.focus();
-    }, 50);
+    });
   } else {
-    container?.classList.remove("is-expanded");
-    toggle.classList.remove("active");
-    toggle.setAttribute("aria-expanded", "false");
-    const focusWasInside =
-      advanced && advanced.contains(document.activeElement);
-    if (advanced) {
-      advanced.setAttribute("inert", "");
-      advanced.setAttribute("aria-hidden", "true");
-    }
-    if (focusWasInside) {
-      toggle.focus();
+    if (!modal.classList.contains("open")) return;
+    modal.classList.remove("open");
+    modal.setAttribute("inert", "");
+    modal.setAttribute("aria-hidden", "true");
+    toggle?.setAttribute("aria-expanded", "false");
+
+    document.removeEventListener("keydown", handleFilterModalKeydown);
+    window.removeEventListener("click", handleFilterModalBackdropClick);
+
+    const returnFocus = filterModalReturnFocus;
+    filterModalReturnFocus = null;
+    if (returnFocus && typeof returnFocus.focus === "function") {
+      returnFocus.focus();
     }
   }
 }
@@ -440,16 +484,12 @@ function resetAdvancedFilterInputs() {
 
 // Initialize the toggle button for advanced filters
 function initMoreFiltersToggle() {
-  const toggle = document.querySelector(".more-filters-toggle");
+  const toggle = document.getElementById("more-filters-toggle");
   if (!toggle) return;
 
   toggle.addEventListener("click", (e) => {
     e.stopPropagation();
-    const isExpanded =
-      document
-        .querySelector(".more-filters-container")
-        ?.classList.contains("is-expanded") ?? false;
-    setMoreFiltersExpanded(!isExpanded);
+    toggleFilterModal(true);
   });
 
   updateAdvancedFilterBadge();

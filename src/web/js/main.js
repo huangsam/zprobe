@@ -29,12 +29,12 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("drawer-backdrop")
     .addEventListener("click", closeDrawer);
 
-  // Escape key: close filter popover first, then sort modal, then insights modal, then drawer
+  // Escape key: close filter modal first, then sort modal, then insights modal, then drawer
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    const filterContainer = document.querySelector(".more-filters-container");
-    if (filterContainer && filterContainer.classList.contains("is-expanded")) {
-      setMoreFiltersExpanded(false);
+    const filterModal = document.getElementById("filter-modal");
+    if (filterModal && filterModal.classList.contains("open")) {
+      toggleFilterModal(false);
       return;
     }
     const sortModal = document.getElementById("sort-modal");
@@ -74,16 +74,6 @@ document.addEventListener("DOMContentLoaded", () => {
           searchEl.focus();
           searchEl.select();
         }
-      }
-    }
-  });
-
-  // Light dismiss: close more-filters popover on outside click
-  document.addEventListener("click", (e) => {
-    const filterContainer = document.querySelector(".more-filters-container");
-    if (filterContainer && filterContainer.classList.contains("is-expanded")) {
-      if (!filterContainer.contains(e.target)) {
-        setMoreFiltersExpanded(false);
       }
     }
   });
@@ -185,20 +175,22 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  document.getElementById("clear-filters-btn")?.addEventListener("click", () => {
-    clearAdvancedFilters();
-    updateFormatFilterOptions();
-    currentPage = 1;
-    fetchMedia();
-  });
+  document
+    .getElementById("clear-filters-btn")
+    ?.addEventListener("click", () => {
+      clearAdvancedFilters();
+      updateFormatFilterOptions();
+      currentPage = 1;
+      fetchMedia();
+    });
 
   document
-    .getElementById("close-advanced-filters-btn")
-    ?.addEventListener("click", () => setMoreFiltersExpanded(false));
+    .getElementById("close-filter-modal-btn")
+    ?.addEventListener("click", () => toggleFilterModal(false));
 
   document
     .getElementById("apply-advanced-filters-btn")
-    ?.addEventListener("click", () => setMoreFiltersExpanded(false));
+    ?.addEventListener("click", () => toggleFilterModal(false));
 
   document
     .getElementById("reset-advanced-filters-btn")

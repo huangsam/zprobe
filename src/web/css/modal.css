@@ -67,6 +67,16 @@
   flex: 1;
 }
 
+.modal .modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.75rem;
+  border-top: 1px solid var(--border-color);
+  background: var(--slate-50);
+  flex-shrink: 0;
+}
+
 .modal .modal-tabs {
   display: flex;
   gap: 0.5rem;
@@ -265,6 +275,13 @@
   background: rgba(0, 0, 0, 0.01);
   padding: 2rem;
   text-align: center;
+}
+
+/* Filter Modal Specific Styling */
+.modal .modal-content.filter-modal-content {
+  max-width: 480px;
+  width: 90%;
+  border-radius: 12px;
 }
 
 /* Sort Modal Specific Styling */

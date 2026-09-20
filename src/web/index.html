@@ -56,7 +56,11 @@
           data-view-layout="list"
         >
           <!-- Unified Catalog Toolbar -->
-          <div class="catalog-toolbar" id="catalog-toolbar" aria-label="Catalog search and filters">
+          <div
+            class="catalog-toolbar"
+            id="catalog-toolbar"
+            aria-label="Catalog search and filters"
+          >
             <div class="toolbar-search-filter">
               <div class="search-wrapper">
                 <label class="visually-hidden" for="search-input"
@@ -89,7 +93,9 @@
                 >
               </div>
               <div class="filters-wrapper">
-                <label class="visually-hidden" for="filter-format">Format</label>
+                <label class="visually-hidden" for="filter-format"
+                  >Format</label
+                >
                 <select id="filter-format" aria-label="Format">
                   <option value="">All Formats</option>
                 </select>
@@ -101,166 +107,27 @@
                   <option value="image">Images Only</option>
                   <option value="video">Videos Only</option>
                 </select>
-                <div class="more-filters-container">
-                  <button
-                    type="button"
-                    id="more-filters-toggle"
-                    class="btn btn-secondary more-filters-toggle"
-                    aria-expanded="false"
-                    aria-controls="filter-bar-advanced"
-                    aria-haspopup="dialog"
-                  >
-                    <span>More filters</span>
-                    <span class="filter-count-badge" id="filter-count-badge" hidden></span>
-                    <i
-                      data-lucide="chevron-down"
-                      class="more-filters-chevron"
-                      aria-hidden="true"
-                    ></i>
-                  </button>
-
-                  <!-- Advanced filter popover (Date, Size range, presets) -->
-                  <div
-                    id="filter-bar-advanced"
-                    class="filter-bar-advanced popover-panel"
-                    role="dialog"
-                    aria-label="Advanced media filters"
-                    inert
+                <button
+                  type="button"
+                  id="more-filters-toggle"
+                  class="btn btn-secondary btn-sm more-filters-toggle"
+                  aria-haspopup="dialog"
+                  aria-expanded="false"
+                  aria-controls="filter-modal"
+                  title="More Filters"
+                >
+                  <i
+                    data-lucide="sliders-horizontal"
+                    class="btn-icon"
                     aria-hidden="true"
-                  >
-                    <div class="popover-header">
-                      <h3 class="popover-title">Filter Media</h3>
-                      <button
-                        type="button"
-                        id="close-advanced-filters-btn"
-                        class="btn-icon-close"
-                        aria-label="Close filter panel"
-                      >
-                        <i data-lucide="x" aria-hidden="true"></i>
-                      </button>
-                    </div>
-                    <div class="popover-body">
-                      <div class="filter-row">
-                        <fieldset class="filter-group">
-                          <legend class="filter-label">Date</legend>
-                          <div class="filter-inputs">
-                            <label class="visually-hidden" for="filter-date-from"
-                              >Date from</label
-                            >
-                            <input type="date" id="filter-date-from" />
-                            <span class="filter-separator" aria-hidden="true">to</span>
-                            <label class="visually-hidden" for="filter-date-to"
-                              >Date to</label
-                            >
-                            <input type="date" id="filter-date-to" />
-                          </div>
-                          <div
-                            class="filter-presets"
-                            role="group"
-                            aria-label="Date presets"
-                          >
-                            <button
-                              type="button"
-                              class="filter-preset"
-                              data-date-preset="last7"
-                              aria-pressed="false"
-                            >
-                              Last 7 days
-                            </button>
-                            <button
-                              type="button"
-                              class="filter-preset"
-                              data-date-preset="this-month"
-                              aria-pressed="false"
-                            >
-                              This month
-                            </button>
-                            <button
-                              type="button"
-                              class="filter-preset"
-                              data-date-preset="this-year"
-                              aria-pressed="false"
-                            >
-                              This year
-                            </button>
-                          </div>
-                        </fieldset>
-                        <fieldset class="filter-group">
-                          <legend class="filter-label">Size range</legend>
-                          <div class="filter-inputs">
-                            <label class="visually-hidden" for="filter-size-min"
-                              >Minimum size in megabytes</label
-                            >
-                            <input
-                              type="number"
-                              id="filter-size-min"
-                              min="0"
-                              step="1"
-                              placeholder="Min MB"
-                            />
-                            <span class="filter-separator" aria-hidden="true">to</span>
-                            <label class="visually-hidden" for="filter-size-max"
-                              >Maximum size in megabytes</label
-                            >
-                            <input
-                              type="number"
-                              id="filter-size-max"
-                              min="0"
-                              step="1"
-                              placeholder="Max MB"
-                            />
-                          </div>
-                          <div
-                            class="filter-presets"
-                            role="group"
-                            aria-label="Size presets"
-                          >
-                            <button
-                              type="button"
-                              class="filter-preset"
-                              data-size-min-mb="1"
-                              aria-pressed="false"
-                            >
-                              ≥ 1 MB
-                            </button>
-                            <button
-                              type="button"
-                              class="filter-preset"
-                              data-size-min-mb="10"
-                              aria-pressed="false"
-                            >
-                              ≥ 10 MB
-                            </button>
-                            <button
-                              type="button"
-                              class="filter-preset"
-                              data-size-min-mb="100"
-                              aria-pressed="false"
-                            >
-                              ≥ 100 MB
-                            </button>
-                          </div>
-                        </fieldset>
-                      </div>
-                    </div>
-                    <div class="popover-footer">
-                      <button
-                        type="button"
-                        id="reset-advanced-filters-btn"
-                        class="btn btn-secondary btn-sm"
-                      >
-                        Reset
-                      </button>
-                      <button
-                        type="button"
-                        id="apply-advanced-filters-btn"
-                        class="btn btn-primary btn-sm"
-                      >
-                        Done
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  ></i>
+                  <span>More filters</span>
+                  <span
+                    class="filter-count-badge"
+                    id="filter-count-badge"
+                    hidden
+                  ></span>
+                </button>
               </div>
             </div>
 
@@ -815,6 +682,159 @@
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter Modal Overlay -->
+      <div
+        id="filter-modal"
+        class="modal filter-modal-overlay"
+        inert
+        aria-hidden="true"
+      >
+        <div
+          class="modal-content surface filter-modal-content"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="filter-modal-title"
+        >
+          <div class="modal-header">
+            <h2 id="filter-modal-title">
+              <i
+                data-lucide="sliders-horizontal"
+                class="inline-icon"
+                aria-hidden="true"
+              ></i>
+              Filter Media
+            </h2>
+            <button
+              id="close-filter-modal-btn"
+              class="close-btn"
+              aria-label="Close filter panel"
+            >
+              <i data-lucide="x" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="modal-body filter-bar-advanced" id="filter-bar-advanced">
+            <div class="filter-row">
+              <fieldset class="filter-group">
+                <legend class="filter-label">Date</legend>
+                <div class="filter-inputs">
+                  <label class="visually-hidden" for="filter-date-from"
+                    >Date from</label
+                  >
+                  <input type="date" id="filter-date-from" />
+                  <span class="filter-separator" aria-hidden="true">to</span>
+                  <label class="visually-hidden" for="filter-date-to"
+                    >Date to</label
+                  >
+                  <input type="date" id="filter-date-to" />
+                </div>
+                <div
+                  class="filter-presets"
+                  role="group"
+                  aria-label="Date presets"
+                >
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-date-preset="last7"
+                    aria-pressed="false"
+                  >
+                    Last 7 days
+                  </button>
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-date-preset="this-month"
+                    aria-pressed="false"
+                  >
+                    This month
+                  </button>
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-date-preset="this-year"
+                    aria-pressed="false"
+                  >
+                    This year
+                  </button>
+                </div>
+              </fieldset>
+              <fieldset class="filter-group">
+                <legend class="filter-label">Size range</legend>
+                <div class="filter-inputs">
+                  <label class="visually-hidden" for="filter-size-min"
+                    >Minimum size in megabytes</label
+                  >
+                  <input
+                    type="number"
+                    id="filter-size-min"
+                    min="0"
+                    step="1"
+                    placeholder="Min MB"
+                  />
+                  <span class="filter-separator" aria-hidden="true">to</span>
+                  <label class="visually-hidden" for="filter-size-max"
+                    >Maximum size in megabytes</label
+                  >
+                  <input
+                    type="number"
+                    id="filter-size-max"
+                    min="0"
+                    step="1"
+                    placeholder="Max MB"
+                  />
+                </div>
+                <div
+                  class="filter-presets"
+                  role="group"
+                  aria-label="Size presets"
+                >
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-size-min-mb="1"
+                    aria-pressed="false"
+                  >
+                    ≥ 1 MB
+                  </button>
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-size-min-mb="10"
+                    aria-pressed="false"
+                  >
+                    ≥ 10 MB
+                  </button>
+                  <button
+                    type="button"
+                    class="filter-preset"
+                    data-size-min-mb="100"
+                    aria-pressed="false"
+                  >
+                    ≥ 100 MB
+                  </button>
+                </div>
+              </fieldset>
+            </div>
+          </div>
+          <div class="modal-footer filter-modal-footer">
+            <button
+              type="button"
+              id="reset-advanced-filters-btn"
+              class="btn btn-secondary btn-sm"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              id="apply-advanced-filters-btn"
+              class="btn btn-primary btn-sm"
+            >
+              Done
+            </button>
           </div>
         </div>
       </div>
