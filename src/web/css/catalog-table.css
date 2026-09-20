@@ -7,7 +7,7 @@
 /* Media Table / File Station look */
 .catalog-section {
   position: relative;
-  overflow: visible;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -393,6 +393,8 @@ td.error-state {
   gap: 1rem;
   flex-grow: 0;
   flex-shrink: 0;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
 }
 
 .pagination-container .pagination-info {

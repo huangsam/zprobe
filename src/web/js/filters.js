@@ -666,16 +666,6 @@ function updateActiveFilterChips() {
     }
   }
 
-  const countEl = document.getElementById("filter-result-count");
-  if (countEl) {
-    if (filterChips.length > 0 && typeof totalRecords === "number") {
-      countEl.textContent = `(${totalRecords.toLocaleString()} ${totalRecords === 1 ? "file" : "files"})`;
-      countEl.removeAttribute("hidden");
-    } else {
-      countEl.setAttribute("hidden", "");
-    }
-  }
-
   updateAdvancedFilterBadge();
   updateSearchInputControls();
 }

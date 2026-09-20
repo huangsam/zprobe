@@ -61,74 +61,70 @@
             id="catalog-toolbar"
             aria-label="Catalog search and filters"
           >
-            <div class="toolbar-search-filter">
-              <div class="search-wrapper">
-                <label class="visually-hidden" for="search-input"
-                  >Search media</label
-                >
-                <span class="search-icon" aria-hidden="true"
-                  ><i data-lucide="search"></i
-                ></span>
-                <input
-                  type="text"
-                  id="search-input"
-                  class="search-input"
-                  placeholder="Search path, camera, format, or notes..."
-                />
-                <button
-                  type="button"
-                  id="search-clear-btn"
-                  class="search-clear-btn"
-                  aria-label="Clear search"
-                  hidden
-                >
-                  <i data-lucide="x" aria-hidden="true"></i>
-                </button>
-                <kbd
-                  class="search-shortcut-badge"
-                  id="search-shortcut-badge"
-                  title="Press / or ⌘K to search"
+            <div class="search-wrapper">
+              <label class="visually-hidden" for="search-input"
+                >Search media</label
+              >
+              <span class="search-icon" aria-hidden="true"
+                ><i data-lucide="search"></i
+              ></span>
+              <input
+                type="text"
+                id="search-input"
+                class="search-input"
+                placeholder="Search path, camera, format, or notes..."
+              />
+              <button
+                type="button"
+                id="search-clear-btn"
+                class="search-clear-btn"
+                aria-label="Clear search"
+                hidden
+              >
+                <i data-lucide="x" aria-hidden="true"></i>
+              </button>
+              <kbd
+                class="search-shortcut-badge"
+                id="search-shortcut-badge"
+                title="Press / or ⌘K to search"
+                aria-hidden="true"
+                >/</kbd
+              >
+            </div>
+            <div class="filters-wrapper">
+              <label class="visually-hidden" for="filter-format">Format</label>
+              <select id="filter-format" aria-label="Format">
+                <option value="">All Formats</option>
+              </select>
+              <label class="visually-hidden" for="filter-type"
+                >Media type</label
+              >
+              <select id="filter-type" aria-label="Media type">
+                <option value="">All Types</option>
+                <option value="image">Images Only</option>
+                <option value="video">Videos Only</option>
+              </select>
+              <button
+                type="button"
+                id="more-filters-toggle"
+                class="btn btn-secondary btn-sm more-filters-toggle"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="filter-modal"
+                title="More Filters"
+              >
+                <i
+                  data-lucide="sliders-horizontal"
+                  class="btn-icon"
                   aria-hidden="true"
-                  >/</kbd
-                >
-              </div>
-              <div class="filters-wrapper">
-                <label class="visually-hidden" for="filter-format"
-                  >Format</label
-                >
-                <select id="filter-format" aria-label="Format">
-                  <option value="">All Formats</option>
-                </select>
-                <label class="visually-hidden" for="filter-type"
-                  >Media type</label
-                >
-                <select id="filter-type" aria-label="Media type">
-                  <option value="">All Types</option>
-                  <option value="image">Images Only</option>
-                  <option value="video">Videos Only</option>
-                </select>
-                <button
-                  type="button"
-                  id="more-filters-toggle"
-                  class="btn btn-secondary btn-sm more-filters-toggle"
-                  aria-haspopup="dialog"
-                  aria-expanded="false"
-                  aria-controls="filter-modal"
-                  title="More Filters"
-                >
-                  <i
-                    data-lucide="sliders-horizontal"
-                    class="btn-icon"
-                    aria-hidden="true"
-                  ></i>
-                  <span>More filters</span>
-                  <span
-                    class="filter-count-badge"
-                    id="filter-count-badge"
-                    hidden
-                  ></span>
-                </button>
-              </div>
+                ></i>
+                <span>More filters</span>
+                <span
+                  class="filter-count-badge"
+                  id="filter-count-badge"
+                  hidden
+                ></span>
+              </button>
             </div>
 
             <div class="catalog-header-actions">
@@ -187,11 +183,6 @@
                 id="active-filters"
                 aria-label="Active filters"
               ></div>
-              <span
-                class="filter-result-count"
-                id="filter-result-count"
-                hidden
-              ></span>
             </div>
             <button
               type="button"
