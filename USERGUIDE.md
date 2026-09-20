@@ -1,218 +1,114 @@
 # zprobe User Guide
 
-This guide provides instructions on how to install, build, run, and cross-compile `zprobe` for different platforms.
+Lightweight, zero-dependency media scanner, metadata parser, and web dashboard.
 
 ## Getting Started
 
 ### Prerequisites
+- **Zig 0.16.0**
+- *(Optional)* **FFmpeg** for video poster thumbnails and animated GIF previews
 
-Ensure you have **Zig 0.16.0** installed on your system.
-
-### Build and Run
-
-You can run the test suite, build the executable, and scan media directories using the following commands:
+### Build & Run CLI
 
 ```bash
-# Run the test suite
-zig build test
-
-# Build the executable in ReleaseSafe mode
+# Build executable
 zig build -OReleaseSafe
 
-# Run zprobe on one or more directories
-./zig-out/bin/zprobe /path/to/media/directory1 /path/to/media/directory2
+# Basic scan
+./zig-out/bin/zprobe /path/to/media
 
-# Run with a SQLite caching database
-./zig-out/bin/zprobe --db /path/to/cache.db /path/to/media/directory
+# Scan with SQLite caching and stale entry pruning
+./zig-out/bin/zprobe --db /path/to/cache.db --prune /path/to/media
 
-# Run with custom concurrency (e.g. 2 threads) and bypass thumbnail generation (saves CPU/disk writes on NAS)
-./zig-out/bin/zprobe -j 2 --thumbnails=off --db /path/to/cache.db /path/to/media/directory
+# Concurrency & animated video previews (requires FFmpeg)
+./zig-out/bin/zprobe --db /path/to/cache.db --animations=on -j 4 /path/to/media
 
-# Run and generate animated GIF hover previews for videos (requires FFmpeg's built-in gif encoder)
-# Back-fills videos that have no previews yet; stays cheap on already-processed libraries
-./zig-out/bin/zprobe --animations=on --db /path/to/cache.db /path/to/media/directory
-
-# Force re-generation of any animated previews missing from disk
-# Use this after deleting/clearing the .zprobe_animations folder - no DB wipe needed
-./zig-out/bin/zprobe --animations=rebuild --db /path/to/cache.db /path/to/media/directory
-
-# Run daily scan and automatically prune stale cache entries for files deleted/moved in the target directories
-./zig-out/bin/zprobe --db /path/to/cache.db --prune /path/to/media/directory
-
-# Run scan with performance profiling metrics enabled
-./zig-out/bin/zprobe --profile /path/to/media/directory
-
-# Run profiling with database caching enabled
-./zig-out/bin/zprobe --db /path/to/cache.db --profile /path/to/media/directory
-
-# Use a custom FFmpeg binary (e.g. unclipped package on Synology NAS) via environment variable or CLI parameter
-ZPROBE_FFMPEG_PATH=/usr/local/bin/ffmpeg8 ./zig-out/bin/zprobe --db /path/to/cache.db /path/to/media/directory
-./zig-out/bin/zprobe --ffmpeg-path /usr/local/bin/ffmpeg8 --db /path/to/cache.db /path/to/media/directory
-
-# Limit FFmpeg process concurrency (e.g. to exactly 1 concurrent process on a CPU-constrained NAS)
-ZPROBE_FFMPEG_WORKER_COUNT=1 ./zig-out/bin/zprobe --db /path/to/cache.db /path/to/media/directory
+# Performance profiling & custom FFmpeg path
+./zig-out/bin/zprobe --db /path/to/cache.db --profile --ffmpeg-path /usr/local/bin/ffmpeg /path/to/media
 ```
 
 ## Cross-Compilation
 
-One of Zig's powerful features is its out-of-the-box cross-compilation capability. You can compile `zprobe` for other platforms and architectures without installing external toolchains.
-
-Here are common cross-compilation targets:
+Compile stripped, size-optimized (`ReleaseSmall`) binaries for all supported platforms with static SQLite in one command:
 
 ```bash
-# Synology NAS / Raspberry Pi (ARM64 Linux, statically linked, size-optimized)
-zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall
-
-# Standard Intel/AMD Linux (64-bit, statically linked with musl)
-zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseFast
-
-# Windows (64-bit portable executable)
-zig build -Dtarget=x86_64-windows-gnu -Doptimize=ReleaseSafe
-
-# Apple Silicon macOS (native ARM64 binary)
-zig build -Dtarget=aarch64-macos -Doptimize=ReleaseFast
+zig build release-all
 ```
+
+This populates `zig-out/bin/` with both CLI (`zprobe-<target>`) and server (`zprobe-server-<target>`) binaries:
+-   **`synology-arm64`**: Synology NAS (Realtek RTD1296), Raspberry Pi 4/5 (ARM64 Linux, musl static)
+-   **`synology-x86_64`**: Intel/AMD NAS and standard Linux servers (x86_64 Linux, musl static)
+-   **`macos-arm64`**: Apple Silicon macOS
+-   **`windows-x86_64`**: Windows x64 portable
+
+*(For a custom one-off platform: `zig build -Dtarget=<triple> -Doptimize=ReleaseFast`)*
 
 ## Dashboard Web Server
 
-`zprobe` includes a self-contained web server (`zprobe-server`) that reads the SQLite cache database and displays a visual metadata dashboard (including interactive stats charts and a catalog browser).
-
-### Running the Server
-
-Launch the server by specifying a port and your cache database:
+`zprobe-server` provides an interactive browser dashboard backed by the SQLite cache. Because the database runs in SQLite's **WAL mode**, you can run live CLI scans while the server is active without locking.
 
 ```bash
-./zig-out/bin/zprobe-server --port 8080 --db /path/to/cache.db
+# Start server (with optional HTTP basic auth)
+ZPROBE_AUTH_USER=admin ZPROBE_AUTH_PASS=secret \
+    ./zig-out/bin/zprobe-server --port 8080 --db /path/to/cache.db
 ```
 
-Open `http://localhost:8080` in your web browser to access the dashboard.
+Open `http://localhost:8080` to access the dashboard.
 
-### Basic Authentication (Optional)
+### Deployment
 
-To secure the server for remote access or deployment, you can configure HTTP Basic Authentication by setting the `ZPROBE_AUTH_USER` and `ZPROBE_AUTH_PASS` environment variables before starting `zprobe-server`:
+#### 1. Automated Remote Deployment (`zprobe-deploy`)
 
-```bash
-# Run with basic authentication
-ZPROBE_AUTH_USER=admin ZPROBE_AUTH_PASS=secretpassword ./zig-out/bin/zprobe-server --port 8080 --db /path/to/cache.db
-```
-
-If these environment variables are not set, the server runs in "authless" mode, allowing access without credentials.
-
-### Concurrent Live Scans (WAL Mode)
-
-The server and cache database are configured with SQLite's **Write-Ahead Logging (WAL)** mode. This allows you to run live directory scans via the CLI while the server is active without locking the database:
+Builds release targets, syncs binaries and service units over SSH, and activates systemd remotely:
 
 ```bash
-# In a separate terminal while the server is running:
-./zig-out/bin/zprobe --db /path/to/cache.db /path/to/new/photos
-```
-
-### Running as a Service (systemd)
-
-`zprobe-server` can generate its own systemd service file tailored specifically to the target environment:
-
-1. Copy the compiled `zprobe-server` binary to its deployment location (e.g. `/usr/local/bin/zprobe-server`).
-2. Run the server with your desired configuration flags and `--setup-service` to output the service configuration:
-   ```bash
-   /usr/local/bin/zprobe-server --port 8085 --db /var/lib/zprobe/zprobe_cache.db --setup-service > zprobe-server.service
-   ```
-   This dynamically detects the current user, working directory, absolute path of the executable, and parameters to output a valid systemd configuration.
-3. Move the file to your systemd services directory and enable it:
-   ```bash
-   sudo mv zprobe-server.service /etc/systemd/system/zprobe-server.service
-   sudo systemctl daemon-reload
-   sudo systemctl enable zprobe-server.service
-   sudo systemctl start zprobe-server.service
-   ```
-
-### Automated Remote Deployment (`zprobe-deploy`)
-
-For deploying directly to a remote host (e.g. Synology NAS, Raspberry Pi, or remote Linux server), `zprobe` includes an automated deployment tool:
-
-```bash
-# Build the deploy helper
+# Build deployment helper
 zig build deploy
 
-# Inspect CLI options
-./zig-out/bin/zprobe-deploy --help
-```
-
-#### Commands & Examples
-
-- **Cross-compile release binaries for the target:**
-  ```bash
-  ./zig-out/bin/zprobe-deploy build --target synology-arm64
-  ```
-  *(Supported targets: `synology-arm64`, `synology-x86_64`, `linux-x86_64`, `linux-arm64`, `linux-riscv64`, `macos-arm64`, `macos-x86_64`)*
-
-- **Generate a customized systemd service unit file:**
-  ```bash
-  ./zig-out/bin/zprobe-deploy service \
-    --user admin \
-    --port 8085 \
-    --auth-user admin \
-    --auth-pass secret \
-    --output zprobe-server.service
-  ```
-
-- **Full end-to-end installation over SSH:**
-  ```bash
-  ./zig-out/bin/zprobe-deploy install \
+# Full install to remote host (supports custom SSH ports and basic auth)
+./zig-out/bin/zprobe-deploy install \
     --host admin@nas.local:2222 \
     --remote-dir /volume1/docker/zprobe \
     --auth-user admin \
     --auth-pass secret
-  ```
-  *(You can also set `ZPROBE_AUTH_USER` and `ZPROBE_AUTH_PASS` in your shell environment, and specify a custom SSH port using `--ssh-port <port>` or `--host <user@host:port>`.)*
+```
 
-### Running via Docker
+#### 2. Local systemd Service
 
-Alternatively, you can run `zprobe-server` inside a lightweight container:
+Generate a systemd unit file directly tailored to the current machine:
 
-1. Build the Docker image from the root of the workspace.
+```bash
+# Output systemd unit configuration
+/usr/local/bin/zprobe-server --port 8085 --db /var/lib/zprobe/cache.db --setup-service > zprobe-server.service
 
-   For a single platform (e.g. host-native):
+# Install and start service
+sudo mv zprobe-server.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable zprobe-server.service
+sudo systemctl start zprobe-server.service
+```
 
-   ```bash
-   docker build -t zprobe-server .
-   ```
+#### 3. Docker Container
 
-   For multiple architectures concurrently (e.g. to run on both standard Intel/AMD `x86_64` servers and ARM64 platforms like Synology NAS or Raspberry Pi) without Rosetta/QEMU emulation overhead:
+Run as a container mounting the database directory:
 
-   ```bash
-   docker buildx build --platform linux/amd64,linux/arm64 -t zprobe-server:latest .
-   ```
+```bash
+docker run -d \
+    -p 8085:8085 \
+    -e ZPROBE_AUTH_USER=admin \
+    -e ZPROBE_AUTH_PASS=secret \
+    -v /volume1/docker/zprobe:/app/data \
+    --name zprobe-server \
+    zprobe-server
+```
 
-2. Start the container, mounting the directory hosting your cache database (optionally passing basic auth environment variables):
-   ```bash
-   docker run -d \
-     -p 8085:8085 \
-     -e ZPROBE_AUTH_USER=admin \
-     -e ZPROBE_AUTH_PASS=secretpassword \
-     -v /volume1/docker/zprobe:/app/data \
-     --name zprobe-server \
-     zprobe-server
-   ```
-
-### REST API Reference
+## REST API Reference
 
 The server exposes the following JSON endpoints:
 
-- **`GET /api/stats`**: Returns database summary metrics including total file counts/sizes, format distributions, camera models, and video duration tiers.
-- **`GET /api/media`**: Returns paginated, sorted, and filtered lists of media files.
-  - **Query Parameters:**
-    - `limit`: Number of records to return (default: 25).
-    - `offset`: Record index offset (default: 0).
-    - `sort`: Column to sort by (`path`, `size`, `format`, `width`, `height`, `duration_sec`, `camera_model`, `create_time`).
-    - `order`: Sort order (`asc` or `desc`).
-    - `search`: Substring filter matching file paths or camera model.
-    - `format`: Match exact format (e.g. `jpeg`, `mp4`).
-    - `type`: Match file category (`image` or `video`).
-    - `date_from`: Filter files captured on or after this ISO date (`YYYY-MM-DD`).
-    - `date_to`: Filter files captured on or before this ISO date (`YYYY-MM-DD`).
-    - `size_min`: Filter files larger than or equal to this size in bytes.
-    - `size_max`: Filter files smaller than or equal to this size in bytes.
-- **`GET /api/thumbnail`**: Serves generated static poster thumbnails or animated hover GIF previews.
-  - **Query Parameters:**
-    - `path`: URL-encoded absolute path to the original media file.
-    - `animated`: Optional. Set to `1` to request the animated GIF preview (for videos). Any other value returns the standard JPEG poster thumbnail.
+-   **`GET /api/stats`**: Summary metrics (total files, catalog size, format distributions, camera models, video duration tiers).
+-   **`GET /api/media`**: Paginated, filterable media records.
+    -   *Pagination*: `limit` (default 25, max 100), `offset` (default 0).
+    -   *Filters*: `search`, `format` (e.g. `jpeg`, `mp4`), `type` (`image`|`video`), `date_from` / `date_to` (`YYYY-MM-DD`), `size_min` / `size_max` (bytes).
+    -   *Sorting*: `sort` (`path`, `size`, `format`, `width`, `height`, `duration_sec`, `camera_model`, `create_time`), `order` (`asc`|`desc`).
+-   **`GET /api/thumbnail`**: Media preview asset (`path=<url-encoded-path>`, optional `animated=1` for video GIF preview).
