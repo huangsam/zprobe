@@ -17,16 +17,16 @@
 
 .toolbar-search-filter {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.625rem;
-  flex: 1 1 30rem;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .catalog-toolbar .search-wrapper {
   position: relative;
-  flex: 1 1 14rem;
+  flex: 1 1 10rem;
   min-width: 10rem;
   max-width: 26rem;
 }
@@ -410,6 +410,7 @@
   .toolbar-search-filter {
     flex: 1 1 100%;
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .catalog-toolbar .search-wrapper {
