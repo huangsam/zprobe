@@ -60,12 +60,27 @@ pub const DeployError = error{
     MissingOutputValue,
     MissingTargetValue,
     InvalidPortNumber,
+    InvalidTarget,
     BinaryNotFound,
     BuildFailed,
     SyncFailed,
     RemoteExecutionFailed,
     CommandFailed,
 };
+
+pub const supported_targets = [_][]const u8{
+    "synology-arm64",
+    "synology-x86_64",
+    "macos-arm64",
+    "windows-x86_64",
+};
+
+pub fn isValidTarget(target: []const u8) bool {
+    for (supported_targets) |t| {
+        if (std.mem.eql(u8, t, target)) return true;
+    }
+    return false;
+}
 
 pub const ParsedArgs = struct {
     command: Command,
@@ -160,6 +175,7 @@ pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
         if (std.mem.eql(u8, arg, "--target")) {
             i += 1;
             if (i >= args.len) return error.MissingTargetValue;
+            if (!isValidTarget(args[i])) return error.InvalidTarget;
             result.target = args[i];
             continue;
         }
@@ -362,15 +378,16 @@ fn runInstall(
     const remote_script = try std.fmt.allocPrint(
         allocator,
         \\sudo mkdir -p /usr/local/bin /etc/systemd/system "{s}" && \
+        \\sudo chown "{s}" "{s}" && \
         \\sudo install -m 755 "{s}/{s}" /usr/local/bin/zprobe && \
         \\sudo install -m 755 "{s}/{s}" /usr/local/bin/zprobe-server && \
         \\sudo install -m 644 "{s}/{s}" /etc/systemd/system/zprobe-server.service && \
         \\sudo systemctl daemon-reload && \
         \\sudo systemctl enable zprobe-server.service && \
         \\sudo systemctl restart zprobe-server.service && \
-        \\sudo systemctl is-active --quiet zprobe-server.service
+        \\(sudo systemctl is-active --quiet zprobe-server.service || (sudo journalctl -u zprobe-server.service -n 20 --no-pager && false))
     ,
-        .{ db_dir, remote_dir, cli_file_name, remote_dir, server_file_name, remote_dir, service_file_name },
+        .{ db_dir, service_user, db_dir, remote_dir, cli_file_name, remote_dir, server_file_name, remote_dir, service_file_name },
     );
     defer allocator.free(remote_script);
 
@@ -463,6 +480,18 @@ test "parseArgs handles missing flag values and invalid numbers" {
 
     const args_invalid_port = [_][:0]const u8{ "zprobe-deploy", "service", "--port", "invalid" };
     try std.testing.expectError(error.InvalidPortNumber, parseArgs(&args_invalid_port));
+
+    const args_invalid_target = [_][:0]const u8{ "zprobe-deploy", "build", "--target", "invalid-arch" };
+    try std.testing.expectError(error.InvalidTarget, parseArgs(&args_invalid_target));
+}
+
+test "isValidTarget validates supported architectures" {
+    try std.testing.expect(isValidTarget("synology-arm64"));
+    try std.testing.expect(isValidTarget("synology-x86_64"));
+    try std.testing.expect(isValidTarget("macos-arm64"));
+    try std.testing.expect(isValidTarget("windows-x86_64"));
+    try std.testing.expect(!isValidTarget("linux-arm64"));
+    try std.testing.expect(!isValidTarget(""));
 }
 
 test "generateServiceUnitContent creates expected systemd unit structure" {
