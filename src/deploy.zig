@@ -1,5 +1,6 @@
 const std = @import("std");
 const test_utils = @import("core/test_utils.zig");
+const service = @import("server/service.zig");
 
 const usage =
     \\Usage:
@@ -12,25 +13,29 @@ const usage =
     \\  help              Show this help text
     \\
     \\Options:
-    \\  --host <user@host> Remote SSH host (required for install)
+    \\  --host <user@host> Remote SSH host (required for install, supports user@host:port)
+    \\  --ssh-port <port>  Remote SSH port (default: 22)
     \\  --user <username>  Systemd service user (default: parsed from --host, required for service)
     \\  --remote-dir <path> Remote staging directory (default: /volume1/docker/zprobe)
     \\  --port <port>      Server listen port (default: 8085)
     \\  --db <path>        Path to SQLite cache DB on remote host
     \\                     (default: /volume1/docker/zprobe/zprobe_cache.db)
+    \\  --auth-user <name> HTTP basic auth user for dashboard (env: ZPROBE_AUTH_USER)
+    \\  --auth-pass <pass> HTTP basic auth password for dashboard (env: ZPROBE_AUTH_PASS)
     \\  --output <path>    Output file for 'service' command (- for stdout)
     \\  --target <name>    Target architecture name (default: synology-arm64)
     \\
     \\Examples:
     \\  zprobe-deploy build
-    \\  zprobe-deploy service --user admin --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db
-    \\  zprobe-deploy install --host admin@nas.local --remote-dir /volume1/docker/zprobe
+    \\  zprobe-deploy service --user admin --port 8085 --auth-user admin --auth-pass secret
+    \\  zprobe-deploy install --host admin@nas.local:2222 --remote-dir /volume1/docker/zprobe
     \\
 ;
 
 pub const default_target = "synology-arm64";
 pub const default_remote_dir = "/volume1/docker/zprobe";
 pub const default_port: u16 = 8085;
+pub const default_ssh_port: u16 = 22;
 pub const default_db_path = "/volume1/docker/zprobe/zprobe_cache.db";
 pub const default_output = "-";
 
@@ -59,7 +64,11 @@ pub const DeployError = error{
     MissingDbValue,
     MissingOutputValue,
     MissingTargetValue,
+    MissingSshPortValue,
+    MissingAuthUserValue,
+    MissingAuthPassValue,
     InvalidPortNumber,
+    InvalidSshPortNumber,
     InvalidTarget,
     BinaryNotFound,
     BuildFailed,
@@ -85,12 +94,15 @@ pub fn isValidTarget(target: []const u8) bool {
 pub const ParsedArgs = struct {
     command: Command,
     host: []const u8,
+    ssh_port: u16,
     user: ?[]const u8,
     remote_dir: []const u8,
     port: u16,
     db: []const u8,
     output: []const u8,
     target: []const u8,
+    auth_user: ?[]const u8,
+    auth_pass: ?[]const u8,
 };
 
 pub fn printUsage(io: std.Io) !void {
@@ -98,6 +110,22 @@ pub fn printUsage(io: std.Io) !void {
     var writer = std.Io.File.Writer.init(.stdout(), io, &stdout_buf);
     try writer.interface.writeAll(usage);
     try writer.flush();
+}
+
+pub const HostAndPort = struct {
+    host: []const u8,
+    port: ?u16,
+};
+
+pub fn splitHostAndPort(host_str: []const u8) HostAndPort {
+    if (std.mem.lastIndexOfScalar(u8, host_str, ':')) |idx| {
+        if (idx > 0 and idx + 1 < host_str.len) {
+            if (std.fmt.parseInt(u16, host_str[idx + 1 ..], 10)) |p| {
+                return .{ .host = host_str[0..idx], .port = p };
+            } else |_| {}
+        }
+    }
+    return .{ .host = host_str, .port = null };
 }
 
 pub fn extractUserFromHost(host: []const u8) ?[]const u8 {
@@ -113,12 +141,15 @@ pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
     var result: ParsedArgs = .{
         .command = .help,
         .host = "",
+        .ssh_port = default_ssh_port,
         .user = null,
         .remote_dir = default_remote_dir,
         .port = default_port,
         .db = default_db_path,
         .output = default_output,
         .target = default_target,
+        .auth_user = null,
+        .auth_pass = null,
     };
 
     var i: usize = 1;
@@ -134,6 +165,13 @@ pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
             i += 1;
             if (i >= args.len) return error.MissingHostValue;
             result.host = args[i];
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--ssh-port")) {
+            i += 1;
+            if (i >= args.len) return error.MissingSshPortValue;
+            result.ssh_port = std.fmt.parseInt(u16, args[i], 10) catch return error.InvalidSshPortNumber;
             continue;
         }
 
@@ -165,6 +203,20 @@ pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
             continue;
         }
 
+        if (std.mem.eql(u8, arg, "--auth-user")) {
+            i += 1;
+            if (i >= args.len) return error.MissingAuthUserValue;
+            result.auth_user = args[i];
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--auth-pass")) {
+            i += 1;
+            if (i >= args.len) return error.MissingAuthPassValue;
+            result.auth_pass = args[i];
+            continue;
+        }
+
         if (std.mem.eql(u8, arg, "--output")) {
             i += 1;
             if (i >= args.len) return error.MissingOutputValue;
@@ -181,6 +233,16 @@ pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
         }
 
         return error.UnknownArgument;
+    }
+
+    if (result.host.len > 0) {
+        const split = splitHostAndPort(result.host);
+        result.host = split.host;
+        if (split.port) |p| {
+            if (result.ssh_port == default_ssh_port) {
+                result.ssh_port = p;
+            }
+        }
     }
 
     return result;
@@ -249,27 +311,18 @@ pub fn generateServiceUnitContent(
     working_dir: []const u8,
     port: u16,
     db_path: []const u8,
-) ![]const u8 {
-    return std.fmt.allocPrint(
-        allocator,
-        \\[Unit]
-        \\Description=zprobe Insights Server
-        \\After=network.target
-        \\
-        \\[Service]
-        \\Type=simple
-        \\User={s}
-        \\WorkingDirectory={s}
-        \\ExecStart=/usr/local/bin/zprobe-server --port {d} --db {s}
-        \\Restart=on-failure
-        \\RestartSec=5
-        \\
-        \\[Install]
-        \\WantedBy=multi-user.target
-        \\
-    ,
-        .{ user, working_dir, port, db_path },
-    );
+    auth_user: ?[]const u8,
+    auth_pass: ?[]const u8,
+) ![]u8 {
+    return service.generateServiceUnit(allocator, .{
+        .user = user,
+        .working_dir = working_dir,
+        .exec_path = "/usr/local/bin/zprobe-server",
+        .port = port,
+        .db_path = db_path,
+        .auth_user = if (auth_user) |u| (if (u.len > 0) u else null) else null,
+        .auth_pass = if (auth_pass) |p| (if (p.len > 0) p else null) else null,
+    });
 }
 
 fn writeServiceFile(io: std.Io, allocator: std.mem.Allocator, output_path: []const u8, content: []const u8) !void {
@@ -311,8 +364,10 @@ fn runService(
     port: u16,
     db_path: []const u8,
     output: []const u8,
+    auth_user: ?[]const u8,
+    auth_pass: ?[]const u8,
 ) !void {
-    const unit = try generateServiceUnitContent(allocator, user, remote_dir, port, db_path);
+    const unit = try generateServiceUnitContent(allocator, user, remote_dir, port, db_path, auth_user, auth_pass);
     defer allocator.free(unit);
 
     try writeServiceFile(io, allocator, output, unit);
@@ -325,11 +380,14 @@ fn runInstall(
     io: std.Io,
     allocator: std.mem.Allocator,
     host: []const u8,
+    ssh_port: u16,
     service_user: []const u8,
     remote_dir: []const u8,
     port: u16,
     db_path: []const u8,
     target: []const u8,
+    auth_user: ?[]const u8,
+    auth_pass: ?[]const u8,
 ) !void {
     try runBuild(io, target);
 
@@ -342,6 +400,9 @@ fn runInstall(
     std.debug.print("[deploy] Found CLI binary: {s}\n", .{cli_binary_path});
     std.debug.print("[deploy] Found server binary: {s}\n", .{server_binary_path});
 
+    const port_str = try std.fmt.allocPrint(allocator, "{d}", .{ssh_port});
+    defer allocator.free(port_str);
+
     // 1. Single pre-flight SSH step: ensure remote staging directory exists and stop running service
     std.debug.print("[deploy] Pre-flight: preparing remote staging directory and stopping existing service...\n", .{});
     const preflight_cmd = try std.fmt.allocPrint(
@@ -350,10 +411,10 @@ fn runInstall(
         .{remote_dir},
     );
     defer allocator.free(preflight_cmd);
-    _ = runCommand(io, &.{ "ssh", "-t", host, preflight_cmd }) catch {};
+    _ = runCommand(io, &.{ "ssh", "-p", port_str, "-t", host, preflight_cmd }) catch {};
 
     // 2. Generate service unit and stage locally to a temporary file
-    const service_unit = try generateServiceUnitContent(allocator, service_user, remote_dir, port, db_path);
+    const service_unit = try generateServiceUnitContent(allocator, service_user, remote_dir, port, db_path, auth_user, auth_pass);
     defer allocator.free(service_unit);
 
     const local_service_path = try std.fs.path.join(allocator, &.{ "zig-out", "zprobe-server.service" });
@@ -366,8 +427,11 @@ fn runInstall(
     const rsync_dest = try std.fmt.allocPrint(allocator, "{s}:{s}/", .{ host, remote_dir });
     defer allocator.free(rsync_dest);
 
-    std.debug.print("[deploy] Syncing binaries and service unit to {s}...\n", .{rsync_dest});
-    runCommand(io, &.{ "rsync", "-avz", "--progress", cli_binary_path, server_binary_path, local_service_path, rsync_dest }) catch return error.SyncFailed;
+    std.debug.print("[deploy] Syncing binaries and service unit to {s} (SSH port {d})...\n", .{ rsync_dest, ssh_port });
+    const rsync_rsh = try std.fmt.allocPrint(allocator, "ssh -p {d}", .{ssh_port});
+    defer allocator.free(rsync_rsh);
+
+    runCommand(io, &.{ "rsync", "-avz", "--progress", "-e", rsync_rsh, cli_binary_path, server_binary_path, local_service_path, rsync_dest }) catch return error.SyncFailed;
 
     // 4. Remote installation script (no inline heredocs)
     const db_dir = std.fs.path.dirname(db_path) orelse remote_dir;
@@ -392,7 +456,7 @@ fn runInstall(
     defer allocator.free(remote_script);
 
     std.debug.print("[deploy] Installing binaries and activating systemd service on {s}...\n", .{host});
-    runCommand(io, &.{ "ssh", "-t", host, remote_script }) catch return error.RemoteExecutionFailed;
+    runCommand(io, &.{ "ssh", "-p", port_str, "-t", host, remote_script }) catch return error.RemoteExecutionFailed;
 
     std.debug.print("[deploy] Verification succeeded; zprobe-server is active.\n", .{});
 }
@@ -409,6 +473,11 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     };
 
+    const env_auth_user = init.environ_map.get("ZPROBE_AUTH_USER");
+    const env_auth_pass = init.environ_map.get("ZPROBE_AUTH_PASS");
+    const auth_user = parsed.auth_user orelse env_auth_user;
+    const auth_pass = parsed.auth_pass orelse env_auth_pass;
+
     switch (parsed.command) {
         .help => try printUsage(io),
         .build => try runBuild(io, parsed.target),
@@ -418,7 +487,7 @@ pub fn main(init: std.process.Init) !void {
                 printUsage(io) catch {};
                 std.process.exit(1);
             };
-            try runService(io, allocator, service_user, parsed.remote_dir, parsed.port, parsed.db, parsed.output);
+            try runService(io, allocator, service_user, parsed.remote_dir, parsed.port, parsed.db, parsed.output, auth_user, auth_pass);
         },
         .install => {
             if (parsed.host.len == 0) {
@@ -431,7 +500,7 @@ pub fn main(init: std.process.Init) !void {
                 printUsage(io) catch {};
                 std.process.exit(1);
             });
-            try runInstall(io, allocator, parsed.host, service_user, parsed.remote_dir, parsed.port, parsed.db, parsed.target);
+            try runInstall(io, allocator, parsed.host, parsed.ssh_port, service_user, parsed.remote_dir, parsed.port, parsed.db, parsed.target, auth_user, auth_pass);
         },
     }
 }
@@ -496,7 +565,7 @@ test "isValidTarget validates supported architectures" {
 
 test "generateServiceUnitContent creates expected systemd unit structure" {
     const allocator = std.testing.allocator;
-    const unit = try generateServiceUnitContent(allocator, "admin", "/volume1/docker/zprobe", 8085, "/volume1/docker/zprobe/zprobe_cache.db");
+    const unit = try generateServiceUnitContent(allocator, "admin", "/volume1/docker/zprobe", 8085, "/volume1/docker/zprobe/zprobe_cache.db", null, null);
     defer allocator.free(unit);
 
     try std.testing.expect(std.mem.indexOf(u8, unit, "Description=zprobe Insights Server") != null);
@@ -505,6 +574,29 @@ test "generateServiceUnitContent creates expected systemd unit structure" {
     try std.testing.expect(std.mem.indexOf(u8, unit, "ExecStart=/usr/local/bin/zprobe-server --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db") != null);
     try std.testing.expect(std.mem.indexOf(u8, unit, "Restart=on-failure") != null);
     try std.testing.expect(std.mem.indexOf(u8, unit, "WantedBy=multi-user.target") != null);
+}
+
+test "generateServiceUnitContent with basic auth injects Environment directives" {
+    const allocator = std.testing.allocator;
+    const unit = try generateServiceUnitContent(allocator, "admin", "/volume1/docker/zprobe", 8085, "/volume1/docker/zprobe/zprobe_cache.db", "admin_user", "supersecret");
+    defer allocator.free(unit);
+
+    try std.testing.expect(std.mem.indexOf(u8, unit, "Environment=\"ZPROBE_AUTH_USER=admin_user\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unit, "Environment=\"ZPROBE_AUTH_PASS=supersecret\"") != null);
+}
+
+test "splitHostAndPort correctly splits host and optional port" {
+    const normal = splitHostAndPort("admin@nas.local");
+    try std.testing.expectEqualStrings("admin@nas.local", normal.host);
+    try std.testing.expect(normal.port == null);
+
+    const with_port = splitHostAndPort("admin@nas.local:2222");
+    try std.testing.expectEqualStrings("admin@nas.local", with_port.host);
+    try std.testing.expectEqual(@as(u16, 2222), with_port.port.?);
+
+    const host_only_with_port = splitHostAndPort("192.168.1.100:8022");
+    try std.testing.expectEqualStrings("192.168.1.100", host_only_with_port.host);
+    try std.testing.expectEqual(@as(u16, 8022), host_only_with_port.port.?);
 }
 
 test "resolveBinaryPath resolves existing binary or reports not found without panicking" {

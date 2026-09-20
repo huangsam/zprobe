@@ -125,6 +125,46 @@ The server and cache database are configured with SQLite's **Write-Ahead Logging
    sudo systemctl start zprobe-server.service
    ```
 
+### Automated Remote Deployment (`zprobe-deploy`)
+
+For deploying directly to a remote host (e.g. Synology NAS, Raspberry Pi, or remote Linux server), `zprobe` includes an automated deployment tool:
+
+```bash
+# Build the deploy helper
+zig build deploy
+
+# Inspect CLI options
+./zig-out/bin/zprobe-deploy --help
+```
+
+#### Commands & Examples
+
+- **Cross-compile release binaries for the target:**
+  ```bash
+  ./zig-out/bin/zprobe-deploy build --target synology-arm64
+  ```
+  *(Supported targets: `synology-arm64`, `synology-x86_64`, `linux-x86_64`, `linux-arm64`, `linux-riscv64`, `macos-arm64`, `macos-x86_64`)*
+
+- **Generate a customized systemd service unit file:**
+  ```bash
+  ./zig-out/bin/zprobe-deploy service \
+    --user admin \
+    --port 8085 \
+    --auth-user admin \
+    --auth-pass secret \
+    --output zprobe-server.service
+  ```
+
+- **Full end-to-end installation over SSH:**
+  ```bash
+  ./zig-out/bin/zprobe-deploy install \
+    --host admin@nas.local:2222 \
+    --remote-dir /volume1/docker/zprobe \
+    --auth-user admin \
+    --auth-pass secret
+  ```
+  *(You can also set `ZPROBE_AUTH_USER` and `ZPROBE_AUTH_PASS` in your shell environment, and specify a custom SSH port using `--ssh-port <port>` or `--host <user@host:port>`.)*
+
 ### Running via Docker
 
 Alternatively, you can run `zprobe-server` inside a lightweight container:

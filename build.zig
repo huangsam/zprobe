@@ -117,7 +117,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    const deploy_step = b.step("zprobe-deploy", "Build the zprobe deployment helper");
+    const deploy_step = b.step("deploy", "Build the zprobe deployment helper");
     const install_deploy = b.addInstallArtifact(deploy_exe, .{});
     deploy_step.dependOn(&install_deploy.step);
 

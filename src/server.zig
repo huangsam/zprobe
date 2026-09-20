@@ -54,27 +54,25 @@ pub fn main(init: std.process.Init) !void {
             const db_abs_path = std.fs.path.resolve(allocator, &[_][]const u8{ work_dir, db_path }) catch db_path;
             defer if (!std.mem.eql(u8, db_abs_path, db_path)) allocator.free(db_abs_path);
 
+            const unit = zprobe.service.generateServiceUnit(allocator, .{
+                .user = user,
+                .working_dir = work_dir,
+                .exec_path = exe_path,
+                .port = port,
+                .db_path = db_abs_path,
+                .auth_user = auth_user,
+                .auth_pass = auth_pass,
+            }) catch |err| {
+                std.debug.print("Failed to generate service unit: {}\n", .{err});
+                std.process.exit(1);
+            };
+            defer allocator.free(unit);
+
             // Output service directly to stdout so it can be piped
             var stdout_buf: [1024]u8 = undefined;
             var writer = std.Io.File.Writer.init(.stdout(), io, &stdout_buf);
             const interface = &writer.interface;
-            interface.print(
-                \\[Unit]
-                \\Description=zprobe Insights Server
-                \\After=network.target
-                \\
-                \\[Service]
-                \\Type=simple
-                \\User={s}
-                \\WorkingDirectory={s}
-                \\ExecStart={s} --port {d} --db {s}
-                \\Restart=on-failure
-                \\RestartSec=5
-                \\
-                \\[Install]
-                \\WantedBy=multi-user.target
-                \\
-            , .{ user, work_dir, exe_path, port, db_abs_path }) catch {};
+            interface.writeAll(unit) catch {};
             writer.flush() catch {};
             std.process.exit(0);
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
