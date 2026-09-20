@@ -281,14 +281,14 @@
 .modal .modal-content.filter-modal-content {
   max-width: 480px;
   width: 90%;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 
 /* Sort Modal Specific Styling */
 .modal .modal-content.sort-modal-content {
   max-width: 400px;
   width: 90%;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 
 .sort-modal-body {
