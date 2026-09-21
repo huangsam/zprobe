@@ -78,19 +78,20 @@ Zig does not have a hidden global allocator. Every function that requires heap m
 
 In `zprobe`, this enforces a clean separation of memory lifecycles:
 
-1. **Transient Lifetime (Arena Allocator)**:
-   Passed to format parsers (`parseJpegFile`, `parseIfd`, `getVideoMetadata`) and string decoders (`readAscii`). These allocations only need to live as long as the file is being parsed.
-   ```zig
-   pub fn readAscii(self: *ByteReader, allocator: std.mem.Allocator, count: u32) ![]const u8 {
-       ...
-       const result = try allocator.alloc(u8, len);
-       @memcpy(result, raw[0..len]);
-       return result;
-   }
-   ```
+### 1. Transient Lifetime (Arena Allocator)
+Passed to format parsers (`parseJpegFile`, `parseIfd`, `getVideoMetadata`) and string decoders (`readAscii`). These allocations only need to live as long as the file is being parsed.
 
-2. **Long-Lived Lifetime (Parent / General Purpose Allocator)**:
-   Passed to long-standing structures, such as the `media_scan.ScanEntry` directory list, SQLite statement handles, and the HTTP server's thread pool.
+```zig
+pub fn readAscii(self: *ByteReader, allocator: std.mem.Allocator, count: u32) ![]const u8 {
+    ...
+    const result = try allocator.alloc(u8, len);
+    @memcpy(result, raw[0..len]);
+    return result;
+}
+```
+
+### 2. Long-Lived Lifetime (Parent Allocator)
+Passed to long-standing structures, such as the `media_scan.ScanEntry` directory list, SQLite statement handles, and the HTTP server's thread pool.
 
 ---
 

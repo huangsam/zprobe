@@ -68,33 +68,33 @@ Rust is the closest alternative to Zig for this problem space. It provides memor
 
 ### 4. Why Zig was the best fit for `src/core` and `src/formats`
 
-1. **Comptime Generic Binary Decoding**:
-   In `src/core/byte_reader.zig`:
-   ```zig
-   pub fn readInt(self: *ByteReader, comptime T: type) !T {
-       const size = @sizeOf(T);
-       if (size > self.remaining()) return error.OutOfBounds;
-       const bytes = self.buffer[self.offset .. self.offset + size];
-       self.offset += size;
-       return std.mem.readInt(T, bytes[0..size], self.endian);
-   }
-   ```
-   Compile-time integer width resolution generates optimal machine code (e.g., direct `bswap`/`movbe` instructions) without template metaprogramming bloat or runtime reflection.
+#### 1. Comptime Generic Binary Decoding
+In `src/core/byte_reader.zig`:
+```zig
+pub fn readInt(self: *ByteReader, comptime T: type) !T {
+    const size = @sizeOf(T);
+    if (size > self.remaining()) return error.OutOfBounds;
+    const bytes = self.buffer[self.offset .. self.offset + size];
+    self.offset += size;
+    return std.mem.readInt(T, bytes[0..size], self.endian);
+}
+```
+Compile-time integer width resolution generates optimal machine code (e.g., direct `bswap`/`movbe` instructions) without template metaprogramming bloat or runtime reflection.
 
-2. **Per-Task Arena Allocation**:
-   In `src/cli/worker_pool.zig`:
-   ```zig
-   var arena = std.heap.ArenaAllocator.init(c_ctx.allocator);
-   defer arena.deinit();
-   const arena_allocator = arena.allocator();
-   ```
-   Workers process files using an arena allocator. All transient allocations (ASCII strings, EXIF arrays, temporary paths) are freed in an $O(1)$ batch upon file completion or failure, guaranteeing zero heap fragmentation and eliminating allocator lock contention across threads.
+#### 2. Per-Task Arena Allocation
+In `src/cli/worker_pool.zig`:
+```zig
+var arena = std.heap.ArenaAllocator.init(c_ctx.allocator);
+defer arena.deinit();
+const arena_allocator = arena.allocator();
+```
+Workers process files using an arena allocator. All transient allocations (ASCII strings, EXIF arrays, temporary paths) are freed in an $O(1)$ batch upon file completion or failure, guaranteeing zero heap fragmentation and eliminating allocator lock contention across threads.
 
-3. **Explicit Error Unions**:
-   Zig’s error unions (`!T`) make error conditions explicit without exception unwinding overhead. If a file is malformed, functions return `error.OutOfBounds`, `error.NotPng`, or `error.InvalidJpeg` immediately via `try`, allowing the worker pool to safely skip bad files without crashing.
+#### 3. Explicit Error Unions
+Zig’s error unions (`!T`) make error conditions explicit without exception unwinding overhead. If a file is malformed, functions return `error.OutOfBounds`, `error.NotPng`, or `error.InvalidJpeg` immediately via `try`, allowing the worker pool to safely skip bad files without crashing.
 
-4. **Seamless SQLite Integration**:
-   SQLite is compiled directly into the binary with zero translation layers via `@cImport`. Queries execute at native speed with zero marshaling or FFI overhead.
+#### 4. Seamless SQLite Integration
+SQLite is compiled directly into the binary with zero translation layers via `@cImport`. Queries execute at native speed with zero marshaling or FFI overhead.
 
 ---
 

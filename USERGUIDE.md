@@ -108,7 +108,7 @@ The server exposes the following JSON endpoints:
 
 - **`GET /api/stats`**: Summary metrics (total files, catalog size, format distributions, camera models, video duration tiers).
 - **`GET /api/media`**: Paginated, filterable media records.
-    - *Pagination*: `limit` (default 25, max 100), `offset` (default 0).
-    - *Filters*: `search`, `format` (e.g. `jpeg`, `mp4`), `type` (`image`|`video`), `date_from` / `date_to` (`YYYY-MM-DD`), `size_min` / `size_max` (bytes).
-    - *Sorting*: `sort` (`path`, `size`, `format`, `width`, `height`, `duration_sec`, `camera_model`, `create_time`), `order` (`asc`|`desc`).
+  - *Pagination*: `limit` (default 25, max 100), `offset` (default 0).
+  - *Filters*: `search`, `format` (e.g. `jpeg`, `mp4`), `type` (`image`|`video`), `date_from` / `date_to` (`YYYY-MM-DD`), `size_min` / `size_max` (bytes).
+  - *Sorting*: `sort` (`path`, `size`, `format`, `width`, `height`, `duration_sec`, `camera_model`, `create_time`), `order` (`asc`|`desc`).
 - **`GET /api/thumbnail`**: Media preview asset (`path=<url-encoded-path>`, optional `animated=1` for video GIF preview).

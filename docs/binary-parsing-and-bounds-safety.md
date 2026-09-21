@@ -75,29 +75,29 @@ pub fn subReader(self: *ByteReader, size: usize) !ByteReader {
 
 Complex formats like TIFF and MP4 allow chains and containers to reference other offsets. Adversarial or corrupted files can introduce circular loops that exhaust call stack memory.
 
-* **TIFF IFD Traversal** (`src/formats/images/tiff.zig`):
-  TIFF files can link multiple Image File Directories (IFDs) and sub-IFDs.
-  ```zig
-  pub fn parseIfd(
-      allocator: std.mem.Allocator,
-      root_reader: *ByteReader,
-      ifd_offset: usize,
-      meta: *ImageMetadata,
-      depth: usize,
-  ) !void {
-      if (depth > 4) return; // Hard limit prevents circular IFD recursion
-      ...
-  }
-  ```
+#### TIFF IFD Traversal (`src/formats/images/tiff.zig`)
+TIFF files can link multiple Image File Directories (IFDs) and sub-IFDs.
+```zig
+pub fn parseIfd(
+    allocator: std.mem.Allocator,
+    root_reader: *ByteReader,
+    ifd_offset: usize,
+    meta: *ImageMetadata,
+    depth: usize,
+) !void {
+    if (depth > 4) return; // Hard limit prevents circular IFD recursion
+    ...
+}
+```
 
-* **MP4 Box Traversal** (`src/formats/videos/mp4.zig`):
-  ISO Base Media File Format (ISOBMFF) boxes nest arbitrarily.
-  ```zig
-  pub fn findTkhdInReader(reader: *ByteReader, depth: usize) ?Dims {
-      if (depth > 16) return null; // Hard limit prevents deep nesting stack exhaustion
-      ...
-  }
-  ```
+#### MP4 Box Traversal (`src/formats/videos/mp4.zig`)
+ISO Base Media File Format (ISOBMFF) boxes nest arbitrarily.
+```zig
+pub fn findTkhdInReader(reader: *ByteReader, depth: usize) ?Dims {
+    if (depth > 16) return null; // Hard limit prevents deep nesting stack exhaustion
+    ...
+}
+```
 
 ---
 
