@@ -45,13 +45,9 @@ pub const utils = @import("core/utils.zig");
 /// Command-line interface parsing module.
 pub const cli = @import("cli.zig");
 
-/// Systemd service generator.
-pub const service = @import("server/service.zig");
-
 test {
     std.testing.refAllDecls(@This());
     _ = @import("main.zig");
-    _ = @import("server/service.zig");
     _ = @import("core/db.zig");
     _ = @import("core/hashing.zig");
     _ = @import("core/byte_reader.zig");

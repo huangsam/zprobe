@@ -1,4 +1,4 @@
-//! Shared systemd service unit generator for zprobe-server.
+//! Systemd service unit generator for zprobe deployment automation.
 
 const std = @import("std");
 
@@ -14,7 +14,6 @@ pub const ServiceConfig = struct {
 };
 
 /// Generates systemd service unit content for zprobe-server.
-/// Shared across `zprobe-server --setup-service` and `zprobe-deploy`.
 pub fn generateServiceUnit(
     allocator: std.mem.Allocator,
     config: ServiceConfig,

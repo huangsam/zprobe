@@ -21,7 +21,7 @@ For detailed architecture decision records and deep dives, see the [`docs/`](doc
 
 ## Project Architecture
 
-`zprobe` scans a target directory recursively for media files, parses their binary headers, and outputs metadata (dimensions, file formats, and sizes) as plain text. The codebase is organized under `src/` by functional layer (`cli`, `core`, `crawler`, `formats`, `server`, `web`).
+`zprobe` scans a target directory recursively for media files, parses their binary headers, and outputs metadata (dimensions, file formats, and sizes) as plain text. The codebase is organized under `src/` by functional layer (`cli`, `core`, `crawler`, `deploy`, `formats`, `server`, `web`).
 
 ### Parse Flow
 

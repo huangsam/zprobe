@@ -77,11 +77,11 @@ zig build deploy
 
 #### 2. Local systemd Service
 
-Generate a systemd unit file directly tailored to the current machine:
+Generate a systemd unit file for the server using `zprobe-deploy`:
 
 ```bash
 # Output systemd unit configuration
-/usr/local/bin/zprobe-server --port 8085 --db /var/lib/zprobe/cache.db --setup-service > zprobe-server.service
+./zig-out/bin/zprobe-deploy service --user zprobe --port 8085 --db /var/lib/zprobe/cache.db --output zprobe-server.service
 
 # Install and start service
 sudo mv zprobe-server.service /etc/systemd/system/
