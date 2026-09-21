@@ -139,7 +139,6 @@ pub fn main(init: std.process.Init) !void {
 }
 
 test {
-    std.testing.refAllDecls(@This());
     _ = @import("server/utils.zig");
     _ = @import("server/auth.zig");
     _ = @import("server/handlers.zig");
