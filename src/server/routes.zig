@@ -51,7 +51,7 @@ pub fn handleRequest(
         }
     }
 
-    const query_index = std.mem.indexOfScalar(u8, target_path, '?');
+    const query_index = std.mem.findScalar(u8, target_path, '?');
     const base_path = if (query_index) |idx| target_path[0..idx] else target_path;
     const query_string = if (query_index) |idx| target_path[idx + 1 ..] else "";
 

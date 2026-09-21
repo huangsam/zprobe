@@ -1067,7 +1067,7 @@ test "database relational migration moves legacy data" {
     // 1. Manually construct version 1 schema & insert legacy records
     {
         var handle: ?*c.sqlite3 = null;
-        const path_c = try allocator.dupeZ(u8, path);
+        const path_c = try allocator.dupeSentinel(u8, path, 0);
         defer allocator.free(path_c);
         const rc = c.sqlite3_open(path_c, &handle);
         try std.testing.expectEqual(c.SQLITE_OK, rc);
@@ -1170,7 +1170,7 @@ test "database migration from version 2 to 3" {
     // 1. Manually construct version 2 schema
     {
         var handle: ?*c.sqlite3 = null;
-        const path_c = try allocator.dupeZ(u8, path);
+        const path_c = try allocator.dupeSentinel(u8, path, 0);
         defer allocator.free(path_c);
         const rc = c.sqlite3_open(path_c, &handle);
         try std.testing.expectEqual(c.SQLITE_OK, rc);

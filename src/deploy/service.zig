@@ -96,11 +96,11 @@ test "generateServiceUnit creates expected unit file without auth" {
     });
     defer allocator.free(unit);
 
-    try std.testing.expect(std.mem.indexOf(u8, unit, "Description=zprobe Insights Server") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "User=admin") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "WorkingDirectory=/volume1/docker/zprobe") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "ExecStart=/usr/local/bin/zprobe-server --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "Environment=") == null);
+    try std.testing.expect(std.mem.find(u8, unit, "Description=zprobe Insights Server") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "User=admin") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "WorkingDirectory=/volume1/docker/zprobe") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "ExecStart=/usr/local/bin/zprobe-server --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "Environment=") == null);
 }
 
 test "generateServiceUnit injects Environment directives when auth configured" {
@@ -116,9 +116,9 @@ test "generateServiceUnit injects Environment directives when auth configured" {
     });
     defer allocator.free(unit);
 
-    try std.testing.expect(std.mem.indexOf(u8, unit, "Environment=\"ZPROBE_AUTH_USER=webadmin\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "Environment=\"ZPROBE_AUTH_PASS=topsecret\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "ExecStart=/opt/zprobe/bin/zprobe-server --port 9000 --db /volume1/docker/zprobe/cache.db") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "Environment=\"ZPROBE_AUTH_USER=webadmin\"") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "Environment=\"ZPROBE_AUTH_PASS=topsecret\"") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "ExecStart=/opt/zprobe/bin/zprobe-server --port 9000 --db /volume1/docker/zprobe/cache.db") != null);
 }
 
 test "generateServiceUnit returns IncompleteAuth on partial auth" {

@@ -13,7 +13,7 @@ pub fn isHeaderIteratorAuthorized(it: anytype, auth_user: []const u8, auth_pass:
                 if (decoded_size > decoded_buf.len) return false;
                 decoder.decode(decoded_buf[0..decoded_size], creds_b64) catch return false;
                 const decoded = decoded_buf[0..decoded_size];
-                const colon_idx = std.mem.indexOfScalar(u8, decoded, ':') orelse return false;
+                const colon_idx = std.mem.findScalar(u8, decoded, ':') orelse return false;
                 const decoded_user = decoded[0..colon_idx];
                 const decoded_pass = decoded[colon_idx + 1 ..];
                 return std.mem.eql(u8, decoded_user, auth_user) and std.mem.eql(u8, decoded_pass, auth_pass);

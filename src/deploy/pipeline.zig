@@ -229,12 +229,12 @@ test "generateServiceUnitContent creates expected systemd unit structure" {
     const unit = try generateServiceUnitContent(allocator, "admin", "/volume1/docker/zprobe", 8085, "/volume1/docker/zprobe/zprobe_cache.db", null, null);
     defer allocator.free(unit);
 
-    try std.testing.expect(std.mem.indexOf(u8, unit, "Description=zprobe Insights Server") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "User=admin") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "WorkingDirectory=/volume1/docker/zprobe") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "ExecStart=/usr/local/bin/zprobe-server --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "Restart=on-failure") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "WantedBy=multi-user.target") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "Description=zprobe Insights Server") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "User=admin") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "WorkingDirectory=/volume1/docker/zprobe") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "ExecStart=/usr/local/bin/zprobe-server --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "Restart=on-failure") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "WantedBy=multi-user.target") != null);
 }
 
 test "generateServiceUnitContent with basic auth injects Environment directives" {
@@ -242,8 +242,8 @@ test "generateServiceUnitContent with basic auth injects Environment directives"
     const unit = try generateServiceUnitContent(allocator, "admin", "/volume1/docker/zprobe", 8085, "/volume1/docker/zprobe/zprobe_cache.db", "admin_user", "supersecret");
     defer allocator.free(unit);
 
-    try std.testing.expect(std.mem.indexOf(u8, unit, "Environment=\"ZPROBE_AUTH_USER=admin_user\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unit, "Environment=\"ZPROBE_AUTH_PASS=supersecret\"") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "Environment=\"ZPROBE_AUTH_USER=admin_user\"") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "Environment=\"ZPROBE_AUTH_PASS=supersecret\"") != null);
 }
 
 test "resolveBinaryPath resolves existing binary or reports not found without panicking" {

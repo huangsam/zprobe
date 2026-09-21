@@ -550,7 +550,7 @@ test "main CLI scan: degraded scan disables pruning" {
     const f2 = try std.Io.Dir.createFile(temp_dir, io, "unreadable/stale.jpg", .{});
     std.Io.File.close(f2, io);
 
-    const unreadable_path_z = try allocator.dupeZ(u8, unreadable_subdir);
+    const unreadable_path_z = try allocator.dupeSentinel(u8, unreadable_subdir, 0);
     defer allocator.free(unreadable_path_z);
 
     const res = chmod(unreadable_path_z.ptr, 0);

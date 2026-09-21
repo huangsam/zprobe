@@ -295,7 +295,7 @@ test "two paths one content hash share one on-disk thumbnail" {
     const p2 = try root.utils.getThumbnailPath(allocator, full_thumb_path, content_hash);
     defer allocator.free(p2);
     try std.testing.expectEqualStrings(p1, p2);
-    try std.testing.expect(std.mem.indexOf(u8, p1, "01/23/") != null);
+    try std.testing.expect(std.mem.find(u8, p1, "01/23/") != null);
 }
 
 test "buildOrientationFilter filter mappings" {

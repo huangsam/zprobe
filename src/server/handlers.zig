@@ -158,7 +158,7 @@ pub fn handleThumbnail(
     var query_it = std.mem.splitScalar(u8, query_string, '&');
     while (query_it.next()) |param| {
         if (param.len == 0) continue;
-        const eq_idx = std.mem.indexOfScalar(u8, param, '=') orelse continue;
+        const eq_idx = std.mem.findScalar(u8, param, '=') orelse continue;
         const key = param[0..eq_idx];
         const val = param[eq_idx + 1 ..];
         if (std.mem.eql(u8, key, "path")) {
@@ -297,7 +297,7 @@ pub fn handleFile(
     var query_it = std.mem.splitScalar(u8, query_string, '&');
     while (query_it.next()) |param| {
         if (param.len == 0) continue;
-        const eq_idx = std.mem.indexOfScalar(u8, param, '=') orelse continue;
+        const eq_idx = std.mem.findScalar(u8, param, '=') orelse continue;
         const key = param[0..eq_idx];
         const val = param[eq_idx + 1 ..];
         if (std.mem.eql(u8, key, "path")) {

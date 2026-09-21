@@ -57,7 +57,7 @@ fn levenshtein(a: []const u8, b: []const u8, row: []usize) usize {
 /// Suggest the closest known flag for an unrecognized flag. Returns
 /// null if no close match is found.
 fn suggestFlag(out: anytype, arg: []const u8) !void {
-    const name = if (std.mem.indexOfScalar(u8, arg, '=')) |eq| arg[0..eq] else arg;
+    const name = if (std.mem.findScalar(u8, arg, '=')) |eq| arg[0..eq] else arg;
     if (name.len == 0) return;
 
     var best: ?[]const u8 = null;

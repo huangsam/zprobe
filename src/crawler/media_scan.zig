@@ -341,7 +341,7 @@ test "scan: flags degraded scans on walking errors" {
     const unreadable_path = try std.fs.path.join(allocator, &.{ temp_ctx.abs_path, "unreadable" });
     defer allocator.free(unreadable_path);
 
-    const unreadable_path_z = try allocator.dupeZ(u8, unreadable_path);
+    const unreadable_path_z = try allocator.dupeSentinel(u8, unreadable_path, 0);
     defer allocator.free(unreadable_path_z);
 
     const res = chmod(unreadable_path_z.ptr, 0);

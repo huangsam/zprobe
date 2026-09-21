@@ -16,10 +16,10 @@ pub fn checkFFmpeg(io: std.Io, ffmpeg_path: []const u8) bool {
         else => return false,
     }
 
-    if (std.mem.indexOf(u8, decoders_res.stdout, "mjpeg") == null) return false;
-    if (std.mem.indexOf(u8, decoders_res.stdout, "png") == null) return false;
-    if (std.mem.indexOf(u8, decoders_res.stdout, "webp") == null) return false;
-    if (std.mem.indexOf(u8, decoders_res.stdout, "h264") == null) return false;
+    if (std.mem.find(u8, decoders_res.stdout, "mjpeg") == null) return false;
+    if (std.mem.find(u8, decoders_res.stdout, "png") == null) return false;
+    if (std.mem.find(u8, decoders_res.stdout, "webp") == null) return false;
+    if (std.mem.find(u8, decoders_res.stdout, "h264") == null) return false;
 
     const encoders_res = std.process.run(allocator, io, .{
         .argv = &.{ ffmpeg_path, "-encoders" },
@@ -33,8 +33,8 @@ pub fn checkFFmpeg(io: std.Io, ffmpeg_path: []const u8) bool {
         else => return false,
     }
 
-    if (std.mem.indexOf(u8, encoders_res.stdout, "mjpeg") == null) return false;
-    if (std.mem.indexOf(u8, encoders_res.stdout, "gif") == null) return false;
+    if (std.mem.find(u8, encoders_res.stdout, "mjpeg") == null) return false;
+    if (std.mem.find(u8, encoders_res.stdout, "gif") == null) return false;
 
     return true;
 }

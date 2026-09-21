@@ -130,7 +130,7 @@ pub const migrations = [_][]const u8{
 
 /// Initialize SQLite connection, run migrations, and prepare statements.
 pub fn init(allocator: std.mem.Allocator, db_path: []const u8) !Db {
-    const db_path_c = try allocator.dupeZ(u8, db_path);
+    const db_path_c = try allocator.dupeSentinel(u8, db_path, 0);
     defer allocator.free(db_path_c);
 
     var handle: ?*c.sqlite3 = null;

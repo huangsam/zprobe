@@ -133,7 +133,7 @@ pub const HostAndPort = struct {
 
 /// Splits a host string into hostname and optional port (e.g. "admin@nas.local:2222").
 pub fn splitHostAndPort(host_str: []const u8) HostAndPort {
-    if (std.mem.lastIndexOfScalar(u8, host_str, ':')) |idx| {
+    if (std.mem.findScalarLast(u8, host_str, ':')) |idx| {
         if (idx > 0 and idx + 1 < host_str.len) {
             if (std.fmt.parseInt(u16, host_str[idx + 1 ..], 10)) |p| {
                 return .{ .host = host_str[0..idx], .port = p };
@@ -145,7 +145,7 @@ pub fn splitHostAndPort(host_str: []const u8) HostAndPort {
 
 /// Extracts the username component from a "user@host" string, if present.
 pub fn extractUserFromHost(host: []const u8) ?[]const u8 {
-    if (std.mem.indexOfScalar(u8, host, '@')) |idx| {
+    if (std.mem.findScalar(u8, host, '@')) |idx| {
         if (idx > 0) {
             return host[0..idx];
         }
