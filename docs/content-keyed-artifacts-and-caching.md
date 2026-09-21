@@ -5,9 +5,10 @@
 Media libraries frequently contain duplicate or renamed files across directories.
 
 In naive media management systems, thumbnails and animations are generated and keyed by **file path**:
-* **Redundant Transcoding**: ffmpeg re-encodes identical videos stored at different paths.
-* **Wasted Storage**: Duplicate JPEG posters and GIF previews multiply on disk.
-* **Orphaned Artifacts**: Moving or renaming a file leaves stale artifacts while triggering re-generation.
+
+- **Redundant Transcoding**: ffmpeg re-encodes identical videos stored at different paths.
+- **Wasted Storage**: Duplicate JPEG posters and GIF previews multiply on disk.
+- **Orphaned Artifacts**: Moving or renaming a file leaves stale artifacts while triggering re-generation.
 
 `zprobe` solves this by decoupling artifacts from filesystem paths and anchoring them strictly to **content-addressed signatures**.
 
@@ -61,23 +62,27 @@ pub fn computeFastHash(io: std.Io, allocator: std.mem.Allocator, file_path: []co
 ```
 
 ### Why This Works
-* **Head 100KB**: Captures container headers, EXIF blocks, and initial frame bytes.
-* **Tail 100KB**: Captures index tables, trailing `moov` atoms, and container footers.
-* **File Size ($u64$)**: Distinguishes files that share identical headers or padding.
-* **Performance**: Reading $200\text{ KB}$ takes under $1\text{ ms}$ even on network drives or mechanical disks, achieving hundreds of file hashes per second per core.
+
+- **Head 100KB**: Captures container headers, EXIF blocks, and initial frame bytes.
+- **Tail 100KB**: Captures index tables, trailing `moov` atoms, and container footers.
+- **File Size ($u64$)**: Distinguishes files that share identical headers or padding.
+- **Performance**: Reading $200\text{ KB}$ takes under $1\text{ ms}$ even on network drives or mechanical disks, achieving hundreds of file hashes per second per core.
 
 ---
 
 ## Sharded On-Disk Artifact Layout
 
 Generated thumbnails and animated previews are stored under hidden directories in the scan target:
-* Thumbnails: `.zprobe_thumbnails/`
-* Animated Previews: `.zprobe_animations/`
+
+- Thumbnails: `.zprobe_thumbnails/`
+- Animated Previews: `.zprobe_animations/`
 
 ### Two-Level Hex Sharding
+
 Placing tens of thousands of images in a single directory degrades filesystem performance (e.g. directory index limits and slow `stat` operations in ext4 and APFS).
 
 `zprobe` shards artifacts by the first 4 hex characters of the 64-hex lowercase content hash:
+
 ```text
 .zprobe_thumbnails/
 ├── 3a/
@@ -92,9 +97,10 @@ Placing tens of thousands of images in a single directory degrades filesystem pe
     └── 7f/
         └── 3a7f9c2d...8b1e.gif
 ```
-* **Directory structure**: `.zprobe_thumbnails/<aa>/<bb>/<file_hash>.jpg`
-* **Parent directory creation**: Writers always invoke `createDirPath` for the `aa/bb` parent tree before writing.
-* **Deduplication**: If 5 identical $2\text{ GB}$ videos exist at different paths, they produce the exact same `file_hash`. Only one JPEG poster and one GIF animation are stored on disk.
+
+- **Directory structure**: `.zprobe_thumbnails/<aa>/<bb>/<file_hash>.jpg`
+- **Parent directory creation**: Writers always invoke `createDirPath` for the `aa/bb` parent tree before writing.
+- **Deduplication**: If 5 identical $2\text{ GB}$ videos exist at different paths, they produce the exact same `file_hash`. Only one JPEG poster and one GIF animation are stored on disk.
 
 ---
 
@@ -121,21 +127,28 @@ flowchart TD
 ```
 
 ### 1. The Duplicate-Content Hit
+
 When `queryHashRecord` finds an existing `file_hash` in SQLite:
-* Video dimensions, durations, and rotation angles are reused immediately.
-* If the thumbnail or animated preview already exists on disk under `.zprobe_thumbnails/aa/bb/<hash>.jpg`, no transcoding is triggered.
-* A new reference is inserted into `media_paths` pointing to the existing `media_metadata` row.
+
+- Video dimensions, durations, and rotation angles are reused immediately.
+- If the thumbnail or animated preview already exists on disk under `.zprobe_thumbnails/aa/bb/<hash>.jpg`, no transcoding is triggered.
+- A new reference is inserted into `media_paths` pointing to the existing `media_metadata` row.
 
 ### 2. Disk Ground Truth ("Never claim without a stat")
+
 Database flags (`has_thumbnail`, `has_animated`) are never trusted blindly without filesystem verification.
-* Before reporting `has_thumbnail = true`, `checkThumbnailExists` performs a physical `stat` on `.zprobe_thumbnails/aa/bb/<hash>.jpg`.
-* If a user manually deleted thumbnail directories, `zprobe` detects the missing file and heals it dynamically.
+
+- Before reporting `has_thumbnail = true`, `checkThumbnailExists` performs a physical `stat` on `.zprobe_thumbnails/aa/bb/<hash>.jpg`.
+- If a user manually deleted thumbnail directories, `zprobe` detects the missing file and heals it dynamically.
 
 ### 3. Concurrent Worker Sibling Re-Stat
+
 When multiple workers process duplicate files simultaneously:
+
 ```zig
 reStatSiblingArtifacts(c_ctx, allocator, file_hash, is_video, &has_thumb, &has_animated);
 ```
+
 Workers write artifacts using atomic temporary files (`.tmp`) and renames. If a sibling worker finished generating the shared artifact while another worker was verifying it, the sibling re-stat ensures the flag is correctly recorded without duplicate work.
 
 ---
@@ -143,6 +156,7 @@ Workers write artifacts using atomic temporary files (`.tmp`) and renames. If a 
 ## Animated Previews with Native ffmpeg Palette Pipeline
 
 For video files, animated GIF previews are generated using ffmpeg's two-pass palette filter pipeline:
+
 ```bash
 ffmpeg -y -ss 00:00:01 -t 3 -i input.mp4 \
   -vf "fps=10,scale=320:-1:flags=lanczos,palettegen" palette.png
@@ -150,8 +164,9 @@ ffmpeg -y -ss 00:00:01 -t 3 -i input.mp4 \
 ffmpeg -y -ss 00:00:01 -t 3 -i input.mp4 -i palette.png \
   -filter_complex "fps=10,scale=320:-1:flags=lanczos[x];[x][1:v]paletteuse" preview.gif
 ```
-* Generates crisp, high-quality color palettes tailored to the specific video clip.
-* Throttled via a worker-pool semaphore (`ffmpeg_sem`) to prevent CPU exhaustion.
+
+- Generates crisp, high-quality color palettes tailored to the specific video clip.
+- Throttled via a worker-pool semaphore (`ffmpeg_sem`) to prevent CPU exhaustion.
 
 ---
 

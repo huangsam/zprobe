@@ -5,8 +5,9 @@ Lightweight, zero-dependency media scanner, metadata parser, and web dashboard.
 ## Getting Started
 
 ### Prerequisites
+
 - **Zig 0.16.0**
-- *(Optional)* **FFmpeg** for video poster thumbnails and animated GIF previews
+- _(Optional)_ **FFmpeg** for video poster thumbnails and animated GIF previews
 
 ### Build & Run CLI
 
@@ -36,12 +37,13 @@ zig build release-all
 ```
 
 This populates `zig-out/bin/` with both CLI (`zprobe-<target>`) and server (`zprobe-server-<target>`) binaries:
--   **`synology-arm64`**: Synology NAS (Realtek RTD1296), Raspberry Pi 4/5 (ARM64 Linux, musl static)
--   **`synology-x86_64`**: Intel/AMD NAS and standard Linux servers (x86_64 Linux, musl static)
--   **`macos-arm64`**: Apple Silicon macOS
--   **`windows-x86_64`**: Windows x64 portable
 
-*(For a custom one-off platform: `zig build -Dtarget=<triple> -Doptimize=ReleaseFast`)*
+- **`synology-arm64`**: Synology NAS (Realtek RTD1296), Raspberry Pi 4/5 (ARM64 Linux, musl static)
+- **`synology-x86_64`**: Intel/AMD NAS and standard Linux servers (x86_64 Linux, musl static)
+- **`macos-arm64`**: Apple Silicon macOS
+- **`windows-x86_64`**: Windows x64 portable
+
+_(For a custom one-off platform: `zig build -Dtarget=<triple> -Doptimize=ReleaseFast`)_
 
 ## Dashboard Web Server
 
@@ -108,7 +110,7 @@ The server exposes the following JSON endpoints:
 
 - **`GET /api/stats`**: Summary metrics (total files, catalog size, format distributions, camera models, video duration tiers).
 - **`GET /api/media`**: Paginated, filterable media records.
-  - *Pagination*: `limit` (default 25, max 100), `offset` (default 0).
-  - *Filters*: `search`, `format` (e.g. `jpeg`, `mp4`), `type` (`image`|`video`), `date_from` / `date_to` (`YYYY-MM-DD`), `size_min` / `size_max` (bytes).
-  - *Sorting*: `sort` (`path`, `size`, `format`, `width`, `height`, `duration_sec`, `camera_model`, `create_time`), `order` (`asc`|`desc`).
+    - _Pagination_: `limit` (default 25, max 100), `offset` (default 0).
+    - _Filters_: `search`, `format` (e.g. `jpeg`, `mp4`), `type` (`image`|`video`), `date_from` / `date_to` (`YYYY-MM-DD`), `size_min` / `size_max` (bytes).
+    - _Sorting_: `sort` (`path`, `size`, `format`, `width`, `height`, `duration_sec`, `camera_model`, `create_time`), `order` (`asc`|`desc`).
 - **`GET /api/thumbnail`**: Media preview asset (`path=<url-encoded-path>`, optional `animated=1` for video GIF preview).

@@ -7,6 +7,7 @@
 Each media file requires transient memory for header buffers, decoded EXIF strings, hash digests, and path slices.
 
 In a naive multi-threaded implementation relying on global heap allocation, this workload induces two major bottlenecks:
+
 1. **Global Allocator Lock Contention**: Worker threads contend for the global heap mutex on every micro-allocation.
 2. **Leak Hazards on Failure**: If parsing aborts early on malformed data, tracking and freeing every partial allocation introduces memory leaks and cognitive overhead.
 
@@ -54,20 +55,27 @@ pub fn processFile(c_ctx: WorkerContext, entry: media_scan.ScanEntry, is_video: 
 ## Key Benefits of This Architecture
 
 ### 1. $O(1)$ Batch Deallocation
+
 Instead of tracking and freeing individual strings and buffers, the entire arena memory pool is destroyed at once when `processFile` exits:
+
 ```zig
 defer arena.deinit();
 ```
+
 All memory blocks allocated for that file are returned to the backing allocator in one batch, reducing thousands of individual free operations to a single pointer reset.
 
 ### 2. Elimination of Lock Contention
+
 Because `ArenaAllocator` requests memory in large chunks (e.g. 4KB–64KB blocks) from the backing allocator, worker threads rarely touch the underlying parent allocator. Micro-allocations occur bump-pointer style within the thread's private arena without taking locks.
 
 ### 3. Leak-Free Failure Modes
+
 When parsing corrupted or truncated files, functions return error sets via Zig's `try` or `catch return`:
+
 ```zig
 const record = parseMediaFile(...) catch return;
 ```
+
 No manual cleanup code is needed. When the scope exits early on an error, `defer arena.deinit()` fires automatically, completely preventing memory leaks by construction.
 
 ---
@@ -79,6 +87,7 @@ Zig does not have a hidden global allocator. Every function that requires heap m
 In `zprobe`, this enforces a clean separation of memory lifecycles:
 
 ### 1. Transient Lifetime (Arena Allocator)
+
 Passed to format parsers (`parseJpegFile`, `parseIfd`, `getVideoMetadata`) and string decoders (`readAscii`). These allocations only need to live as long as the file is being parsed.
 
 ```zig
@@ -91,6 +100,7 @@ pub fn readAscii(self: *ByteReader, allocator: std.mem.Allocator, count: u32) ![
 ```
 
 ### 2. Long-Lived Lifetime (Parent Allocator)
+
 Passed to long-standing structures, such as the `media_scan.ScanEntry` directory list, SQLite statement handles, and the HTTP server's thread pool.
 
 ---
@@ -110,6 +120,7 @@ pub const Db = struct {
 ```
 
 When the stats cache expires:
+
 1. `stats_cache_arena.deinit()` releases all previous strings and format breakdowns.
 2. The arena is re-initialized for the new computation.
 3. Fresh statistics are computed and cached, avoiding memory accumulation over long-running server sessions.

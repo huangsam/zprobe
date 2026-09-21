@@ -3,6 +3,7 @@
 ## Context & The Threat Model
 
 Media files present a hazardous attack surface in systems programming:
+
 1. **Externally supplied and untrusted**: Sourced from arbitrary, unverified inputs.
 2. **Variable-length and nested**: Structured as hierarchical Tag-Length-Value (TLV) containers.
 3. **Historical attack vectors**: Prone to buffer over-reads, integer overflow on pointer offsets, and recursive stack exhaustion.
@@ -27,6 +28,7 @@ pub const ByteReader = struct {
 ### 1. Safe Arithmetic: Preventing Integer Overflow via Subtraction Checks
 
 A common vulnerability in binary parsers is integer wrap-around when checking offsets:
+
 ```c
 // VULNERABLE (C/C++):
 if (offset + count > buffer_len) return ERROR; // offset + count can overflow!
@@ -44,6 +46,7 @@ pub fn skip(self: *ByteReader, count: usize) !void {
     self.offset += count;
 }
 ```
+
 Because `count > self.remaining()` is evaluated before mutating `self.offset`, wrap-around is mathematically impossible.
 
 ---
@@ -64,8 +67,9 @@ pub fn subReader(self: *ByteReader, size: usize) !ByteReader {
 ```
 
 **Benefits**:
-* **Scope isolation**: The sub-reader's `buffer.len` is strictly restricted to `size`. It is physically impossible for downstream parser logic to read past the container boundary.
-* **Relative offset arithmetic**: Child parsers read from offset `0` within their own chunk without needing to know their parent's absolute file position.
+
+- **Scope isolation**: The sub-reader's `buffer.len` is strictly restricted to `size`. It is physically impossible for downstream parser logic to read past the container boundary.
+- **Relative offset arithmetic**: Child parsers read from offset `0` within their own chunk without needing to know their parent's absolute file position.
 
 ---
 
@@ -76,7 +80,9 @@ pub fn subReader(self: *ByteReader, size: usize) !ByteReader {
 Complex formats like TIFF and MP4 allow chains and containers to reference other offsets. Adversarial or corrupted files can introduce circular loops that exhaust call stack memory.
 
 #### TIFF IFD Traversal (`src/formats/images/tiff.zig`)
+
 TIFF files can link multiple Image File Directories (IFDs) and sub-IFDs.
+
 ```zig
 pub fn parseIfd(
     allocator: std.mem.Allocator,
@@ -91,7 +97,9 @@ pub fn parseIfd(
 ```
 
 #### MP4 Box Traversal (`src/formats/videos/mp4.zig`)
+
 ISO Base Media File Format (ISOBMFF) boxes nest arbitrarily.
+
 ```zig
 pub fn findTkhdInReader(reader: *ByteReader, depth: usize) ?Dims {
     if (depth > 16) return null; // Hard limit prevents deep nesting stack exhaustion
@@ -119,8 +127,9 @@ To prevent unhandled states, EBML parsers explicitly check for undefined/unknown
 ### 3. Bit-Packed Dimension Extraction (WebP VP8 / VP8L)
 
 In WebP files (`src/formats/images/webp.zig`):
-* **VP8 (Lossy)**: The first 3 bytes after the sync code (`0x9d 0x01 0x2a`) store 14-bit width and 14-bit height.
-* **VP8L (Lossless)**: A 32-bit bitfield encodes width (14 bits), height (14 bits), alpha flag (1 bit), and version (3 bits).
+
+- **VP8 (Lossy)**: The first 3 bytes after the sync code (`0x9d 0x01 0x2a`) store 14-bit width and 14-bit height.
+- **VP8L (Lossless)**: A 32-bit bitfield encodes width (14 bits), height (14 bits), alpha flag (1 bit), and version (3 bits).
 
 ```zig
 const val = @as(u32, header[21]) |
@@ -138,12 +147,14 @@ Boundary checking (`if (header.len < 25) return error.WebpTooShort;`) occurs pri
 ### 4. JPEG Marker Stream Scanning & Byte Stuffing
 
 In standard JPEG streams (`src/formats/images/jpeg.zig`), markers begin with `0xff`. However:
-* `0xff 0x00`: Escaped byte inside compressed entropy data (byte stuffing).
-* `0xff 0xff`: Stuffed fill byte.
-* `0xd8`: Start of Image (SOI) - no length field.
-* `0xd0`–`0xd7`: Restart markers (RSTn) - no length field.
+
+- `0xff 0x00`: Escaped byte inside compressed entropy data (byte stuffing).
+- `0xff 0xff`: Stuffed fill byte.
+- `0xd8`: Start of Image (SOI) - no length field.
+- `0xd0`–`0xd7`: Restart markers (RSTn) - no length field.
 
 The parser tracks state dynamically:
+
 ```zig
 if (marker == 0xff) {
     off += 1;
@@ -156,6 +167,7 @@ if (marker >= 0xd0 and marker <= 0xd7) {
     off += 2 + seg_len;
 }
 ```
+
 At every step, `if (off > header.len) break;` guarantees the parser terminates immediately if segment lengths exceed the buffer.
 
 ---

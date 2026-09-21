@@ -3,11 +3,12 @@
 This document details the internal design, directory layout, parsing flow, and coding principles of `zprobe`. It serves as a guide for developer agents and human contributors working on or extending this codebase.
 
 For detailed architecture decision records and deep dives, see the [`docs/`](docs/README.md) suite:
-* [Language Selection & Trade-offs](docs/language-selection-and-tradeoffs.md) (Zig vs. Rust vs. Go vs. C++)
-* [Binary Parsing & Bounds Safety](docs/binary-parsing-and-bounds-safety.md) (Defensive TLV decoding)
-* [Memory Management & Arena Lifecycles](docs/memory-management-and-arenas.md) (Zero-GC per-task arenas)
-* [SQLite WAL & Worker Concurrency](docs/sqlite-wal-and-concurrency.md) (Multi-threaded database caching)
-* [Content-Keyed Artifacts & Caching](docs/content-keyed-artifacts-and-caching.md) (Fast hashing and deduplication)
+
+- [Language Selection & Trade-offs](docs/language-selection-and-tradeoffs.md) (Zig vs. Rust vs. Go vs. C++)
+- [Binary Parsing & Bounds Safety](docs/binary-parsing-and-bounds-safety.md) (Defensive TLV decoding)
+- [Memory Management & Arena Lifecycles](docs/memory-management-and-arenas.md) (Zero-GC per-task arenas)
+- [SQLite WAL & Worker Concurrency](docs/sqlite-wal-and-concurrency.md) (Multi-threaded database caching)
+- [Content-Keyed Artifacts & Caching](docs/content-keyed-artifacts-and-caching.md) (Fast hashing and deduplication)
 
 ## Verification Methods
 
