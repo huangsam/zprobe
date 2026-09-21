@@ -107,12 +107,12 @@ flowchart TD
     ScanFile["Scan File (Path, Size, Mtime)"] --> CacheCheck{"Path Cache Hit?"}
     CacheCheck -- Yes --> EmitOutput["Emit Metadata & Return"]
     CacheCheck -- No --> Hash["Compute Fast Hash (Head + Tail)"]
-    
+
     Hash --> HashCheck{"Hash Exists in DB?"}
     HashCheck -- Yes --> Reuse["Reuse Existing Metadata & Previews
     Link Path in media_paths"]
     Reuse --> EmitOutput
-    
+
     HashCheck -- No --> Parse["Parse Headers & Extract Dims"]
     Parse --> Generate["Generate Thumbnail & Animation (ffmpeg)
     Store under .zprobe_thumbnails/aa/bb/"]

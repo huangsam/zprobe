@@ -6,7 +6,7 @@
 1. **CLI Crawler**: Concurrent workers check caches, compute hashes, and insert media records.
 2. **HTTP Server**: Web clients query media lists, filter catalogs, and request thumbnails simultaneously.
 
-In standard SQLite configuration, a write operation acquires an exclusive database lock, blocking all concurrent readers with `SQLITE_BUSY` errors. Conversely, an active reader blocks incoming writes. 
+In standard SQLite configuration, a write operation acquires an exclusive database lock, blocking all concurrent readers with `SQLITE_BUSY` errors. Conversely, an active reader blocks incoming writes.
 
 To achieve lock-free concurrent reads during heavy crawler indexing, `zprobe` employs a multi-tiered concurrency design.
 
