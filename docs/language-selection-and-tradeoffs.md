@@ -27,15 +27,15 @@ The domain of binary media parsing imposes strict requirements on the language a
 
 ## Language Comparison Matrix
 
-| Architectural Vector         | Go                               | C++                              | Rust                                 | Zig                                           |
-| :--------------------------- | :------------------------------- | :------------------------------- | :----------------------------------- | :-------------------------------------------- |
-| **Memory Model**             | Garbage Collector (GC)           | RAII / Manual (`new`/`delete`)   | Ownership & Borrow Checker           | Explicit Allocators (`std.mem.Allocator`)     |
-| **Worker Arena Isolation**   | ❌ Hard (heap escape)            | ⚠️ Clunky (`std::pmr`)           | ⚠️ Unstable (`allocator_api`)        | ✅ First-Class (`std.heap.ArenaAllocator`)    |
-| **Slice Bounds Safety**      | ✅ Safe (runtime panic)          | ❌ Manual (UB / over-read risks) | ✅ Safe (runtime panic)              | ✅ Safe (`Debug`/`ReleaseSafe` bounds checks) |
-| **Zero-Copy Sub-Readers**    | ✅ Slices                        | ⚠️ `std::span`                   | ⚠️ Lifetime annotations (`'a`, `'b`) | ✅ Direct (`ByteReader.subReader`)            |
-| **Endian / Comptime Unpack** | ⚠️ Runtime standard lib          | ⚠️ Templates / Intrinsics        | ✅ Traits (`byteorder`, `zerocopy`)  | ✅ Native Comptime (`readInt(comptime T)`)    |
-| **SQLite C FFI Cost**        | ❌ High CGO overhead (~50–100ns) | ✅ Zero overhead                 | ⚠️ `bindgen` + `unsafe` blocks       | ✅ Zero-overhead native `@cImport`            |
-| **Ecosystem Stability**      | ✅ Mature (1.0+)                 | ✅ Mature (C++20/23)             | ✅ Mature (1.0+)                     | ❌ Rapid evolution (pre-1.0)                  |
+| Criteria              | Go           | C++            | Rust           | Zig             |
+| :-------------------- | :----------- | :------------- | :------------- | :-------------- |
+| **Memory Model**      | GC (Runtime) | Manual / RAII  | Borrow checker | Explicit alloc  |
+| **Worker Arenas**     | ❌ Poor      | ⚠️ Clunky      | ⚠️ Nightly     | ✅ First-class  |
+| **Bounds Safety**     | ✅ Safe      | ❌ Manual (UB) | ✅ Safe        | ✅ Safe         |
+| **Zero-Copy Readers** | ✅ Slices    | ⚠️ `std::span` | ⚠️ Lifetimes   | ✅ Direct       |
+| **Endian / Comptime** | ⚠️ Runtime   | ⚠️ Templates   | ✅ Traits      | ✅ Comptime     |
+| **SQLite C FFI**      | ❌ CGO lag   | ✅ Zero cost   | ⚠️ Bindgen     | ✅ Native C ABI |
+| **Ecosystem**         | ✅ Mature    | ✅ Mature      | ✅ Mature      | ❌ Pre-1.0      |
 
 ---
 
