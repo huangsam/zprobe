@@ -172,7 +172,7 @@ test "getVideoMetadata: parse mock WebM file" {
     defer std.Io.File.close(file, io);
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
-    var buf = [_]u8{0} ** 59;
+    var buf: [59]u8 = @splat(0);
     buf[0] = 0x1A;
     buf[1] = 0x45;
     buf[2] = 0xDF;
@@ -285,7 +285,7 @@ test "getVideoMetadata: parse mock EBML file with long extension does not panic"
     defer std.Io.File.close(file, io);
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
-    var buf = [_]u8{0} ** 59;
+    var buf: [59]u8 = @splat(0);
     buf[0] = 0x1A;
     buf[1] = 0x45;
     buf[2] = 0xDF;
@@ -418,7 +418,7 @@ test "getVideoMetadata: modern MOV with ftyp qt   brand" {
     defer std.Io.File.close(file, io);
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
-    var buf = [_]u8{0} ** 128;
+    var buf: [128]u8 = @splat(0);
 
     // ftyp box (bytes 0–19)
     buf[0] = 0x00;
@@ -517,7 +517,7 @@ test "getVideoMetadata: legacy MOV without ftyp box falls back to extension" {
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
     // File is just the moov box (no preceding ftyp), 108 bytes.
-    var buf = [_]u8{0} ** 108;
+    var buf: [108]u8 = @splat(0);
 
     // moov box (bytes 0–107, size = 108)
     buf[0] = 0x00;
@@ -591,7 +591,7 @@ test "getVideoMetadata: EBML file with invalid ID size does not panic" {
     defer std.Io.File.close(file, io);
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
-    var buf = [_]u8{0} ** 59;
+    var buf: [59]u8 = @splat(0);
     buf[0] = 0x1A;
     buf[1] = 0x45;
     buf[2] = 0xDF;
@@ -627,7 +627,7 @@ test "getVideoMetadata: MP4 with truncated 64-bit size box returns InvalidMp4" {
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
     // 12 bytes of data (size is 12)
-    var buf = [_]u8{0} ** 12;
+    var buf: [12]u8 = @splat(0);
     buf[0] = 0x00;
     buf[1] = 0x00;
     buf[2] = 0x00;
@@ -660,7 +660,7 @@ test "getVideoMetadata: EBML file with truncated ID size does not panic" {
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
     // EBML header (size 12)
-    var buf = [_]u8{0} ** 12;
+    var buf: [12]u8 = @splat(0);
     buf[0] = 0x1A;
     buf[1] = 0x45;
     buf[2] = 0xDF;

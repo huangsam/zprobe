@@ -28,6 +28,13 @@ pub fn build(b: *std.Build) void {
     // to our consumers. We must give it a name because a Zig package can expose
     // multiple modules and consumers will need to be able to specify which
     // module they want to access.
+    const sqlite_c = b.addTranslateC(.{
+        .root_source_file = b.path("deps/sqlite/sqlite3.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const c_mod = sqlite_c.createModule();
+
     const mod = b.addModule("zprobe", .{
         // The root source file is the "entry point" of this module. Users of
         // this module will only be able to access public declarations contained
@@ -39,6 +46,9 @@ pub fn build(b: *std.Build) void {
         // Later on we'll use this module as the root module of a test executable
         // which requires us to specify a target.
         .target = target,
+        .imports = &.{
+            .{ .name = "c", .module = c_mod },
+        },
     });
     mod.addIncludePath(b.path("deps/sqlite"));
 
@@ -66,6 +76,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "zprobe", .module = mod },
+                .{ .name = "c", .module = c_mod },
             },
         }),
     });
@@ -136,10 +147,20 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved_target = b.resolveTargetQuery(t.query);
+        const variant_sqlite_c = b.addTranslateC(.{
+            .root_source_file = b.path("deps/sqlite/sqlite3.h"),
+            .target = resolved_target,
+            .optimize = .ReleaseSmall,
+        });
+        const variant_c_mod = variant_sqlite_c.createModule();
+
         const variant_mod = b.createModule(.{
             .root_source_file = b.path("src/root.zig"),
             .target = resolved_target,
             .optimize = .ReleaseSmall,
+            .imports = &.{
+                .{ .name = "c", .module = variant_c_mod },
+            },
         });
         variant_mod.addIncludePath(b.path("deps/sqlite"));
 
@@ -151,6 +172,7 @@ pub fn build(b: *std.Build) void {
                 .optimize = .ReleaseSmall,
                 .imports = &.{
                     .{ .name = "zprobe", .module = variant_mod },
+                    .{ .name = "c", .module = variant_c_mod },
                 },
             }),
         });
@@ -203,10 +225,7 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
     run_cmd.step.dependOn(b.getInstallStep());
-
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     const mod_tests = b.addTest(.{
         .root_module = mod,

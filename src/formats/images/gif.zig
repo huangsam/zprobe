@@ -16,7 +16,7 @@ pub fn parseGif(header: []const u8) !struct { width: u16, height: u16 } {
 }
 
 test "parseGif: boundary and zero checks" {
-    var header = [_]u8{0} ** 10;
+    var header: [10]u8 = @splat(0);
     @memcpy(header[0..4], &gifMagic);
 
     // width = 0, height = 0

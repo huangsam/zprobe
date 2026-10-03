@@ -91,7 +91,7 @@ test "parsePngFile: valid PNG file with IHDR and eXIf chunks" {
     const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
     defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-    var buf = [_]u8{0} ** 80;
+    var buf: [80]u8 = @splat(0);
     // 1. Signature
     @memcpy(buf[0..8], &pngMagic);
 
@@ -162,7 +162,7 @@ test "parsePngFile: missing IHDR chunk" {
     const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
     defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-    var buf = [_]u8{0} ** 24;
+    var buf: [24]u8 = @splat(0);
     @memcpy(buf[0..8], &pngMagic);
     buf[11] = 4;
     @memcpy(buf[12..16], "gAMA"); // Some other chunk instead of IHDR
@@ -196,7 +196,7 @@ test "parsePngFile: truncated chunk data" {
     const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
     defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-    var buf = [_]u8{0} ** 20;
+    var buf: [20]u8 = @splat(0);
     @memcpy(buf[0..8], &pngMagic);
     buf[11] = 100; // chunk size says 100
     @memcpy(buf[12..16], "IHDR"); // But file terminates here (only 20 bytes total)

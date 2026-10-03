@@ -256,7 +256,7 @@ pub fn findTkhdAndMvhdInFile(allocator: std.mem.Allocator, file: anytype, io: an
 }
 
 test "parse MP4 moov/trak/tkhd version 0 payload" {
-    var buf = [_]u8{0} ** 120;
+    var buf: [120]u8 = @splat(0);
 
     const trak_size: u32 = 100;
     buf[0] = @intCast(trak_size >> 24);
@@ -292,7 +292,7 @@ test "parse MP4 moov/trak/tkhd version 0 payload" {
 }
 
 test "parse MP4 tkhd version 1 payload (corrected)" {
-    var buf = [_]u8{0} ** 200;
+    var buf: [200]u8 = @splat(0);
 
     const trak_size: u32 = 112;
     buf[0] = @intCast(trak_size >> 24);
@@ -330,7 +330,7 @@ test "parse MP4 tkhd version 1 payload (corrected)" {
 }
 
 test "parse MP4 tkhd version 0 payload with nested containers" {
-    var buf = [_]u8{0} ** 200;
+    var buf: [200]u8 = @splat(0);
 
     const moov_size: u32 = 132;
     buf[0] = @intCast(moov_size >> 24);
@@ -405,7 +405,7 @@ test "parse MP4 tkhd version 0 payload with nested containers" {
 }
 
 test "parse MP4 tkhd returns null for unknown version" {
-    var buf = [_]u8{0} ** 100;
+    var buf: [100]u8 = @splat(0);
 
     buf[0] = 0;
     buf[1] = 0;
@@ -432,7 +432,7 @@ test "parse MP4 tkhd returns null for unknown version" {
 }
 
 test "parse MP4 tkhd returns null for payload too short" {
-    var buf = [_]u8{0} ** 20;
+    var buf: [20]u8 = @splat(0);
     buf[0] = 0;
     buf[1] = 0;
     buf[2] = 0;
@@ -456,7 +456,7 @@ test "parse MP4 tkhd returns null for payload too short" {
 }
 
 test "parse MP4 tkhd returns null for version 0 with truncated payload" {
-    var buf = [_]u8{0} ** 50;
+    var buf: [50]u8 = @splat(0);
 
     buf[0] = 0;
     buf[1] = 0;
@@ -483,7 +483,7 @@ test "parse MP4 tkhd returns null for version 0 with truncated payload" {
 }
 
 test "parse MP4 tkhd returns null for version 1 with truncated payload" {
-    var buf = [_]u8{0} ** 50;
+    var buf: [50]u8 = @splat(0);
 
     buf[0] = 0;
     buf[1] = 0;
@@ -510,7 +510,7 @@ test "parse MP4 tkhd returns null for version 1 with truncated payload" {
 }
 
 test "parse MP4 tkhd returns null for zero dimensions" {
-    var buf = [_]u8{0} ** 120;
+    var buf: [120]u8 = @splat(0);
 
     const trak_size: u32 = 100;
     buf[0] = @intCast(trak_size >> 24);
@@ -539,7 +539,7 @@ test "parse MP4 tkhd returns null for zero dimensions" {
 }
 
 test "parse MP4 tkhd skips non-tkhd boxes correctly" {
-    var buf = [_]u8{0} ** 200;
+    var buf: [200]u8 = @splat(0);
 
     const trak_size: u32 = 124;
     buf[0] = @intCast(trak_size >> 24);
@@ -588,7 +588,7 @@ test "parse MP4 tkhd skips non-tkhd boxes correctly" {
 }
 
 test "parse MP4 tkhd handles deeply nested containers" {
-    var buf = [_]u8{0} ** 500;
+    var buf: [500]u8 = @splat(0);
 
     const trak_size: u32 = 124;
     buf[0] = @intCast(trak_size >> 24);
@@ -660,7 +660,7 @@ test "parse MP4 tkhd handles deeply nested containers" {
 }
 
 test "parse MP4 tkhd handles invalid box size returns null" {
-    var buf = [_]u8{0} ** 50;
+    var buf: [50]u8 = @splat(0);
 
     buf[0] = 0;
     buf[1] = 0;
@@ -676,7 +676,7 @@ test "parse MP4 tkhd handles invalid box size returns null" {
 }
 
 test "parse MP4 tkhd handles box size exceeding payload returns null" {
-    var buf = [_]u8{0} ** 50;
+    var buf: [50]u8 = @splat(0);
 
     const big_size: u32 = 1000;
     buf[0] = @intCast(big_size >> 24);
@@ -705,7 +705,7 @@ test "parse MP4 tkhd handles single byte payload" {
 }
 
 test "parse MP4 tkhd version 0 with negative height (top-down bitmap style)" {
-    var buf = [_]u8{0} ** 120;
+    var buf: [120]u8 = @splat(0);
 
     buf[0] = 0;
     buf[1] = 0;
@@ -741,7 +741,7 @@ test "parse MP4 tkhd version 0 with negative height (top-down bitmap style)" {
 }
 
 test "parse MP4 tkhd handles multiple sibling boxes finds correct tkhd" {
-    var buf = [_]u8{0} ** 200;
+    var buf: [200]u8 = @splat(0);
 
     const sib1_size: u32 = 32;
     buf[0] = @intCast(sib1_size >> 24);
@@ -796,7 +796,7 @@ test "parseMvhd version 0 duration and creation date" {
     };
     defer info.deinit(allocator);
 
-    var payload = [_]u8{0} ** 36;
+    var payload: [36]u8 = @splat(0);
     payload[0] = 0; // version 0
     payload[4] = 0xe2;
     payload[5] = 0x8e;
@@ -820,7 +820,7 @@ test "parseMvhd version 0 duration and creation date" {
 
 test "parseTkhd rotation matrices" {
     {
-        var payload = [_]u8{0} ** 84;
+        var payload: [84]u8 = @splat(0);
         payload[0] = 0;
         payload[40] = 0x00;
         payload[41] = 0x01;
@@ -837,7 +837,7 @@ test "parseTkhd rotation matrices" {
     }
 
     {
-        var payload = [_]u8{0} ** 84;
+        var payload: [84]u8 = @splat(0);
         payload[0] = 0;
         payload[44] = 0x00;
         payload[45] = 0x01;
@@ -854,7 +854,7 @@ test "parseTkhd rotation matrices" {
     }
 
     {
-        var payload = [_]u8{0} ** 84;
+        var payload: [84]u8 = @splat(0);
         payload[0] = 0;
         payload[40] = 0xff;
         payload[41] = 0xff;
@@ -871,7 +871,7 @@ test "parseTkhd rotation matrices" {
     }
 
     {
-        var payload = [_]u8{0} ** 84;
+        var payload: [84]u8 = @splat(0);
         payload[0] = 0;
         payload[44] = 0xff;
         payload[45] = 0xff;
@@ -889,7 +889,7 @@ test "parseTkhd rotation matrices" {
 }
 
 test "findTkhdInPayload deeply nested trak boxes returns null" {
-    var buf = [_]u8{0} ** (8 * 18);
+    var buf: [8 * 18]u8 = @splat(0);
     var i: usize = 0;
     while (i < 18) : (i += 1) {
         const offset = i * 8;
@@ -922,7 +922,7 @@ test "findTkhdAndMvhdInFile deeply nested boxes returns Mp4TooDeep" {
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
     // 18 levels of nested trak boxes.
-    var buf = [_]u8{0} ** (8 * 18);
+    var buf: [8 * 18]u8 = @splat(0);
     var i: usize = 0;
     while (i < 18) : (i += 1) {
         const offset = i * 8;
@@ -953,7 +953,7 @@ test "findTkhdAndMvhdInFile deeply nested boxes returns Mp4TooDeep" {
 }
 
 test "parse MP4 64-bit size box payload in findTkhdInPayload" {
-    var buf = [_]u8{0} ** 130;
+    var buf: [130]u8 = @splat(0);
 
     // trak box size is 120, represented as 64-bit size box:
     // first 4 bytes = 1
@@ -1014,7 +1014,7 @@ test "parse MP4 64-bit size box payload truncation in findTkhdAndMvhdInFile" {
     defer std.Io.File.close(file, io);
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
-    var buf = [_]u8{0} ** 12;
+    var buf: [12]u8 = @splat(0);
     buf[0] = 0x00;
     buf[1] = 0x00;
     buf[2] = 0x00;
@@ -1052,7 +1052,7 @@ test "parseMvhd handles v0 and v1 unknown duration sentinels" {
 
     // Test v0 unknown duration: 0xFFFFFFFF
     {
-        var payload = [_]u8{0} ** 36;
+        var payload: [36]u8 = @splat(0);
         payload[0] = 0; // version 0
         payload[12] = 0;
         payload[13] = 0;
@@ -1069,7 +1069,7 @@ test "parseMvhd handles v0 and v1 unknown duration sentinels" {
 
     // Test v1 unknown duration: 0xFFFFFFFFFFFFFFFF
     {
-        var payload = [_]u8{0} ** 48;
+        var payload: [48]u8 = @splat(0);
         payload[0] = 1; // version 1
         payload[20] = 0;
         payload[21] = 0;
@@ -1105,7 +1105,7 @@ test "findTkhdAndMvhdInFile preserves first track's dimensions" {
     // We will build a file with two track boxes.
     // Track 1 (width = 1920, height = 1080)
     // Track 2 (width = 640, height = 480)
-    var buf = [_]u8{0} ** 200;
+    var buf: [200]u8 = @splat(0);
 
     // Track 1
     const trak1_size: u32 = 100;

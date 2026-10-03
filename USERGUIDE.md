@@ -6,7 +6,7 @@ Lightweight, zero-dependency media scanner, metadata parser, and web dashboard.
 
 ### Prerequisites
 
-- **Zig 0.16.0**
+- **Zig 0.17.0**
 - _(Optional)_ **FFmpeg** for video poster thumbnails and animated GIF previews
 
 ### Build & Run CLI

@@ -297,7 +297,7 @@ pub fn parseTiff(
 test "parseTiff nested IFD1 thumbnail offset extraction" {
     const allocator = std.testing.allocator;
 
-    var buf = [_]u8{0} ** 60;
+    var buf: [60]u8 = @splat(0);
     // Header
     buf[0] = 'I';
     buf[1] = 'I';
@@ -389,7 +389,7 @@ test "parseTiff nested IFD1 thumbnail offset extraction" {
 test "parseTiff: Big Endian format" {
     const allocator = std.testing.allocator;
 
-    var buf = [_]u8{0} ** 40;
+    var buf: [40]u8 = @splat(0);
     // Big Endian Header: MM, 42, IFD offset = 8
     buf[0] = 'M';
     buf[1] = 'M';
@@ -431,7 +431,7 @@ test "parseTiff: Big Endian format" {
 test "parseTiff: circular IFD loops / recursion limit" {
     const allocator = std.testing.allocator;
 
-    var buf = [_]u8{0} ** 30;
+    var buf: [30]u8 = @splat(0);
     // Little Endian Header
     buf[0] = 'I';
     buf[1] = 'I';
@@ -462,7 +462,7 @@ test "parseTiff: circular IFD loops / recursion limit" {
 test "parseTiff: invalid tag structures" {
     const allocator = std.testing.allocator;
 
-    var buf = [_]u8{0} ** 50;
+    var buf: [50]u8 = @splat(0);
     buf[0] = 'I';
     buf[1] = 'I';
     buf[2] = 42;

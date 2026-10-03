@@ -4,9 +4,7 @@
 //! and bulk transactional batching.
 
 const std = @import("std");
-pub const c = @cImport({
-    @cInclude("sqlite3.h");
-});
+pub const c = @import("c");
 
 pub const types = @import("db/types.zig");
 pub const schema = @import("db/schema.zig");

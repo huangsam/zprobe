@@ -158,7 +158,7 @@ test "parse bare JXL codestream - div8" {
     // bit 9: div8_w = 1
     // bits 10-15: width_val[0-5] = 000111 -> combined: 00011110 (0x1E)
     // Byte 4 (bits 16-23): width_val[6-7] = 00
-    var buf = [_]u8{0} ** 5;
+    var buf: [5]u8 = @splat(0);
     buf[0] = 0xFF;
     buf[1] = 0x0A;
     buf[2] = 0x09;
@@ -183,7 +183,7 @@ test "parse JXL container walk" {
     defer std.Io.File.close(file, io);
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
-    var buf = [_]u8{0} ** 30;
+    var buf: [30]u8 = @splat(0);
     // JXL box magic
     @memcpy(buf[0..12], &jxlBoxMagic);
     // jxlc box size: 18 (0x00000012)

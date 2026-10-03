@@ -31,7 +31,7 @@ test "parse ICO header" {
     // Byte 6: width (32)
     // Byte 7: height (32)
     // Bytes 8-21: dummy data
-    var header = [_]u8{0} ** 22;
+    var header: [22]u8 = @splat(0);
     header[0] = 0x00;
     header[1] = 0x00;
     header[2] = 0x01;
@@ -47,7 +47,7 @@ test "parse ICO header" {
 }
 
 test "parse ICO header: 256px check" {
-    var header = [_]u8{0} ** 22;
+    var header: [22]u8 = @splat(0);
     header[0] = 0x00;
     header[1] = 0x00;
     header[2] = 0x01;
@@ -63,7 +63,7 @@ test "parse ICO header: 256px check" {
 }
 
 test "parse ICO header: invalid magic" {
-    var header = [_]u8{0} ** 22;
+    var header: [22]u8 = @splat(0);
     header[0] = 0x00;
     header[1] = 0x00;
     header[2] = 0x02; // Wrong type
@@ -73,6 +73,6 @@ test "parse ICO header: invalid magic" {
 }
 
 test "parse ICO header: too short" {
-    var header = [_]u8{0} ** 10;
+    var header: [10]u8 = @splat(0);
     try std.testing.expectError(error.NotIco, parseIco(&header));
 }

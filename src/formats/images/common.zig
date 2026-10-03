@@ -344,7 +344,7 @@ test "parseTiff EXIF and GPS tags" {
     };
     defer meta.deinit(allocator);
 
-    var buf = [_]u8{0} ** 200;
+    var buf: [200]u8 = @splat(0);
     buf[0] = 'I';
     buf[1] = 'I';
     buf[2] = 42;
@@ -534,7 +534,7 @@ test "parseTiff width and height tags" {
     };
     defer meta.deinit(allocator);
 
-    var buf = [_]u8{0} ** 100;
+    var buf: [100]u8 = @splat(0);
     buf[0] = 'I';
     buf[1] = 'I';
     buf[2] = 42;
@@ -586,7 +586,7 @@ test "parse PNG file with oversized unrecognized chunk" {
     defer temp_ctx.cleanup();
     const temp_dir = temp_ctx.tmp.dir;
 
-    var buf = [_]u8{0} ** 40;
+    var buf: [40]u8 = @splat(0);
     // PNG magic
     @memcpy(buf[0..8], &png.pngMagic);
     // Unrecognized chunk: size = 0xFFFFFFFF, tag = "test"
@@ -619,7 +619,7 @@ test "parse PNG file with oversized unrecognized chunk" {
 }
 
 test "parse ICO file with zero images" {
-    var header = [_]u8{0} ** 22;
+    var header: [22]u8 = @splat(0);
     // Magic: 00 00 01 00
     header[0] = 0x00;
     header[1] = 0x00;
@@ -641,7 +641,7 @@ test "parseTiff EXIF duplicate tags memory leak" {
     };
     defer meta.deinit(allocator);
 
-    var buf = [_]u8{0} ** 200;
+    var buf: [200]u8 = @splat(0);
     buf[0] = 'I';
     buf[1] = 'I';
     buf[2] = 42;
@@ -704,7 +704,7 @@ test "parse WebP: truncated chunk size" {
     defer std.Io.Dir.deleteFile(temp_dir, io, temp_filename) catch {};
 
     // WEBP header: RIFF + size + WEBP
-    var buf = [_]u8{0} ** 30;
+    var buf: [30]u8 = @splat(0);
     @memcpy(buf[0..4], &webp.webpRiffMagic);
     // Size field (4 bytes): dummy
     @memcpy(buf[8..12], &webp.webpWebpMagic);
@@ -732,7 +732,7 @@ test "parse WebP: truncated chunk size" {
 }
 
 test "parse bmp header: height i32.min" {
-    var header = [_]u8{0} ** 26;
+    var header: [26]u8 = @splat(0);
     header[0] = 'B';
     header[1] = 'M';
     header[18] = 100;
@@ -760,7 +760,7 @@ test "parseFile: routing for standard image formats" {
         const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
         defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-        var png_buf = [_]u8{0} ** 33;
+        var png_buf: [33]u8 = @splat(0);
         @memcpy(png_buf[0..8], &png.pngMagic);
         png_buf[11] = 13; // chunk length
         @memcpy(png_buf[12..16], "IHDR");
@@ -790,7 +790,7 @@ test "parseFile: routing for standard image formats" {
         const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
         defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-        var jpeg_buf = [_]u8{0} ** 15;
+        var jpeg_buf: [15]u8 = @splat(0);
         @memcpy(jpeg_buf[0..2], &jpeg.jpegMagic);
         jpeg_buf[2] = 0xff;
         jpeg_buf[3] = 0xc0; // SOF0
@@ -821,7 +821,7 @@ test "parseFile: routing for standard image formats" {
         const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
         defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-        var gif_buf = [_]u8{0} ** 10;
+        var gif_buf: [10]u8 = @splat(0);
         @memcpy(gif_buf[0..6], "GIF89a");
         // width = 320 (0x0140), height = 240 (0x00f0)
         gif_buf[6] = 0x40;
@@ -849,7 +849,7 @@ test "parseFile: routing for standard image formats" {
         const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
         defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-        var bmp_buf = [_]u8{0} ** 26;
+        var bmp_buf: [26]u8 = @splat(0);
         @memcpy(bmp_buf[0..2], &bmp.bmpMagic);
         bmp_buf[14] = 40; // DIB header size
         // width = 320 (0x00000140), height = 240 (0x000000f0)
@@ -877,7 +877,7 @@ test "parseFile: routing for standard image formats" {
         const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
         defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-        var webp_buf = [_]u8{0} ** 30;
+        var webp_buf: [30]u8 = @splat(0);
         @memcpy(webp_buf[0..4], &webp.webpRiffMagic);
         @memcpy(webp_buf[8..12], &webp.webpWebpMagic);
         @memcpy(webp_buf[12..16], "VP8 ");
@@ -911,7 +911,7 @@ test "parseFile: routing for standard image formats" {
         const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
         defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-        var tiff_buf = [_]u8{0} ** 50;
+        var tiff_buf: [50]u8 = @splat(0);
         tiff_buf[0] = 'I';
         tiff_buf[1] = 'I';
         tiff_buf[2] = 42;

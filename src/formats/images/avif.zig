@@ -110,7 +110,7 @@ test "parse AVIF mock boxes" {
     // ftyp (size 16)
     // meta (size 64) -> contains iprp (size 48) -> contains ipco (size 36) -> contains ispe (size 20)
 
-    var buf = [_]u8{0} ** 80;
+    var buf: [80]u8 = @splat(0);
 
     // ftyp box
     buf[0] = 0;

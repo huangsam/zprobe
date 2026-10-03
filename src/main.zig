@@ -1,7 +1,7 @@
 //! Command-line interface for scanning media files and displaying metadata.
 //!
 //! This file demonstrates:
-//! 1. The Zig 0.16.0 `main` entrypoint design using `std.process.Init`.
+//! 1. The Zig 0.17.0 `main` entrypoint design using `std.process.Init`.
 //! 2. Custom stdout buffering using raw byte arrays.
 //! 3. Standard command-line argument processing.
 //! 4. Absolute path resolution and heap memory allocation tracking.
@@ -20,7 +20,7 @@ const hashing = root.hashing;
 /// `--animations` share this grammar; only their defaults and on-disk roots differ.
 /// Helper to initialize a buffered file writer targeting stdout.
 ///
-/// In Zig 0.16.0, `std.Io.File.Writer` provides buffered output streams
+/// In Zig 0.17.0, `std.Io.File.Writer` provides buffered output streams
 /// wrapping the system output resource.
 fn file_writer(io: anytype, buffer: []u8) std.Io.File.Writer {
     return std.Io.File.Writer.init(.stdout(), io, buffer);
@@ -28,7 +28,7 @@ fn file_writer(io: anytype, buffer: []u8) std.Io.File.Writer {
 
 /// Main application entrypoint.
 ///
-/// In Zig 0.16.0, `main` receives an `init` structure of type `std.process.Init`
+/// In Zig 0.17.0, `main` receives an `init` structure of type `std.process.Init`
 /// containing the system I/O context and general purpose allocator (GPA) initialized
 /// by the runtime startup code.
 pub fn main(init: std.process.Init) !void {

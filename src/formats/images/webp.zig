@@ -137,7 +137,7 @@ test "parseWebpFile: VP8X extended WebP with EXIF" {
     const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
     defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-    var buf = [_]u8{0} ** 80;
+    var buf: [80]u8 = @splat(0);
     // 1. RIFF + WEBP Header
     @memcpy(buf[0..4], &webpRiffMagic);
     // Size = 71 (excluding RIFF and Size = 71 - 8 = 63)
@@ -211,7 +211,7 @@ test "parseWebpFile: VP8L lossless WebP" {
     const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
     defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-    var buf = [_]u8{0} ** 26;
+    var buf: [26]u8 = @splat(0);
     @memcpy(buf[0..4], &webpRiffMagic);
     buf[4] = 18; // Size
     @memcpy(buf[8..12], &webpWebpMagic);
@@ -252,7 +252,7 @@ test "parseWebpFile: VP8 lossy WebP" {
     const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
     defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-    var buf = [_]u8{0} ** 30;
+    var buf: [30]u8 = @splat(0);
     @memcpy(buf[0..4], &webpRiffMagic);
     buf[4] = 22; // Size
     @memcpy(buf[8..12], &webpWebpMagic);
@@ -295,7 +295,7 @@ test "parseWebpFile: invalid and error paths" {
         const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
         defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-        var buf = [_]u8{0} ** 12;
+        var buf: [12]u8 = @splat(0);
         @memcpy(buf[0..4], "RIFF");
         @memcpy(buf[8..12], "XXXX"); // Bad format
 
@@ -317,7 +317,7 @@ test "parseWebpFile: invalid and error paths" {
         const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
         defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-        var buf = [_]u8{0} ** 20;
+        var buf: [20]u8 = @splat(0);
         @memcpy(buf[0..4], &webpRiffMagic);
         buf[4] = 12;
         @memcpy(buf[8..12], &webpWebpMagic);

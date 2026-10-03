@@ -26,7 +26,7 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: 0.17.0
 
       - name: Build zprobe (Debug)
         run: zig build -Doptimize=Debug
@@ -45,7 +45,7 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: 0.17.0
 
       - name: Run cross-compilation for all release targets
         run: zig build release-all

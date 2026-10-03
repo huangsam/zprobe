@@ -26,7 +26,7 @@ pub fn parseBmp(header: []const u8) !struct { width: u32, height: u32 } {
 }
 
 test "parseBmp: top-down bitmap (negative height)" {
-    var header = [_]u8{0} ** 26;
+    var header: [26]u8 = @splat(0);
     header[0] = 'B';
     header[1] = 'M';
     // width = 320 (0x00000140)
@@ -44,7 +44,7 @@ test "parseBmp: top-down bitmap (negative height)" {
 }
 
 test "parseBmp: zero and large dimensions" {
-    var header = [_]u8{0} ** 26;
+    var header: [26]u8 = @splat(0);
     header[0] = 'B';
     header[1] = 'M';
     // width = 0, height = 0

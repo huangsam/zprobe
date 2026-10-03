@@ -147,7 +147,7 @@ test "parseJpegFile: streaming metadata extraction" {
     const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
     defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-    var buf = [_]u8{0} ** 200;
+    var buf: [200]u8 = @splat(0);
     // 1. SOI
     @memcpy(buf[0..2], &jpegMagic);
 
@@ -232,7 +232,7 @@ test "parseJpegFile: error handling on bad segments" {
         const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
         defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-        var buf = [_]u8{0} ** 8;
+        var buf: [8]u8 = @splat(0);
         @memcpy(buf[0..2], &jpegMagic);
         buf[2] = 0xff;
         buf[3] = 0xe0; // APP0
@@ -261,7 +261,7 @@ test "parseJpegFile: error handling on bad segments" {
         const file = try std.Io.Dir.createFile(temp_dir, io, filename, .{});
         defer std.Io.Dir.deleteFile(temp_dir, io, filename) catch {};
 
-        var buf = [_]u8{0} ** 10;
+        var buf: [10]u8 = @splat(0);
         @memcpy(buf[0..2], &jpegMagic);
         buf[2] = 0xff;
         buf[3] = 0xe0; // APP0

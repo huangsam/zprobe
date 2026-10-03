@@ -241,7 +241,7 @@ test "parseEbmlElements keeps first video track's dimensions" {
     //   Tracks ID (0x1654AE6B)
     //     TrackEntry ID (0xAE) -> Type = 1, Width = 1920, Height = 1080
     //     TrackEntry ID (0xAE) -> Type = 1, Width = 640, Height = 480
-    var buf = [_]u8{0} ** 40;
+    var buf: [40]u8 = @splat(0);
 
     // Segment ID (0x18538067)
     buf[0] = 0x18;
