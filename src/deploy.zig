@@ -21,10 +21,9 @@ pub const extractUserFromHost = options.extractUserFromHost;
 pub const validateAuth = options.validateAuth;
 
 pub const default_target = options.default_target;
-pub const default_remote_dir = options.default_remote_dir;
+pub const default_exec_path = options.default_exec_path;
 pub const default_port = options.default_port;
 pub const default_ssh_port = options.default_ssh_port;
-pub const default_db_path = options.default_db_path;
 pub const default_output = options.default_output;
 
 pub const runBuild = pipeline.runBuild;
@@ -32,6 +31,9 @@ pub const runService = pipeline.runService;
 pub const runInstall = pipeline.runInstall;
 pub const resolveBinaryPath = pipeline.resolveBinaryPath;
 pub const generateServiceUnitContent = pipeline.generateServiceUnitContent;
+pub const inspectRemoteService = pipeline.inspectRemoteService;
+pub const parseRemoteServiceOutput = pipeline.parseRemoteServiceOutput;
+pub const RemoteServiceInfo = pipeline.RemoteServiceInfo;
 
 /// Main entrypoint for the `zprobe-deploy` executable.
 pub fn main(init: std.process.Init) !void {
@@ -57,6 +59,25 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     };
 
+    const env_sudo_pass = init.environ_map.get("ZPROBE_SUDO_PASS");
+    var loaded_sudo_pass: ?[]const u8 = null;
+    defer if (loaded_sudo_pass) |p| allocator.free(p);
+
+    if (parsed.sudo_password) |sp| {
+        loaded_sudo_pass = try allocator.dupe(u8, sp);
+    } else if (parsed.sudo_password_file) |spf| {
+        if (std.Io.Dir.openFile(std.Io.Dir.cwd(), io, spf, .{ .mode = .read_only })) |f| {
+            defer std.Io.File.close(f, io);
+            var buf: [512]u8 = undefined;
+            const n = std.Io.File.readPositionalAll(f, io, &buf, 0) catch 0;
+            if (n > 0) {
+                loaded_sudo_pass = try allocator.dupe(u8, std.mem.trim(u8, buf[0..n], "\r\n "));
+            }
+        } else |_| {}
+    } else if (env_sudo_pass) |esp| {
+        loaded_sudo_pass = try allocator.dupe(u8, esp);
+    }
+
     switch (parsed.command) {
         .help => try printUsage(io),
         .build => try runBuild(io, parsed.target),
@@ -66,7 +87,29 @@ pub fn main(init: std.process.Init) !void {
                 printUsage(io) catch {};
                 std.process.exit(1);
             };
-            try runService(io, allocator, service_user, parsed.remote_dir, parsed.port, parsed.db, parsed.output, auth_user, auth_pass);
+            const remote_dir = parsed.remote_dir orelse {
+                std.debug.print("Error: service command requires --remote-dir <path>\n\n", .{});
+                printUsage(io) catch {};
+                std.process.exit(1);
+            };
+            var allocated_db: ?[]const u8 = null;
+            defer if (allocated_db) |d| allocator.free(d);
+            const service_db = if (parsed.db) |d| d else blk: {
+                allocated_db = try std.fmt.allocPrint(allocator, "{s}/zprobe_cache.db", .{remote_dir});
+                break :blk allocated_db.?;
+            };
+            try runService(
+                io,
+                allocator,
+                service_user,
+                remote_dir,
+                parsed.getPort(),
+                service_db,
+                parsed.output,
+                auth_user,
+                auth_pass,
+                parsed.exec_path,
+            );
         },
         .install => {
             if (parsed.host.len == 0) {
@@ -74,12 +117,21 @@ pub fn main(init: std.process.Init) !void {
                 printUsage(io) catch {};
                 std.process.exit(1);
             }
-            const service_user = parsed.user orelse (extractUserFromHost(parsed.host) orelse {
-                std.debug.print("Error: user could not be determined. Please specify --user <username> or provide --host <user@host>\n\n", .{});
-                printUsage(io) catch {};
-                std.process.exit(1);
-            });
-            try runInstall(io, allocator, parsed.host, parsed.ssh_port, service_user, parsed.remote_dir, parsed.port, parsed.db, parsed.target, auth_user, auth_pass);
+            try runInstall(
+                io,
+                allocator,
+                parsed.host,
+                parsed.ssh_port,
+                parsed.user,
+                parsed.remote_dir,
+                parsed.port,
+                parsed.db,
+                parsed.exec_path,
+                parsed.target,
+                auth_user,
+                auth_pass,
+                loaded_sudo_pass,
+            );
         },
     }
 }

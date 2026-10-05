@@ -16,32 +16,35 @@ const usage =
     \\  --host <user@host> Remote SSH host (required for install, supports user@host:port)
     \\  --ssh-port <port>  Remote SSH port (default: 22)
     \\  --user <username>  Systemd service user (default: parsed from --host, required for service)
-    \\  --remote-dir <path> Remote staging directory (default: /volume1/docker/zprobe)
+    \\  --remote-dir <path> Remote destination / working directory
+    \\                     (required for fresh install or service, discovered from active service)
+    \\  --exec-path <path> Remote executable path for ExecStart
+    \\                     (default: from active service, or /usr/local/bin/zprobe-server)
     \\  --port <port>      Server listen port (default: 8085)
     \\  --db <path>        Path to SQLite cache DB on remote host
-    \\                     (default: /volume1/docker/zprobe/zprobe_cache.db)
+    \\                     (default: from active service, or <remote-dir>/zprobe_cache.db)
     \\  --auth-user <name> HTTP basic auth user for dashboard (env: ZPROBE_AUTH_USER)
     \\  --auth-pass <pass> HTTP basic auth password for dashboard (env: ZPROBE_AUTH_PASS)
+    \\  --sudo-password <pass> Sudo password for remote host (env: ZPROBE_SUDO_PASS)
+    \\  --sudo-password-file <path> Path to file containing remote sudo password
     \\  --output <path>    Output file for 'service' command (- for stdout)
     \\  --target <name>    Target architecture name (default: synology-arm64)
     \\
     \\Examples:
     \\  zprobe-deploy build
-    \\  zprobe-deploy service --user admin --port 8085 --auth-user admin --auth-pass secret
-    \\  zprobe-deploy install --host admin@nas.local:2222 --remote-dir /volume1/docker/zprobe
+    \\  zprobe-deploy service --user admin --remote-dir /opt/zprobe --port 8085
+    \\  zprobe-deploy install --host admin@nas.local:2222 --remote-dir /opt/zprobe
     \\
 ;
 
 /// Default target architecture for release builds and remote installation.
 pub const default_target = "synology-arm64";
-/// Default remote directory path for staging binaries and unit files.
-pub const default_remote_dir = "/volume1/docker/zprobe";
+/// Default executable path for the server daemon binary on the target.
+pub const default_exec_path = "/usr/local/bin/zprobe-server";
 /// Default HTTP server listen port.
 pub const default_port: u16 = 8085;
 /// Default remote SSH connection port.
 pub const default_ssh_port: u16 = 22;
-/// Default SQLite cache database path on the remote host.
-pub const default_db_path = "/volume1/docker/zprobe/zprobe_cache.db";
 /// Default output path for service file generation ('-' specifies stdout).
 pub const default_output = "-";
 
@@ -69,8 +72,11 @@ pub const DeployError = error{
     MissingHostValue,
     MissingUserValue,
     MissingRemoteDirValue,
+    MissingExecPathValue,
     MissingPortValue,
     MissingDbValue,
+    MissingSudoPasswordValue,
+    MissingSudoPasswordFileValue,
     MissingOutputValue,
     MissingTargetValue,
     MissingSshPortValue,
@@ -108,13 +114,26 @@ pub const ParsedArgs = struct {
     host: []const u8,
     ssh_port: u16,
     user: ?[]const u8,
-    remote_dir: []const u8,
-    port: u16,
-    db: []const u8,
+    remote_dir: ?[]const u8,
+    port: ?u16,
+    db: ?[]const u8,
+    exec_path: ?[]const u8,
+    sudo_password: ?[]const u8,
+    sudo_password_file: ?[]const u8,
     output: []const u8,
     target: []const u8,
     auth_user: ?[]const u8,
     auth_pass: ?[]const u8,
+
+    /// Gets the service listen port, falling back to default_port if not specified.
+    pub fn getPort(self: ParsedArgs) u16 {
+        return self.port orelse default_port;
+    }
+
+    /// Gets the server executable path, falling back to default_exec_path if not specified.
+    pub fn getExecPath(self: ParsedArgs) []const u8 {
+        return self.exec_path orelse default_exec_path;
+    }
 };
 
 /// Prints CLI usage and available options to stdout.
@@ -169,9 +188,12 @@ pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
         .host = "",
         .ssh_port = default_ssh_port,
         .user = null,
-        .remote_dir = default_remote_dir,
-        .port = default_port,
-        .db = default_db_path,
+        .remote_dir = null,
+        .port = null,
+        .db = null,
+        .exec_path = null,
+        .sudo_password = null,
+        .sudo_password_file = null,
         .output = default_output,
         .target = default_target,
         .auth_user = null,
@@ -215,6 +237,13 @@ pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
             continue;
         }
 
+        if (std.mem.eql(u8, arg, "--exec-path")) {
+            i += 1;
+            if (i >= args.len) return error.MissingExecPathValue;
+            result.exec_path = args[i];
+            continue;
+        }
+
         if (std.mem.eql(u8, arg, "--port")) {
             i += 1;
             if (i >= args.len) return error.MissingPortValue;
@@ -240,6 +269,20 @@ pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
             i += 1;
             if (i >= args.len) return error.MissingAuthPassValue;
             result.auth_pass = args[i];
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--sudo-password")) {
+            i += 1;
+            if (i >= args.len) return error.MissingSudoPasswordValue;
+            result.sudo_password = args[i];
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--sudo-password-file")) {
+            i += 1;
+            if (i >= args.len) return error.MissingSudoPasswordFileValue;
+            result.sudo_password_file = args[i];
             continue;
         }
 
@@ -295,6 +338,8 @@ test "parseArgs parses flags and defaults correctly" {
         "/custom/path.db",
         "--remote-dir",
         "/volume1/app",
+        "--exec-path",
+        "/opt/bin/zprobe-server",
         "--target",
         "synology-x86_64",
     };
@@ -303,15 +348,31 @@ test "parseArgs parses flags and defaults correctly" {
     try std.testing.expectEqual(Command.install, parsed.command);
     try std.testing.expectEqualStrings("admin@nas.local", parsed.host);
     try std.testing.expectEqualStrings("customuser", parsed.user.?);
-    try std.testing.expectEqual(@as(u16, 9000), parsed.port);
-    try std.testing.expectEqualStrings("/custom/path.db", parsed.db);
-    try std.testing.expectEqualStrings("/volume1/app", parsed.remote_dir);
+    try std.testing.expectEqual(@as(u16, 9000), parsed.getPort());
+    try std.testing.expectEqualStrings("/custom/path.db", parsed.db.?);
+    try std.testing.expectEqualStrings("/volume1/app", parsed.remote_dir.?);
+    try std.testing.expectEqualStrings("/opt/bin/zprobe-server", parsed.getExecPath());
     try std.testing.expectEqualStrings("synology-x86_64", parsed.target);
+}
+
+test "parseArgs getters return defaults when optional flags omitted" {
+    const args = [_][:0]const u8{
+        "zprobe-deploy",
+        "service",
+    };
+    const parsed = try parseArgs(&args);
+    try std.testing.expectEqual(default_port, parsed.getPort());
+    try std.testing.expect(parsed.remote_dir == null);
+    try std.testing.expect(parsed.db == null);
+    try std.testing.expectEqualStrings(default_exec_path, parsed.getExecPath());
 }
 
 test "parseArgs handles missing flag values and invalid numbers" {
     const args_missing_host = [_][:0]const u8{ "zprobe-deploy", "install", "--host" };
     try std.testing.expectError(error.MissingHostValue, parseArgs(&args_missing_host));
+
+    const args_missing_exec_path = [_][:0]const u8{ "zprobe-deploy", "install", "--exec-path" };
+    try std.testing.expectError(error.MissingExecPathValue, parseArgs(&args_missing_exec_path));
 
     const args_unknown = [_][:0]const u8{ "zprobe-deploy", "--unknown-flag" };
     try std.testing.expectError(error.UnknownArgument, parseArgs(&args_unknown));
