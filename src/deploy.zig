@@ -66,14 +66,22 @@ pub fn main(init: std.process.Init) !void {
     if (parsed.sudo_password) |sp| {
         loaded_sudo_pass = try allocator.dupe(u8, sp);
     } else if (parsed.sudo_password_file) |spf| {
-        if (std.Io.Dir.openFile(std.Io.Dir.cwd(), io, spf, .{ .mode = .read_only })) |f| {
-            defer std.Io.File.close(f, io);
-            var buf: [512]u8 = undefined;
-            const n = std.Io.File.readPositionalAll(f, io, &buf, 0) catch 0;
-            if (n > 0) {
-                loaded_sudo_pass = try allocator.dupe(u8, std.mem.trim(u8, buf[0..n], "\r\n "));
-            }
-        } else |_| {}
+        const f = std.Io.Dir.openFile(std.Io.Dir.cwd(), io, spf, .{ .mode = .read_only }) catch |err| {
+            std.debug.print("Error: Could not open sudo password file '{s}': {s}\n", .{ spf, @errorName(err) });
+            std.process.exit(1);
+        };
+        defer std.Io.File.close(f, io);
+        var buf: [512]u8 = undefined;
+        const n = std.Io.File.readPositionalAll(f, io, &buf, 0) catch |err| {
+            std.debug.print("Error: Could not read sudo password file '{s}': {s}\n", .{ spf, @errorName(err) });
+            std.process.exit(1);
+        };
+        const trimmed = std.mem.trim(u8, buf[0..n], "\r\n ");
+        if (trimmed.len == 0) {
+            std.debug.print("Error: Sudo password file '{s}' is empty\n", .{spf});
+            std.process.exit(1);
+        }
+        loaded_sudo_pass = try allocator.dupe(u8, trimmed);
     } else if (env_sudo_pass) |esp| {
         loaded_sudo_pass = try allocator.dupe(u8, esp);
     }
