@@ -19,7 +19,7 @@ const usage =
     \\  --remote-dir <path> Remote destination / working directory
     \\                     (required for fresh install or service, discovered from active service)
     \\  --exec-path <path> Remote executable path for ExecStart
-    \\                     (default: from active service, or /usr/local/bin/zprobe-server)
+    \\                     (default: from active service, or <remote-dir>/zprobe-server)
     \\  --port <port>      Server listen port (default: 8085)
     \\  --db <path>        Path to SQLite cache DB on remote host
     \\                     (default: from active service, or <remote-dir>/zprobe_cache.db)
@@ -27,6 +27,7 @@ const usage =
     \\  --auth-pass <pass> HTTP basic auth password for dashboard (env: ZPROBE_AUTH_PASS)
     \\  --sudo-password <pass> Sudo password for remote host (env: ZPROBE_SUDO_PASS)
     \\  --sudo-password-file <path> Path to file containing remote sudo password
+    \\  --update-service   Force update and reinstallation of systemd service unit
     \\  --output <path>    Output file for 'service' command (- for stdout)
     \\  --target <name>    Target architecture name (default: synology-arm64)
     \\
@@ -39,8 +40,6 @@ const usage =
 
 /// Default target architecture for release builds and remote installation.
 pub const default_target = "synology-arm64";
-/// Default executable path for the server daemon binary on the target.
-pub const default_exec_path = "/usr/local/bin/zprobe-server";
 /// Default HTTP server listen port.
 pub const default_port: u16 = 8085;
 /// Default remote SSH connection port.
@@ -118,6 +117,7 @@ pub const ParsedArgs = struct {
     port: ?u16,
     db: ?[]const u8,
     exec_path: ?[]const u8,
+    update_service: bool = false,
     sudo_password: ?[]const u8,
     sudo_password_file: ?[]const u8,
     output: []const u8,
@@ -128,11 +128,6 @@ pub const ParsedArgs = struct {
     /// Gets the service listen port, falling back to default_port if not specified.
     pub fn getPort(self: ParsedArgs) u16 {
         return self.port orelse default_port;
-    }
-
-    /// Gets the server executable path, falling back to default_exec_path if not specified.
-    pub fn getExecPath(self: ParsedArgs) []const u8 {
-        return self.exec_path orelse default_exec_path;
     }
 };
 
@@ -192,6 +187,7 @@ pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
         .port = null,
         .db = null,
         .exec_path = null,
+        .update_service = false,
         .sudo_password = null,
         .sudo_password_file = null,
         .output = default_output,
@@ -286,6 +282,11 @@ pub fn parseArgs(args: []const [:0]const u8) !ParsedArgs {
             continue;
         }
 
+        if (std.mem.eql(u8, arg, "--update-service")) {
+            result.update_service = true;
+            continue;
+        }
+
         if (std.mem.eql(u8, arg, "--output")) {
             i += 1;
             if (i >= args.len) return error.MissingOutputValue;
@@ -351,7 +352,8 @@ test "parseArgs parses flags and defaults correctly" {
     try std.testing.expectEqual(@as(u16, 9000), parsed.getPort());
     try std.testing.expectEqualStrings("/custom/path.db", parsed.db.?);
     try std.testing.expectEqualStrings("/volume1/app", parsed.remote_dir.?);
-    try std.testing.expectEqualStrings("/opt/bin/zprobe-server", parsed.getExecPath());
+    try std.testing.expectEqualStrings("/opt/bin/zprobe-server", parsed.exec_path.?);
+    try std.testing.expect(!parsed.update_service);
     try std.testing.expectEqualStrings("synology-x86_64", parsed.target);
 }
 
@@ -364,7 +366,20 @@ test "parseArgs getters return defaults when optional flags omitted" {
     try std.testing.expectEqual(default_port, parsed.getPort());
     try std.testing.expect(parsed.remote_dir == null);
     try std.testing.expect(parsed.db == null);
-    try std.testing.expectEqualStrings(default_exec_path, parsed.getExecPath());
+    try std.testing.expect(parsed.exec_path == null);
+    try std.testing.expect(!parsed.update_service);
+}
+
+test "parseArgs parses --update-service flag" {
+    const args = [_][:0]const u8{
+        "zprobe-deploy",
+        "install",
+        "--host",
+        "admin@nas.local",
+        "--update-service",
+    };
+    const parsed = try parseArgs(&args);
+    try std.testing.expect(parsed.update_service);
 }
 
 test "parseArgs handles missing flag values and invalid numbers" {

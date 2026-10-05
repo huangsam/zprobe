@@ -6,7 +6,7 @@ const std = @import("std");
 pub const ServiceConfig = struct {
     user: []const u8,
     working_dir: []const u8,
-    exec_path: []const u8 = "/usr/local/bin/zprobe-server",
+    exec_path: ?[]const u8 = null,
     port: u16 = 8080,
     db_path: []const u8,
     auth_user: ?[]const u8 = null,
@@ -23,6 +23,13 @@ pub fn generateServiceUnit(
     if (user_set != pass_set) {
         return error.IncompleteAuth;
     }
+
+    var allocated_exec: ?[]const u8 = null;
+    defer if (allocated_exec) |p| allocator.free(p);
+    const exec_path = if (config.exec_path) |p| p else blk: {
+        allocated_exec = try std.fs.path.join(allocator, &.{ config.working_dir, "zprobe-server" });
+        break :blk allocated_exec.?;
+    };
 
     if (user_set and pass_set) {
         return std.fmt.allocPrint(
@@ -50,7 +57,7 @@ pub fn generateServiceUnit(
                 config.working_dir,
                 config.auth_user.?,
                 config.auth_pass.?,
-                config.exec_path,
+                exec_path,
                 config.port,
                 config.db_path,
             },
@@ -78,7 +85,7 @@ pub fn generateServiceUnit(
         .{
             config.user,
             config.working_dir,
-            config.exec_path,
+            exec_path,
             config.port,
             config.db_path,
         },
@@ -140,4 +147,17 @@ test "generateServiceUnit returns IncompleteAuth on partial auth" {
         .auth_pass = "topsecret",
     });
     try std.testing.expectError(error.IncompleteAuth, res2);
+}
+
+test "generateServiceUnit defaults exec_path to working_dir/zprobe-server when omitted" {
+    const allocator = std.testing.allocator;
+    const unit = try generateServiceUnit(allocator, .{
+        .user = "admin",
+        .working_dir = "/opt/zprobe",
+        .port = 8085,
+        .db_path = "/opt/zprobe/zprobe_cache.db",
+    });
+    defer allocator.free(unit);
+
+    try std.testing.expect(std.mem.find(u8, unit, "ExecStart=/opt/zprobe/zprobe-server --port 8085 --db /opt/zprobe/zprobe_cache.db") != null);
 }

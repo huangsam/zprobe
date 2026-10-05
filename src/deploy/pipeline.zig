@@ -115,7 +115,7 @@ pub fn generateServiceUnitContent(
     return service.generateServiceUnit(allocator, .{
         .user = user,
         .working_dir = working_dir,
-        .exec_path = exec_path orelse options.default_exec_path,
+        .exec_path = exec_path,
         .port = port,
         .db_path = db_path,
         .auth_user = if (auth_user) |u| (if (u.len > 0) u else null) else null,
@@ -345,6 +345,7 @@ pub fn runInstall(
     auth_user: ?[]const u8,
     auth_pass: ?[]const u8,
     sudo_password: ?[]const u8,
+    update_service: bool,
 ) !void {
     try runBuild(io, target);
 
@@ -369,7 +370,18 @@ pub fn runInstall(
         std.debug.print("Error: No active service found on remote host; --remote-dir <path> is required for initial installation.\n", .{});
         return error.MissingRemoteDir;
     };
-    const effective_exec_path = exec_path orelse remote_info.exec_path orelse options.default_exec_path;
+
+    var allocated_exec_path: ?[]const u8 = null;
+    defer if (allocated_exec_path) |p| allocator.free(p);
+    const effective_exec_path = if (exec_path) |ep|
+        ep
+    else if (remote_info.exec_path) |ep|
+        ep
+    else blk: {
+        allocated_exec_path = try std.fs.path.join(allocator, &.{ effective_remote_dir, "zprobe-server" });
+        break :blk allocated_exec_path.?;
+    };
+
     const effective_port = port orelse remote_info.port orelse options.default_port;
     const effective_user = user orelse remote_info.user orelse (options.extractUserFromHost(host) orelse return error.MissingUserValue);
     const effective_auth_user = auth_user orelse remote_info.auth_user;
@@ -383,6 +395,8 @@ pub fn runInstall(
         break :blk allocated_db.?;
     };
 
+    const should_update_service = update_service or !remote_info.is_installed or (exec_path != null) or (user != null) or (port != null) or (db != null) or (auth_user != null) or (auth_pass != null);
+
     if (remote_info.is_installed) {
         std.debug.print("[deploy] Active systemd service detected:\n", .{});
         std.debug.print("         Unit Path: {s}\n", .{effective_unit_dest});
@@ -391,18 +405,23 @@ pub fn runInstall(
         std.debug.print("         User: {s}\n", .{effective_user});
         std.debug.print("         Port: {d}\n", .{effective_port});
         std.debug.print("         DB: {s}\n", .{effective_db});
+        if (should_update_service) {
+            std.debug.print("         Service Unit: will be updated\n", .{});
+        } else {
+            std.debug.print("         Service Unit: preserved (upgrade-only mode)\n", .{});
+        }
     } else {
         std.debug.print("[deploy] No existing service found; configuring new installation:\n", .{});
         std.debug.print("         Exec Path: {s}\n", .{effective_exec_path});
         std.debug.print("         Remote Dir: {s}\n", .{effective_remote_dir});
     }
 
-    // 2. Pre-flight: ensure remote destination directory exists, is owned by user, and prune legacy binaries
+    // 2. Pre-flight: ensure remote destination directory exists, is owned by user, and prune legacy/stray files
     std.debug.print("[deploy] Pre-flight: preparing remote directory...\n", .{});
     const preflight_inner = try std.fmt.allocPrint(
         allocator,
-        "mkdir -p \"{s}\" && chown \"{s}\" \"{s}\" && (rm -f \"{s}/zprobe-synology\"* \"{s}/zprobe-server-synology\"* 2>/dev/null || true)",
-        .{ effective_remote_dir, effective_user, effective_remote_dir, effective_remote_dir, effective_remote_dir },
+        "mkdir -p \"{s}\" && chown \"{s}\" \"{s}\" && (rm -f \"{s}/zprobe-synology\"* \"{s}/zprobe-server-synology\"* \"{s}/zprobe-server.service\" 2>/dev/null || true)",
+        .{ effective_remote_dir, effective_user, effective_remote_dir, effective_remote_dir, effective_remote_dir, effective_remote_dir },
     );
     defer allocator.free(preflight_inner);
 
@@ -417,8 +436,8 @@ pub fn runInstall(
     } else {
         const preflight_cmd = try std.fmt.allocPrint(
             allocator,
-            "mkdir -p \"{s}\" && (rm -f \"{s}/zprobe-synology\"* \"{s}/zprobe-server-synology\"* 2>/dev/null || true)",
-            .{ effective_remote_dir, effective_remote_dir, effective_remote_dir },
+            "mkdir -p \"{s}\" && (rm -f \"{s}/zprobe-synology\"* \"{s}/zprobe-server-synology\"* \"{s}/zprobe-server.service\" 2>/dev/null || true)",
+            .{ effective_remote_dir, effective_remote_dir, effective_remote_dir, effective_remote_dir },
         );
         defer allocator.free(preflight_cmd);
         _ = runCommand(io, &.{ "ssh", "-p", port_str, host, preflight_cmd }) catch {};
@@ -442,39 +461,46 @@ pub fn runInstall(
     const staged_server_path = try std.fs.path.join(allocator, &.{ staging_dir, "zprobe-server" });
     defer allocator.free(staged_server_path);
 
-    const staged_service_path = try std.fs.path.join(allocator, &.{ staging_dir, "zprobe-server.service" });
-    defer allocator.free(staged_service_path);
-
     try std.Io.Dir.copyFile(cwd, cli_binary_path, cwd, staged_cli_path, io, .{});
     try std.Io.Dir.copyFile(cwd, server_binary_path, cwd, staged_server_path, io, .{});
 
-    const service_unit = try generateServiceUnitContent(
-        allocator,
-        effective_user,
-        effective_remote_dir,
-        effective_port,
-        effective_db,
-        effective_auth_user,
-        effective_auth_pass,
-        effective_exec_path,
-    );
-    defer allocator.free(service_unit);
+    const staged_service_path = try std.fs.path.join(allocator, &.{ staging_dir, "zprobe-server.service" });
+    defer allocator.free(staged_service_path);
 
-    try writeServiceFile(io, allocator, staged_service_path, service_unit);
+    if (should_update_service) {
+        const service_unit = try generateServiceUnitContent(
+            allocator,
+            effective_user,
+            effective_remote_dir,
+            effective_port,
+            effective_db,
+            effective_auth_user,
+            effective_auth_pass,
+            effective_exec_path,
+        );
+        defer allocator.free(service_unit);
+
+        try writeServiceFile(io, allocator, staged_service_path, service_unit);
+    }
 
     // 4. Rsync canonical artifacts to remote destination directory
     const rsync_dest = try std.fmt.allocPrint(allocator, "{s}:{s}/", .{ host, effective_remote_dir });
     defer allocator.free(rsync_dest);
 
-    std.debug.print("[deploy] Syncing canonical binaries and service unit to {s} (SSH port {d})...\n", .{ rsync_dest, ssh_port });
     const rsync_rsh = try std.fmt.allocPrint(allocator, "ssh -p {d}", .{ssh_port});
     defer allocator.free(rsync_rsh);
 
-    runCommand(io, &.{ "rsync", "-avz", "--progress", "-e", rsync_rsh, staged_cli_path, staged_server_path, staged_service_path, rsync_dest }) catch return error.SyncFailed;
+    if (should_update_service) {
+        std.debug.print("[deploy] Syncing canonical binaries and service unit to {s} (SSH port {d})...\n", .{ rsync_dest, ssh_port });
+        runCommand(io, &.{ "rsync", "-avz", "--progress", "-e", rsync_rsh, staged_cli_path, staged_server_path, staged_service_path, rsync_dest }) catch return error.SyncFailed;
+    } else {
+        std.debug.print("[deploy] Upgrading binaries on {s} (SSH port {d}, active service configuration retained)...\n", .{ rsync_dest, ssh_port });
+        runCommand(io, &.{ "rsync", "-avz", "--progress", "-e", rsync_rsh, staged_cli_path, staged_server_path, rsync_dest }) catch return error.SyncFailed;
+    }
 
     // 5. Remote installation script: install to effective systemd paths
     const db_dir = std.fs.path.dirname(effective_db) orelse effective_remote_dir;
-    const target_bin_dir = std.fs.path.dirname(effective_exec_path) orelse "/usr/local/bin";
+    const target_bin_dir = std.fs.path.dirname(effective_exec_path) orelse effective_remote_dir;
     const cli_dest = try std.fs.path.join(allocator, &.{ target_bin_dir, "zprobe" });
     defer allocator.free(cli_dest);
     const unit_dir = std.fs.path.dirname(effective_unit_dest) orelse "/etc/systemd/system";
@@ -493,16 +519,32 @@ pub fn runInstall(
         try allocator.dupe(u8, "");
     defer allocator.free(install_cmds);
 
+    const service_install_cmd = if (should_update_service)
+        try std.fmt.allocPrint(
+            allocator,
+            \\install -m 644 "{s}/zprobe-server.service" "{s}" && \
+            \\(rm -f "{s}/zprobe-server.service" 2>/dev/null || true) && \
+            \\systemctl daemon-reload && \
+            \\systemctl enable zprobe-server.service && \
+        ,
+            .{ effective_remote_dir, effective_unit_dest, effective_remote_dir },
+        )
+    else
+        try std.fmt.allocPrint(
+            allocator,
+            \\(rm -f "{s}/zprobe-server.service" 2>/dev/null || true) && \
+        ,
+            .{effective_remote_dir},
+        );
+    defer allocator.free(service_install_cmd);
+
     const inner_script = try std.fmt.allocPrint(
         allocator,
         \\(systemctl stop zprobe-server.service 2>/dev/null || true) && \
         \\mkdir -p "{s}" "{s}" "{s}" "{s}" && \
         \\chown "{s}" "{s}" "{s}" && \
         \\chmod 755 "{s}/zprobe" "{s}/zprobe-server" && \
-        \\{s}install -m 644 "{s}/zprobe-server.service" "{s}" && \
-        \\systemctl daemon-reload && \
-        \\systemctl enable zprobe-server.service && \
-        \\systemctl restart zprobe-server.service && \
+        \\{s}{s}systemctl restart zprobe-server.service && \
         \\(systemctl is-active --quiet zprobe-server.service || (journalctl -u zprobe-server.service -n 20 --no-pager && false))
     ,
         .{
@@ -516,8 +558,7 @@ pub fn runInstall(
             effective_remote_dir,
             effective_remote_dir,
             install_cmds,
-            effective_remote_dir,
-            effective_unit_dest,
+            service_install_cmd,
         },
     );
     defer allocator.free(inner_script);
@@ -544,7 +585,7 @@ test "generateServiceUnitContent creates expected systemd unit structure" {
     try std.testing.expect(std.mem.find(u8, unit, "Description=zprobe Insights Server") != null);
     try std.testing.expect(std.mem.find(u8, unit, "User=admin") != null);
     try std.testing.expect(std.mem.find(u8, unit, "WorkingDirectory=/volume1/docker/zprobe") != null);
-    try std.testing.expect(std.mem.find(u8, unit, "ExecStart=/usr/local/bin/zprobe-server --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db") != null);
+    try std.testing.expect(std.mem.find(u8, unit, "ExecStart=/volume1/docker/zprobe/zprobe-server --port 8085 --db /volume1/docker/zprobe/zprobe_cache.db") != null);
     try std.testing.expect(std.mem.find(u8, unit, "Restart=on-failure") != null);
     try std.testing.expect(std.mem.find(u8, unit, "WantedBy=multi-user.target") != null);
 }

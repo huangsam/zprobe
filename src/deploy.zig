@@ -21,7 +21,6 @@ pub const extractUserFromHost = options.extractUserFromHost;
 pub const validateAuth = options.validateAuth;
 
 pub const default_target = options.default_target;
-pub const default_exec_path = options.default_exec_path;
 pub const default_port = options.default_port;
 pub const default_ssh_port = options.default_ssh_port;
 pub const default_output = options.default_output;
@@ -139,6 +138,7 @@ pub fn main(init: std.process.Init) !void {
                 auth_user,
                 auth_pass,
                 loaded_sudo_pass,
+                parsed.update_service,
             );
         },
     }

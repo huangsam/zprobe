@@ -61,18 +61,26 @@ Open `http://localhost:8080` to access the dashboard.
 
 #### 1. Automated Remote Deployment (`zprobe-deploy`)
 
-Builds release targets, stages canonical binaries (`zprobe` and `zprobe-server`), syncs artifacts over SSH, and activates systemd remotely. If `zprobe-server.service` is already installed on the target, `zprobe-deploy` automatically discovers and matches the active working directory, executable path (`ExecStart`), database location, port, and user:
+Builds release targets, stages canonical binaries (`zprobe` and `zprobe-server`), syncs artifacts over SSH, and activates systemd remotely.
+
+If `zprobe-server.service` is already installed on the target, `zprobe-deploy` automatically discovers the active working directory, executable path (`ExecStart`), database location, port, and user. Routine upgrades only sync updated binaries and restart the daemon. To force updating the systemd service configuration, specify `--update-service`.
 
 ```bash
 # Build deployment helper
 zig build deploy
 
-# Full install to remote host (supports custom SSH ports, custom exec-path, and basic auth)
+# Fresh install to remote host (requires --remote-dir; supports custom SSH ports, custom exec-path, and basic auth)
 ./zig-out/bin/zprobe-deploy install \
     --host admin@nas.local:2222 \
     --remote-dir /opt/zprobe \
     --auth-user admin \
     --auth-pass secret
+
+# Routine binary upgrade on an existing installation (auto-discovers remote configuration)
+./zig-out/bin/zprobe-deploy install --host admin@nas.local:2222
+
+# Update binary and reconfigure/reinstall systemd unit
+./zig-out/bin/zprobe-deploy install --host admin@nas.local:2222 --update-service
 ```
 
 #### 2. Local systemd Service
