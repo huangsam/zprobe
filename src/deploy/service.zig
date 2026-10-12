@@ -27,7 +27,7 @@ pub fn generateServiceUnit(
     var allocated_exec: ?[]const u8 = null;
     defer if (allocated_exec) |p| allocator.free(p);
     const exec_path = if (config.exec_path) |p| p else blk: {
-        allocated_exec = try std.fs.path.join(allocator, &.{ config.working_dir, "zprobe-server" });
+        allocated_exec = try std.fs.path.resolvePosix(allocator, &.{ config.working_dir, "zprobe-server" });
         break :blk allocated_exec.?;
     };
 
@@ -154,6 +154,19 @@ test "generateServiceUnit defaults exec_path to working_dir/zprobe-server when o
     const unit = try generateServiceUnit(allocator, .{
         .user = "admin",
         .working_dir = "/opt/zprobe",
+        .port = 8085,
+        .db_path = "/opt/zprobe/zprobe_cache.db",
+    });
+    defer allocator.free(unit);
+
+    try std.testing.expect(std.mem.find(u8, unit, "ExecStart=/opt/zprobe/zprobe-server --port 8085 --db /opt/zprobe/zprobe_cache.db") != null);
+}
+
+test "generateServiceUnit handles trailing slashes in working_dir" {
+    const allocator = std.testing.allocator;
+    const unit = try generateServiceUnit(allocator, .{
+        .user = "admin",
+        .working_dir = "/opt/zprobe/",
         .port = 8085,
         .db_path = "/opt/zprobe/zprobe_cache.db",
     });

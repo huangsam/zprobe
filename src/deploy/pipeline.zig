@@ -378,7 +378,7 @@ pub fn runInstall(
     else if (remote_info.exec_path) |ep|
         ep
     else blk: {
-        allocated_exec_path = try std.fs.path.join(allocator, &.{ effective_remote_dir, "zprobe-server" });
+        allocated_exec_path = try std.fs.path.resolvePosix(allocator, &.{ effective_remote_dir, "zprobe-server" });
         break :blk allocated_exec_path.?;
     };
 
@@ -391,7 +391,7 @@ pub fn runInstall(
     var allocated_db: ?[]const u8 = null;
     defer if (allocated_db) |d| allocator.free(d);
     const effective_db = if (db) |d| d else if (remote_info.db_path) |d| d else blk: {
-        allocated_db = try std.fmt.allocPrint(allocator, "{s}/zprobe_cache.db", .{effective_remote_dir});
+        allocated_db = try std.fs.path.resolvePosix(allocator, &.{ effective_remote_dir, "zprobe_cache.db" });
         break :blk allocated_db.?;
     };
 
@@ -499,11 +499,11 @@ pub fn runInstall(
     }
 
     // 5. Remote installation script: install to effective systemd paths
-    const db_dir = std.fs.path.dirname(effective_db) orelse effective_remote_dir;
-    const target_bin_dir = std.fs.path.dirname(effective_exec_path) orelse effective_remote_dir;
-    const cli_dest = try std.fs.path.join(allocator, &.{ target_bin_dir, "zprobe" });
+    const db_dir = std.fs.path.dirnamePosix(effective_db) orelse effective_remote_dir;
+    const target_bin_dir = std.fs.path.dirnamePosix(effective_exec_path) orelse effective_remote_dir;
+    const cli_dest = try std.fs.path.resolvePosix(allocator, &.{ target_bin_dir, "zprobe" });
     defer allocator.free(cli_dest);
-    const unit_dir = std.fs.path.dirname(effective_unit_dest) orelse "/etc/systemd/system";
+    const unit_dir = std.fs.path.dirnamePosix(effective_unit_dest) orelse "/etc/systemd/system";
 
     const is_same_bin_dir = std.mem.eql(u8, target_bin_dir, effective_remote_dir);
 
