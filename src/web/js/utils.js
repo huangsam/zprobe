@@ -249,6 +249,11 @@ function showToast(message, type = "info", durationMs = 2800) {
   const container = document.getElementById("toast-container");
   if (!container) return () => {};
 
+  // Evict any existing toasts immediately so rapid triggers never stack or shift the baseline
+  while (container.firstChild) {
+    container.firstChild.remove();
+  }
+
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
   toast.setAttribute("role", "status");
@@ -283,20 +288,30 @@ function showToast(message, type = "info", durationMs = 2800) {
   toast.classList.add("toast-visible");
 
   let timeoutId = null;
+  let removeTimerId = null;
+  let removed = false;
+
+  const removeToast = () => {
+    if (removed) return;
+    removed = true;
+    if (removeTimerId) {
+      clearTimeout(removeTimerId);
+      removeTimerId = null;
+    }
+    toast.remove();
+  };
+
   const dismiss = () => {
     if (timeoutId) {
       clearTimeout(timeoutId);
       timeoutId = null;
     }
+    if (removed || !toast.isConnected) return;
     toast.classList.remove("toast-visible");
     toast.classList.add("toast-hiding");
-    toast.addEventListener(
-      "transitionend",
-      () => {
-        toast.remove();
-      },
-      { once: true },
-    );
+    toast.addEventListener("transitionend", removeToast, { once: true });
+    toast.addEventListener("transitioncancel", removeToast, { once: true });
+    removeTimerId = setTimeout(removeToast, 220);
   };
 
   toast.querySelector(".toast-close")?.addEventListener("click", dismiss);

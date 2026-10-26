@@ -435,6 +435,7 @@ select.select-sm {
 }
 
 .toast.toast-hiding {
+  pointer-events: none;
   opacity: 0;
   transform: translateY(8px) scale(0.96);
   transition:
