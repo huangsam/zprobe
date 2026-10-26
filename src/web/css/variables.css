@@ -132,7 +132,7 @@
 
     --primary: #4b93f2;
     --primary-hover: #3b82f6;
-    --primary-badge-text: #60a5fa;
+    --primary-badge-text: #93c5fd;
     --primary-light: color-mix(in srgb, var(--primary) 15%, transparent);
     --primary-border: color-mix(in srgb, var(--primary) 42%, transparent);
     --primary-border-strong: color-mix(
@@ -189,7 +189,7 @@
 
   --primary: #4b93f2;
   --primary-hover: #3b82f6;
-  --primary-badge-text: #60a5fa;
+  --primary-badge-text: #93c5fd;
   --primary-light: color-mix(in srgb, var(--primary) 15%, transparent);
   --primary-border: color-mix(in srgb, var(--primary) 42%, transparent);
   --primary-border-strong: color-mix(in srgb, var(--primary) 55%, transparent);

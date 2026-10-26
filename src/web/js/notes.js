@@ -9,7 +9,7 @@ function renderNotesSection(row) {
   if (!row || !row.file_hash) {
     return `
       <div class="detail-section notes-section">
-          <h4>Notes</h4>
+          <h3>Notes</h3>
           <textarea class="notes-textarea" disabled placeholder="Notes unavailable (missing file hash)..."></textarea>
           <div class="notes-footer">
               <span class="notes-hint disabled-hint">Notes unavailable for this item</span>
@@ -24,7 +24,7 @@ function renderNotesSection(row) {
   return `
     <div class="detail-section notes-section">
         <div class="notes-header">
-            <h4>Notes</h4>
+            <h3>Notes</h3>
             <span id="notes-status" class="notes-status" aria-live="polite"></span>
         </div>
         <textarea id="notes-textarea" class="notes-textarea" placeholder="Add personal notes..." maxlength="10000" aria-label="Personal notes">${escapeHtml(currentNotes)}</textarea>

@@ -147,7 +147,7 @@ function renderDrawerBody(row) {
 
   html += `
           <div class="detail-section">
-              <h4>File Info</h4>
+              <h3>File Info</h3>
               <div class="detail-row">
                   <span class="label">Filename:</span>
                   <span class="value-with-action">
@@ -184,7 +184,7 @@ function renderDrawerBody(row) {
   if (row.width && row.height) {
     html += `
               <div class="detail-section">
-                  <h4>Dimensions</h4>
+                  <h3>Dimensions</h3>
                   <div class="detail-row"><span class="label">Width:</span><span class="value">${escapeHtml(String(row.width))} px</span></div>
                   <div class="detail-row"><span class="label">Height:</span><span class="value">${escapeHtml(String(row.height))} px</span></div>
                   <div class="detail-row"><span class="label">Aspect Ratio:</span><span class="value">${escapeHtml(calculateAspectRatio(row.width, row.height))}</span></div>
@@ -196,7 +196,7 @@ function renderDrawerBody(row) {
   if (isVid && row.duration_sec) {
     html += `
               <div class="detail-section">
-                  <h4>Video Properties</h4>
+                  <h3>Video Properties</h3>
                   <div class="detail-row"><span class="label">Duration:</span><span class="value">${escapeHtml(formatDuration(row.duration_sec))}</span></div>
               </div>
           `;
@@ -205,7 +205,7 @@ function renderDrawerBody(row) {
   if (row.create_time || row.camera_make || row.camera_model) {
     html += `
               <div class="detail-section">
-                  <h4>Camera & Capture</h4>
+                  <h3>Camera & Capture</h3>
                   ${row.create_time ? `<div class="detail-row"><span class="label">Captured At:</span><span class="value">${escapeHtml(row.create_time)}</span></div>` : ""}
                   ${row.camera_make ? `<div class="detail-row"><span class="label">Camera Make:</span><span class="value">${escapeHtml(row.camera_make)}</span></div>` : ""}
                   ${row.camera_model ? `<div class="detail-row"><span class="label">Model:</span><span class="value">${escapeHtml(row.camera_model)}</span></div>` : ""}
@@ -218,7 +218,7 @@ function renderDrawerBody(row) {
     const gpsCoords = `${row.gps_latitude.toFixed(6)}, ${row.gps_longitude.toFixed(6)}`;
     html += `
               <div class="detail-section">
-                  <h4>GPS Location</h4>
+                  <h3>GPS Location</h3>
                   <div class="detail-row">
                       <span class="label">Coordinates:</span>
                       <span class="value-with-action">
