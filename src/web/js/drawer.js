@@ -23,8 +23,10 @@ async function copyToClipboard(text, btnElement) {
       btnElement.classList.remove("copied");
       btnElement._copyTimeout = null;
     }, 1500);
+    showToast("Copied to clipboard", "success");
   } catch (err) {
     console.error("Failed to copy text:", err);
+    showToast("Failed to copy to clipboard", "error");
   }
 }
 

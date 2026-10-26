@@ -209,3 +209,74 @@ function formatDigitalDuration(seconds) {
   }
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
+
+// Global toast notification system
+function showToast(message, type = "info", durationMs = 2800) {
+  const container = document.getElementById("toast-container");
+  if (!container) return () => {};
+
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.setAttribute("role", "status");
+
+  const icons = {
+    info: "info",
+    success: "check-circle",
+    warning: "alert-triangle",
+    error: "alert-circle",
+  };
+  const iconName = icons[type] || "info";
+
+  toast.innerHTML = `
+    <span class="toast-icon" aria-hidden="true"><i data-lucide="${iconName}"></i></span>
+    <span class="toast-message">${escapeHtml(message)}</span>
+    <button type="button" class="toast-close" aria-label="Dismiss notification">
+      <i data-lucide="x" aria-hidden="true"></i>
+    </button>
+  `;
+
+  container.appendChild(toast);
+
+  if (
+    typeof lucide !== "undefined" &&
+    typeof lucide.createIcons === "function"
+  ) {
+    lucide.createIcons({ root: toast });
+  }
+
+  // Force reflow for enter transition
+  void toast.offsetWidth;
+  toast.classList.add("toast-visible");
+
+  let timeoutId = null;
+  const dismiss = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+    toast.classList.remove("toast-visible");
+    toast.classList.add("toast-hiding");
+    toast.addEventListener(
+      "transitionend",
+      () => {
+        toast.remove();
+      },
+      { once: true },
+    );
+  };
+
+  toast.querySelector(".toast-close")?.addEventListener("click", dismiss);
+
+  if (durationMs > 0) {
+    timeoutId = setTimeout(dismiss, durationMs);
+
+    toast.addEventListener("mouseenter", () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    });
+    toast.addEventListener("mouseleave", () => {
+      timeoutId = setTimeout(dismiss, Math.max(1200, durationMs / 2));
+    });
+  }
+
+  return dismiss;
+}

@@ -78,6 +78,7 @@
   --z-backdrop: 999;
   --z-drawer: 1000;
   --z-modal: 1050;
+  --z-toast: 1100;
   --z-skip-link: 2000;
 
   --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;

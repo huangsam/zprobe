@@ -145,6 +145,7 @@ function saveNotesIfDirty() {
       if (activeNotesRecord === targetRecord) {
         showNotesStatus("Saved", "success");
       }
+      showToast("Note saved", "success");
     })
     .catch((err) => {
       if (err.name === "AbortError") return;
@@ -152,6 +153,7 @@ function saveNotesIfDirty() {
       if (activeNotesRecord === targetRecord) {
         showNotesStatus("Save failed", "error");
       }
+      showToast("Failed to save note", "error");
     })
     .finally(() => {
       if (activeNotesSaveController === controller) {

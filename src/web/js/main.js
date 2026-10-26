@@ -177,6 +177,7 @@ document.addEventListener("DOMContentLoaded", () => {
       updateFormatFilterOptions();
       currentPage = 1;
       fetchMedia();
+      showToast("Filters cleared", "info");
     });
 
   document
