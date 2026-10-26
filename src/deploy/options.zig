@@ -96,7 +96,6 @@ pub const supported_targets = [_][]const u8{
     "synology-arm64",
     "synology-x86_64",
     "macos-arm64",
-    "windows-x86_64",
 };
 
 /// Checks whether the provided target name matches a supported release architecture.
@@ -403,7 +402,7 @@ test "isValidTarget validates supported architectures" {
     try std.testing.expect(isValidTarget("synology-arm64"));
     try std.testing.expect(isValidTarget("synology-x86_64"));
     try std.testing.expect(isValidTarget("macos-arm64"));
-    try std.testing.expect(isValidTarget("windows-x86_64"));
+    try std.testing.expect(!isValidTarget("windows-x86_64"));
     try std.testing.expect(!isValidTarget("linux-arm64"));
     try std.testing.expect(!isValidTarget(""));
 }

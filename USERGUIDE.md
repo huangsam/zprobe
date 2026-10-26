@@ -41,7 +41,8 @@ This populates `zig-out/bin/` with both CLI (`zprobe-<target>`) and server (`zpr
 - **`synology-arm64`**: Synology NAS (Realtek RTD1296), Raspberry Pi 4/5 (ARM64 Linux, musl static)
 - **`synology-x86_64`**: Intel/AMD NAS and standard Linux servers (x86_64 Linux, musl static)
 - **`macos-arm64`**: Apple Silicon macOS
-- **`windows-x86_64`**: Windows x64 portable
+
+*(Note: Windows users can run the Linux binary seamlessly via WSL2).*
 
 _(For a custom one-off platform: `zig build -Dtarget=<triple> -Doptimize=ReleaseFast`)_
 

@@ -514,8 +514,6 @@ test "Db.pruneStalePaths skips directories excluded by the guardrail" {
 extern fn chmod(path: [*:0]const u8, mode: u32) c_int;
 
 test "main CLI scan: degraded scan disables pruning" {
-    if (comptime @import("builtin").os.tag == .windows) return;
-
     const allocator = std.testing.allocator;
     const io = std.testing.io;
     var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);

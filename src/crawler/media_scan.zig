@@ -327,8 +327,6 @@ test "concurrent scan and mock processing" {
 extern fn chmod(path: [*:0]const u8, mode: u32) c_int;
 
 test "scan: flags degraded scans on walking errors" {
-    if (comptime @import("builtin").os.tag == .windows) return;
-
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
