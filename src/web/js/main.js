@@ -289,10 +289,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // View toggle button click listeners
   document.getElementById("view-list-btn")?.addEventListener("click", () => {
     setViewLayout("list");
+    showToast("Switched to List View", "info", 1800);
   });
 
   document.getElementById("view-grid-btn")?.addEventListener("click", () => {
     setViewLayout("grid");
+    showToast("Switched to Grid View", "info", 1800);
   });
 
   // Search input with 500ms debounce, quick-clear, and Escape handling
@@ -474,6 +476,8 @@ document.addEventListener("DOMContentLoaded", () => {
         currentPage--;
         fetchMedia({ showSkeleton: false });
         setSelectedIndex(0);
+      } else {
+        showToast("Already on the first page", "info", 1500);
       }
       return;
     }
@@ -485,6 +489,8 @@ document.addEventListener("DOMContentLoaded", () => {
         currentPage++;
         fetchMedia({ showSkeleton: false });
         setSelectedIndex(0);
+      } else {
+        showToast("Already on the last page", "info", 1500);
       }
       return;
     }

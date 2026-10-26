@@ -131,6 +131,7 @@ async function fetchMedia({
     if (grid) {
       grid.innerHTML = `<div class="error-state" style="grid-column: 1 / -1">Failed to load media catalog: ${err.message}</div>`;
     }
+    showToast(`Failed to load media catalog: ${err.message}`, "error");
   } finally {
     if (controller === currentFetchController) {
       const elapsedTime = Date.now() - startTime;
