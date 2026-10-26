@@ -19,7 +19,8 @@ const css_tbl = @embedFile("css/catalog-table.css");
 const css_grd = @embedFile("css/catalog-grid.css");
 const css_mdl = @embedFile("css/modal.css");
 const css_drw = @embedFile("css/drawer.css");
-pub const styles_css = css_var ++ css_base ++ css_comp ++ css_lay ++ css_filt ++ css_tbl ++ css_grd ++ css_mdl ++ css_drw;
+const css_lb = @embedFile("css/lightbox.css");
+pub const styles_css = css_var ++ css_base ++ css_comp ++ css_lay ++ css_filt ++ css_tbl ++ css_grd ++ css_mdl ++ css_drw ++ css_lb;
 
 // JS components compiled at compile time
 const js_state = @embedFile("js/state.js");
@@ -30,6 +31,7 @@ const js_table = @embedFile("js/table-view.js");
 const js_grid = @embedFile("js/grid-view.js");
 const js_notes = @embedFile("js/notes.js");
 const js_drawer = @embedFile("js/drawer.js");
+const js_lb = @embedFile("js/lightbox.js");
 const js_insights = @embedFile("js/insights.js");
 const js_main = @embedFile("js/main.js");
-pub const app_js = js_state ++ js_utils ++ js_filters ++ js_api ++ js_table ++ js_grid ++ js_notes ++ js_drawer ++ js_insights ++ js_main;
+pub const app_js = js_state ++ js_utils ++ js_filters ++ js_api ++ js_table ++ js_grid ++ js_notes ++ js_drawer ++ js_lb ++ js_insights ++ js_main;

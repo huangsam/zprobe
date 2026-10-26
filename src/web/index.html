@@ -1051,6 +1051,94 @@
         </div>
       </div>
 
+      <!-- Fullscreen Lightbox / Quick Look Modal Overlay -->
+      <div
+        id="lightbox-modal"
+        class="lightbox-overlay"
+        inert
+        aria-hidden="true"
+      >
+        <div
+          class="lightbox-container"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="lightbox-title"
+        >
+          <div class="lightbox-header">
+            <div class="lightbox-meta">
+              <h2 id="lightbox-title" class="lightbox-filename">
+                Media Preview
+              </h2>
+              <div class="lightbox-tags">
+                <span id="lightbox-counter" class="lightbox-counter"
+                  >1 of 1</span
+                >
+                <span id="lightbox-badge-format" class="lightbox-badge"
+                  >FORMAT</span
+                >
+                <span id="lightbox-badge-dims" class="lightbox-badge">—</span>
+                <span id="lightbox-badge-size" class="lightbox-badge">—</span>
+              </div>
+            </div>
+            <div class="lightbox-actions">
+              <button
+                type="button"
+                id="lightbox-zoom-btn"
+                class="lightbox-btn"
+                title="Toggle 1:1 Zoom (Z)"
+                aria-label="Toggle zoom"
+              >
+                <i data-lucide="zoom-in" aria-hidden="true"></i>
+              </button>
+              <a
+                id="lightbox-download-link"
+                href="#"
+                download
+                class="lightbox-btn"
+                title="Download original"
+                aria-label="Download original"
+                target="_blank"
+              >
+                <i data-lucide="download" aria-hidden="true"></i>
+              </a>
+              <button
+                type="button"
+                id="close-lightbox-btn"
+                class="lightbox-btn close-btn"
+                title="Close (Esc or Space)"
+                aria-label="Close Quick Look"
+              >
+                <i data-lucide="x" aria-hidden="true"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="lightbox-viewport" id="lightbox-viewport">
+            <button
+              type="button"
+              id="lightbox-prev-btn"
+              class="lightbox-nav-btn prev"
+              aria-label="Previous item (Left arrow)"
+            >
+              <i data-lucide="chevron-left" aria-hidden="true"></i>
+            </button>
+
+            <div class="lightbox-media-wrapper" id="lightbox-media-wrapper">
+              <!-- Dynamically populated img or video -->
+            </div>
+
+            <button
+              type="button"
+              id="lightbox-next-btn"
+              class="lightbox-nav-btn next"
+              aria-label="Next item (Right arrow)"
+            >
+              <i data-lucide="chevron-right" aria-hidden="true"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Toast Notification Container -->
       <div
         id="toast-container"

@@ -298,6 +298,8 @@ function isInputFocused() {
 function isAnyModalOrDrawerOpen() {
   const drawer = document.getElementById("details-drawer");
   if (drawer && drawer.classList.contains("open")) return true;
+  const lightbox = document.getElementById("lightbox-modal");
+  if (lightbox && lightbox.classList.contains("open")) return true;
   const modals = document.querySelectorAll(".modal.open");
   return modals.length > 0;
 }

@@ -29,13 +29,16 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("drawer-backdrop")
     .addEventListener("click", closeDrawer);
 
-  // Escape key: close sort modal first, then insights modal, then drawer
+  // Escape key: close lightbox first, then sort modal, then shortcuts modal, then insights modal, then drawer
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    const lightboxModal = document.getElementById("lightbox-modal");
     const shortcutsModal = document.getElementById("shortcuts-modal");
     const sortModal = document.getElementById("sort-modal");
     const modal = document.getElementById("insights-modal");
-    if (shortcutsModal && shortcutsModal.classList.contains("open")) {
+    if (lightboxModal && lightboxModal.classList.contains("open")) {
+      closeLightbox();
+    } else if (shortcutsModal && shortcutsModal.classList.contains("open")) {
       toggleShortcutsModal(false);
     } else if (sortModal && sortModal.classList.contains("open")) {
       toggleSortModal(false);
@@ -231,7 +234,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const idx = parseInt(tr.dataset.rowIndex, 10);
     if (!Number.isNaN(idx) && mediaData[idx]) {
       setSelectedIndex(idx, { scrollToView: false });
-      showDetails(mediaData[idx], tr);
+      if (e.key === " ") {
+        openLightbox(idx);
+      } else {
+        showDetails(mediaData[idx], tr);
+      }
     }
   });
 
@@ -261,7 +268,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const idx = parseInt(card.dataset.rowIndex, 10);
     if (!Number.isNaN(idx) && mediaData[idx]) {
       setSelectedIndex(idx, { scrollToView: false });
-      showDetails(mediaData[idx], card);
+      if (e.key === " ") {
+        openLightbox(idx);
+      } else {
+        showDetails(mediaData[idx], card);
+      }
     }
   });
 
@@ -394,11 +405,33 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("close-shortcuts-modal-btn")
     ?.addEventListener("click", () => toggleShortcutsModal(false));
 
+  // Lightbox button listeners
+  document
+    .getElementById("close-lightbox-btn")
+    ?.addEventListener("click", closeLightbox);
+  document
+    .getElementById("lightbox-prev-btn")
+    ?.addEventListener("click", () => navigateLightbox(-1));
+  document
+    .getElementById("lightbox-next-btn")
+    ?.addEventListener("click", () => navigateLightbox(1));
+  document
+    .getElementById("lightbox-zoom-btn")
+    ?.addEventListener("click", toggleLightboxZoom);
+
   // Global catalog keyboard navigation
   document.addEventListener("keydown", (e) => {
     // Skip if user is in an input or any modal/drawer is open
     if (isInputFocused() || isAnyModalOrDrawerOpen()) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    if (e.key === " ") {
+      if (mediaData.length > 0) {
+        e.preventDefault();
+        openLightbox(selectedIndex >= 0 ? selectedIndex : 0);
+      }
+      return;
+    }
 
     if (e.key === "?" || (e.shiftKey && e.key === "/")) {
       e.preventDefault();
