@@ -56,6 +56,19 @@
   font-size: 0.82rem;
 }
 
+.btn.btn-icon-only {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.btn.btn-icon-only .btn-icon.lucide {
+  margin: 0;
+}
+
 .btn:active:not(:disabled) {
   transform: scale(0.97);
 }
