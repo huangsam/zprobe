@@ -1,38 +1,6 @@
 // Details Drawer State
 let drawerIndex = -1;
 
-// Helper: Copy text to clipboard and show visual checkmark feedback
-async function copyToClipboard(text, btnElement) {
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      // Fallback for non-secure HTTP contexts (e.g. accessing Synology local IP)
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed"; // Keep offscreen/avoid layout shifts
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      const successful = document.execCommand("copy");
-      document.body.removeChild(textarea);
-      if (!successful) throw new Error("Fallback copy command failed");
-    }
-    btnElement.classList.add("copied");
-    if (btnElement._copyTimeout) {
-      clearTimeout(btnElement._copyTimeout);
-    }
-    btnElement._copyTimeout = setTimeout(() => {
-      btnElement.classList.remove("copied");
-      btnElement._copyTimeout = null;
-    }, 1500);
-    showToast("Copied to clipboard", "success");
-  } catch (err) {
-    console.error("Failed to copy text:", err);
-    showToast("Failed to copy to clipboard", "error");
-  }
-}
-
 // Helper: Handler for copy buttons in drawer
 function copyValue(btnElement) {
   const valSpan = btnElement.previousElementSibling;
@@ -321,11 +289,7 @@ function handleDrawerKeydown(e) {
     return;
   }
 
-  const isEditingText =
-    e.target.tagName === "TEXTAREA" ||
-    (e.target.tagName === "INPUT" &&
-      (e.target.type === "text" || !e.target.type)) ||
-    e.target.isContentEditable;
+  const isEditingText = isInputFocused(e.target);
 
   if (!isEditingText) {
     if (

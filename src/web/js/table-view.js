@@ -275,22 +275,7 @@ function handleSortModalKeydown(event) {
     return;
   }
 
-  if (event.key === "Tab") {
-    const focusables = modal.querySelectorAll(
-      'button:not([disabled]), input[type="radio"]:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    );
-    if (focusables.length === 0) return;
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
+  trapFocus(event, modal);
 }
 
 function toggleSortModal(show) {

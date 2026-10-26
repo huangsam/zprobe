@@ -95,13 +95,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      const target = e.target;
-      const isInput =
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT" ||
-        target.isContentEditable;
-      if (!isInput) {
+      if (!isInputFocused(e.target)) {
         e.preventDefault();
         const searchEl = document.getElementById("search-input");
         if (searchEl) {
@@ -498,9 +492,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (selectedIndex >= 0 && selectedIndex < mediaData.length) {
         e.preventDefault();
         const row = mediaData[selectedIndex];
-        copyToClipboard(row.path, {
-          classList: { add: () => {}, remove: () => {} },
-        });
+        copyToClipboard(row.path);
       }
       return;
     }

@@ -210,6 +210,40 @@ function formatDigitalDuration(seconds) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+// Copy text to clipboard with optional button checkmark feedback and toast notification
+async function copyToClipboard(text, btnElement = null) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      // Fallback for non-secure HTTP contexts (e.g. accessing Synology local IP)
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed"; // Keep offscreen/avoid layout shifts
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const successful = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (!successful) throw new Error("Fallback copy command failed");
+    }
+    if (btnElement && btnElement.classList) {
+      btnElement.classList.add("copied");
+      if (btnElement._copyTimeout) {
+        clearTimeout(btnElement._copyTimeout);
+      }
+      btnElement._copyTimeout = setTimeout(() => {
+        btnElement.classList.remove("copied");
+        btnElement._copyTimeout = null;
+      }, 1500);
+    }
+    showToast("Copied to clipboard", "success");
+  } catch (err) {
+    console.error("Failed to copy text:", err);
+    showToast("Failed to copy to clipboard", "error");
+  }
+}
+
 // Global toast notification system
 function showToast(message, type = "info", durationMs = 2800) {
   const container = document.getElementById("toast-container");
@@ -282,15 +316,14 @@ function showToast(message, type = "info", durationMs = 2800) {
 }
 
 // Check if user is currently interacting with an input, textarea, or select
-function isInputFocused() {
-  const active = document.activeElement;
-  if (!active) return false;
-  const tag = active.tagName;
+function isInputFocused(el = document.activeElement) {
+  if (!el) return false;
+  const tag = el.tagName;
   return (
     tag === "INPUT" ||
     tag === "TEXTAREA" ||
     tag === "SELECT" ||
-    active.isContentEditable
+    el.isContentEditable === true
   );
 }
 
