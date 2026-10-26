@@ -475,13 +475,45 @@
       >
         <div class="drawer-header">
           <h2 id="drawer-title">File Metadata Details</h2>
-          <button
-            id="close-drawer-btn"
-            class="close-btn"
-            aria-label="Close details"
-          >
-            <i data-lucide="x" aria-hidden="true"></i>
-          </button>
+          <div class="drawer-header-actions">
+            <div
+              class="drawer-nav-group"
+              role="group"
+              aria-label="Media navigation"
+            >
+              <button
+                type="button"
+                id="drawer-prev-btn"
+                class="drawer-nav-btn"
+                aria-label="Previous file ([ or ←)"
+                title="Previous file ([ or ←)"
+              >
+                <i data-lucide="chevron-left" aria-hidden="true"></i>
+              </button>
+              <span
+                id="drawer-counter"
+                class="drawer-counter"
+                aria-live="polite"
+              ></span>
+              <button
+                type="button"
+                id="drawer-next-btn"
+                class="drawer-nav-btn"
+                aria-label="Next file (] or →)"
+                title="Next file (] or →)"
+              >
+                <i data-lucide="chevron-right" aria-hidden="true"></i>
+              </button>
+            </div>
+            <button
+              id="close-drawer-btn"
+              class="close-btn"
+              aria-label="Close details (Esc)"
+              title="Close details (Esc)"
+            >
+              <i data-lucide="x" aria-hidden="true"></i>
+            </button>
+          </div>
         </div>
         <div class="drawer-content" id="drawer-content">
           <!-- Dynamically populated -->

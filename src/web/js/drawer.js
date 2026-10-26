@@ -1,3 +1,6 @@
+// Details Drawer State
+let drawerIndex = -1;
+
 // Helper: Copy text to clipboard and show visual checkmark feedback
 async function copyToClipboard(text, btnElement) {
   try {
@@ -42,39 +45,79 @@ function copyValue(btnElement) {
   }
 }
 
-// Close the details drawer and its backdrop
-function closeDrawer() {
-  handleNotesDrawerClose();
+// Update previous / next buttons and position counter in drawer header
+function updateDrawerNavigation() {
+  const prevBtn = document.getElementById("drawer-prev-btn");
+  const nextBtn = document.getElementById("drawer-next-btn");
+  const counter = document.getElementById("drawer-counter");
 
-  const drawer = document.getElementById("details-drawer");
-  drawer.classList.remove("open");
-  drawer.setAttribute("inert", "");
-  drawer.setAttribute("aria-hidden", "true");
-  document.getElementById("drawer-backdrop").classList.remove("visible");
-  document.removeEventListener("keydown", handleDrawerKeydown);
-
-  // Pause any playing video in the drawer
-  const video = drawer.querySelector("video");
-  if (video) {
-    video.pause();
-    video.removeAttribute("src"); // Stop buffering
-    video.load();
+  if (counter) {
+    if (drawerIndex >= 0 && mediaData.length > 0) {
+      counter.textContent = `${drawerIndex + 1} of ${mediaData.length}`;
+    } else {
+      counter.textContent = "";
+    }
   }
 
-  const returnFocus = drawerReturnFocus;
-  drawerReturnFocus = null;
-  if (returnFocus && typeof returnFocus.focus === "function") {
-    returnFocus.focus();
+  if (prevBtn) {
+    prevBtn.disabled = drawerIndex <= 0;
+  }
+  if (nextBtn) {
+    nextBtn.disabled = drawerIndex < 0 || drawerIndex >= mediaData.length - 1;
   }
 }
 
-// Show metadata details side drawer
-function showDetails(row, triggerEl) {
+// Open Quick Look Lightbox directly from the details drawer preview
+function openLightboxFromDrawer() {
+  if (drawerIndex >= 0 && drawerIndex < mediaData.length) {
+    openLightbox(drawerIndex);
+  }
+}
+
+// Keyboard trigger for preview container
+function handleDrawerPreviewKeydown(e) {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    openLightboxFromDrawer();
+  }
+}
+
+// Navigate to previous or next media item in details drawer
+function navigateDrawer(step) {
+  if (mediaData.length === 0) return;
+  const nextIdx = drawerIndex + step;
+  if (nextIdx < 0 || nextIdx >= mediaData.length) return;
+
   handleNotesDrawerClose();
 
+  drawerIndex = nextIdx;
+  setSelectedIndex(drawerIndex, { scrollToView: true });
+
+  const activeEl =
+    document.querySelector(
+      `#media-tbody tr[data-row-index="${drawerIndex}"]`,
+    ) ||
+    document.querySelector(
+      `#media-grid .grid-card[data-row-index="${drawerIndex}"]`,
+    );
+  drawerReturnFocus = activeEl || drawerReturnFocus;
+
+  renderDrawerBody(mediaData[drawerIndex]);
+}
+
+// Render dynamic metadata sections inside the drawer
+function renderDrawerBody(row) {
   const drawer = document.getElementById("details-drawer");
   const content = document.getElementById("drawer-content");
-  drawerReturnFocus = triggerEl || document.activeElement;
+  if (!drawer || !content || !row) return;
+
+  // Pause any playing video in the drawer before re-rendering
+  const video = drawer.querySelector("video");
+  if (video) {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+  }
 
   const fileBase = row.path.split("/").pop();
   const isVid = isVideo(row);
@@ -93,10 +136,10 @@ function showDetails(row, triggerEl) {
     `;
   } else if (row.has_thumbnail) {
     const containerClass = row.has_animated
-      ? "drawer-preview-container has-animated"
-      : "drawer-preview-container";
+      ? "drawer-preview-container drawer-preview-interactive has-animated"
+      : "drawer-preview-container drawer-preview-interactive";
     html += `
-          <div class="${escapeHtml(containerClass)}">
+          <div class="${escapeHtml(containerClass)}" role="button" tabindex="0" onclick="openLightboxFromDrawer()" onkeydown="handleDrawerPreviewKeydown(event)" title="Click to view fullscreen (Space)" aria-label="View fullscreen preview">
               ${renderThumbnailHtml(row, "drawer-preview-image", "Thumbnail Preview")}
           </div>
     `;
@@ -199,26 +242,100 @@ function showDetails(row, triggerEl) {
 
   content.innerHTML = html;
   bindNotesEvents(row, content);
+  updateDrawerNavigation();
 
-  drawer.classList.add("open");
-  drawer.removeAttribute("inert");
-  drawer.setAttribute("aria-hidden", "false");
-  document.getElementById("drawer-backdrop").classList.add("visible");
   if (
     typeof lucide !== "undefined" &&
     typeof lucide.createIcons === "function"
   ) {
     lucide.createIcons({ root: drawer });
   }
+}
+
+// Close the details drawer and its backdrop
+function closeDrawer() {
+  handleNotesDrawerClose();
+
+  const drawer = document.getElementById("details-drawer");
+  drawer.classList.remove("open");
+  drawer.setAttribute("inert", "");
+  drawer.setAttribute("aria-hidden", "true");
+  document.getElementById("drawer-backdrop").classList.remove("visible");
+  document.removeEventListener("keydown", handleDrawerKeydown);
+
+  // Pause any playing video in the drawer
+  const video = drawer.querySelector("video");
+  if (video) {
+    video.pause();
+    video.removeAttribute("src"); // Stop buffering
+    video.load();
+  }
+
+  drawerIndex = -1;
+  const returnFocus = drawerReturnFocus;
+  drawerReturnFocus = null;
+  if (returnFocus && typeof returnFocus.focus === "function") {
+    returnFocus.focus();
+  }
+}
+
+// Show metadata details side drawer
+function showDetails(row, triggerEl) {
+  handleNotesDrawerClose();
+
+  const drawer = document.getElementById("details-drawer");
+  drawerReturnFocus = triggerEl || document.activeElement;
+
+  let idx = mediaData.indexOf(row);
+  if (idx === -1 && selectedIndex >= 0 && mediaData[selectedIndex] === row) {
+    idx = selectedIndex;
+  }
+  drawerIndex = idx;
+
+  renderDrawerBody(row);
+
+  drawer.classList.add("open");
+  drawer.removeAttribute("inert");
+  drawer.setAttribute("aria-hidden", "false");
+  document.getElementById("drawer-backdrop").classList.add("visible");
+
+  document.removeEventListener("keydown", handleDrawerKeydown);
   document.addEventListener("keydown", handleDrawerKeydown);
+
   requestAnimationFrame(() => {
     document.getElementById("close-drawer-btn")?.focus();
   });
 }
 
-// Handle keyboard interactions (focus trapping) within the open drawer
+// Handle keyboard interactions (focus trapping & item navigation) within the open drawer
 function handleDrawerKeydown(e) {
   const drawer = document.getElementById("details-drawer");
-  if (!drawer.classList.contains("open")) return;
+  if (!drawer || !drawer.classList.contains("open")) return;
+
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeDrawer();
+    return;
+  }
+
+  const isEditingText =
+    e.target.tagName === "TEXTAREA" ||
+    (e.target.tagName === "INPUT" &&
+      (e.target.type === "text" || !e.target.type)) ||
+    e.target.isContentEditable;
+
+  if (!isEditingText) {
+    if (e.key === "[" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      navigateDrawer(-1);
+      return;
+    }
+    if (e.key === "]" || e.key === "ArrowRight") {
+      e.preventDefault();
+      navigateDrawer(1);
+      return;
+    }
+  }
+
   trapFocus(e, drawer);
 }

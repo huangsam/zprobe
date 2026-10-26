@@ -42,15 +42,21 @@ document.addEventListener("DOMContentLoaded", () => {
     toggleModal(true);
   });
 
-  // Close details drawer
+  // Details drawer navigation and close handlers
+  document
+    .getElementById("drawer-prev-btn")
+    ?.addEventListener("click", () => navigateDrawer(-1));
+  document
+    .getElementById("drawer-next-btn")
+    ?.addEventListener("click", () => navigateDrawer(1));
   document
     .getElementById("close-drawer-btn")
-    .addEventListener("click", closeDrawer);
+    ?.addEventListener("click", closeDrawer);
 
   // Close drawer on backdrop click
   document
     .getElementById("drawer-backdrop")
-    .addEventListener("click", closeDrawer);
+    ?.addEventListener("click", closeDrawer);
 
   // Escape key: close lightbox first, then sort modal, then shortcuts modal, then insights modal, then drawer
   document.addEventListener("keydown", (e) => {
