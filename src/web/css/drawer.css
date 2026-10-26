@@ -114,6 +114,14 @@
   display: flex;
   flex-direction: column;
   gap: 2rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.details-drawer .drawer-content::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .details-drawer .detail-section {
