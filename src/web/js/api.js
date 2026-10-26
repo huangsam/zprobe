@@ -114,6 +114,9 @@ async function fetchMedia({
       });
     }
 
+    if (selectedIndex >= mediaData.length) {
+      selectedIndex = -1;
+    }
     renderMediaCatalog();
     updatePaginationControls();
     updateActiveFilterChips();

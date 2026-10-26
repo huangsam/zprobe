@@ -26,6 +26,10 @@ function renderGrid() {
     card.tabIndex = 0;
     card.setAttribute("role", "button");
     card.dataset.rowIndex = String(index);
+    if (index === selectedIndex) {
+      card.classList.add("is-selected");
+      card.setAttribute("aria-selected", "true");
+    }
 
     const fileBase = row.path.split("/").pop();
     const dirPath = row.path.substring(0, row.path.lastIndexOf("/"));

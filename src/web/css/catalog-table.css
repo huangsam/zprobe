@@ -120,6 +120,18 @@ tr:hover td {
   background: var(--bg-surface-hover);
 }
 
+.media-table tbody tr.is-selected td {
+  background-color: var(--primary-light);
+}
+
+.media-table tbody tr.is-selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.media-table tbody tr.is-selected:hover td {
+  background-color: var(--primary-light);
+}
+
 .media-table tbody tr[role="button"]:focus-visible td {
   background: var(--bg-surface-hover);
 }

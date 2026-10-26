@@ -32,14 +32,21 @@ document.addEventListener("DOMContentLoaded", () => {
   // Escape key: close sort modal first, then insights modal, then drawer
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    const shortcutsModal = document.getElementById("shortcuts-modal");
     const sortModal = document.getElementById("sort-modal");
     const modal = document.getElementById("insights-modal");
-    if (sortModal && sortModal.classList.contains("open")) {
+    if (shortcutsModal && shortcutsModal.classList.contains("open")) {
+      toggleShortcutsModal(false);
+    } else if (sortModal && sortModal.classList.contains("open")) {
       toggleSortModal(false);
     } else if (modal && modal.classList.contains("open")) {
       toggleModal(false);
-    } else {
+    } else if (
+      document.getElementById("details-drawer")?.classList.contains("open")
+    ) {
       closeDrawer();
+    } else if (selectedIndex !== -1) {
+      setSelectedIndex(-1);
     }
   });
 
@@ -211,6 +218,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!tr) return;
     const idx = parseInt(tr.dataset.rowIndex, 10);
     if (!Number.isNaN(idx) && mediaData[idx]) {
+      setSelectedIndex(idx, { scrollToView: false });
       showDetails(mediaData[idx], tr);
     }
   });
@@ -222,6 +230,7 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const idx = parseInt(tr.dataset.rowIndex, 10);
     if (!Number.isNaN(idx) && mediaData[idx]) {
+      setSelectedIndex(idx, { scrollToView: false });
       showDetails(mediaData[idx], tr);
     }
   });
@@ -239,6 +248,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!card) return;
     const idx = parseInt(card.dataset.rowIndex, 10);
     if (!Number.isNaN(idx) && mediaData[idx]) {
+      setSelectedIndex(idx, { scrollToView: false });
       showDetails(mediaData[idx], card);
     }
   });
@@ -250,6 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const idx = parseInt(card.dataset.rowIndex, 10);
     if (!Number.isNaN(idx) && mediaData[idx]) {
+      setSelectedIndex(idx, { scrollToView: false });
       showDetails(mediaData[idx], card);
     }
   });
@@ -373,4 +384,217 @@ document.addEventListener("DOMContentLoaded", () => {
   updateSizePresetActiveState();
   initMoreFiltersToggle();
   updateSearchInputControls();
+
+  // Shortcuts modal toggle & close handlers
+  document.getElementById("shortcuts-btn")?.addEventListener("click", () => {
+    toggleShortcutsModal(true);
+  });
+
+  document
+    .getElementById("close-shortcuts-modal-btn")
+    ?.addEventListener("click", () => toggleShortcutsModal(false));
+
+  // Global catalog keyboard navigation
+  document.addEventListener("keydown", (e) => {
+    // Skip if user is in an input or any modal/drawer is open
+    if (isInputFocused() || isAnyModalOrDrawerOpen()) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+      e.preventDefault();
+      toggleShortcutsModal(true);
+      return;
+    }
+
+    if (e.key.toLowerCase() === "r") {
+      e.preventDefault();
+      currentPage = 1;
+      fetchMedia({ refetchStats: true, showRefreshSpinner: true });
+      showToast("Catalog reloaded", "info");
+      return;
+    }
+
+    if (e.key.toLowerCase() === "c") {
+      if (selectedIndex >= 0 && selectedIndex < mediaData.length) {
+        e.preventDefault();
+        const row = mediaData[selectedIndex];
+        copyToClipboard(row.path, {
+          classList: { add: () => {}, remove: () => {} },
+        });
+      }
+      return;
+    }
+
+    if (e.key === "[") {
+      if (currentPage > 1) {
+        e.preventDefault();
+        currentPage--;
+        fetchMedia({ showSkeleton: false });
+        setSelectedIndex(0);
+      }
+      return;
+    }
+
+    if (e.key === "]") {
+      const totalPages = Math.ceil(totalRecords / pageSize) || 1;
+      if (currentPage < totalPages) {
+        e.preventDefault();
+        currentPage++;
+        fetchMedia({ showSkeleton: false });
+        setSelectedIndex(0);
+      }
+      return;
+    }
+
+    const activeLayout =
+      document
+        .getElementById("catalog-table")
+        ?.getAttribute("data-view-layout") || "list";
+
+    if (e.key === "Home") {
+      if (mediaData.length > 0) {
+        e.preventDefault();
+        setSelectedIndex(0, { focus: true });
+      }
+      return;
+    }
+
+    if (e.key === "End") {
+      if (mediaData.length > 0) {
+        e.preventDefault();
+        setSelectedIndex(mediaData.length - 1, { focus: true });
+      }
+      return;
+    }
+
+    if (e.key === "ArrowDown" || e.key === "j") {
+      if (mediaData.length === 0) return;
+      e.preventDefault();
+      if (activeLayout === "grid") {
+        const cols = getGridColumnCount();
+        const next =
+          selectedIndex === -1
+            ? 0
+            : Math.min(mediaData.length - 1, selectedIndex + cols);
+        setSelectedIndex(next, { focus: true });
+      } else {
+        const next =
+          selectedIndex === -1
+            ? 0
+            : Math.min(mediaData.length - 1, selectedIndex + 1);
+        setSelectedIndex(next, { focus: true });
+      }
+      return;
+    }
+
+    if (e.key === "ArrowUp" || e.key === "k") {
+      if (mediaData.length === 0) return;
+      e.preventDefault();
+      if (activeLayout === "grid") {
+        const cols = getGridColumnCount();
+        const prev =
+          selectedIndex === -1 ? 0 : Math.max(0, selectedIndex - cols);
+        setSelectedIndex(prev, { focus: true });
+      } else {
+        const prev = selectedIndex === -1 ? 0 : Math.max(0, selectedIndex - 1);
+        setSelectedIndex(prev, { focus: true });
+      }
+      return;
+    }
+
+    if (activeLayout === "grid") {
+      if (e.key === "ArrowRight" || e.key === "l") {
+        if (mediaData.length === 0) return;
+        e.preventDefault();
+        const next =
+          selectedIndex === -1
+            ? 0
+            : Math.min(mediaData.length - 1, selectedIndex + 1);
+        setSelectedIndex(next, { focus: true });
+        return;
+      }
+      if (e.key === "ArrowLeft" || e.key === "h") {
+        if (mediaData.length === 0) return;
+        e.preventDefault();
+        const prev = selectedIndex === -1 ? 0 : Math.max(0, selectedIndex - 1);
+        setSelectedIndex(prev, { focus: true });
+        return;
+      }
+    }
+
+    if (e.key === "Enter") {
+      if (selectedIndex >= 0 && selectedIndex < mediaData.length) {
+        e.preventDefault();
+        const activeEl =
+          activeLayout === "grid"
+            ? document.querySelector(
+                `#media-grid .grid-card[data-row-index="${selectedIndex}"]`,
+              )
+            : document.querySelector(
+                `#media-tbody tr[data-row-index="${selectedIndex}"]`,
+              );
+        showDetails(mediaData[selectedIndex], activeEl);
+      }
+      return;
+    }
+  });
 });
+
+// Shortcuts modal handlers
+function handleShortcutsModalKeydown(e) {
+  const modal = document.getElementById("shortcuts-modal");
+  if (!modal || !modal.classList.contains("open")) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    toggleShortcutsModal(false);
+    return;
+  }
+  trapFocus(e, modal);
+}
+
+function handleShortcutsModalBackdropClick(e) {
+  const modal = document.getElementById("shortcuts-modal");
+  if (e.target === modal) {
+    toggleShortcutsModal(false);
+  }
+}
+
+function toggleShortcutsModal(show) {
+  const modal = document.getElementById("shortcuts-modal");
+  const toggleBtn = document.getElementById("shortcuts-btn");
+  if (!modal) return;
+
+  if (show) {
+    if (modal.classList.contains("open")) return;
+    shortcutsModalReturnFocus = document.activeElement;
+    modal.classList.add("open");
+    modal.removeAttribute("inert");
+    modal.setAttribute("aria-hidden", "false");
+    toggleBtn?.setAttribute("aria-expanded", "true");
+
+    document.removeEventListener("keydown", handleShortcutsModalKeydown);
+    window.removeEventListener("click", handleShortcutsModalBackdropClick);
+
+    document.addEventListener("keydown", handleShortcutsModalKeydown);
+    window.addEventListener("click", handleShortcutsModalBackdropClick);
+
+    requestAnimationFrame(() => {
+      document.getElementById("close-shortcuts-modal-btn")?.focus();
+    });
+  } else {
+    if (!modal.classList.contains("open")) return;
+    modal.classList.remove("open");
+    modal.setAttribute("inert", "");
+    modal.setAttribute("aria-hidden", "true");
+    toggleBtn?.setAttribute("aria-expanded", "false");
+
+    document.removeEventListener("keydown", handleShortcutsModalKeydown);
+    window.removeEventListener("click", handleShortcutsModalBackdropClick);
+
+    const returnFocus = shortcutsModalReturnFocus;
+    shortcutsModalReturnFocus = null;
+    if (returnFocus && typeof returnFocus.focus === "function") {
+      returnFocus.focus();
+    }
+  }
+}

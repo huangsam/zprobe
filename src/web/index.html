@@ -26,6 +26,18 @@
           </div>
         </div>
         <div class="header-actions">
+          <button
+            id="shortcuts-btn"
+            class="btn btn-secondary"
+            title="Keyboard Shortcuts (?)"
+            aria-label="Keyboard Shortcuts"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-controls="shortcuts-modal"
+          >
+            <i data-lucide="keyboard" class="btn-icon" aria-hidden="true"></i>
+            <span>Shortcuts</span>
+          </button>
           <button id="insights-btn" class="btn btn-secondary">
             <i
               data-lucide="bar-chart-2"
@@ -933,6 +945,108 @@
                 </button>
               </div>
             </fieldset>
+          </div>
+        </div>
+      </div>
+
+      <!-- Keyboard Shortcuts Modal Overlay -->
+      <div
+        id="shortcuts-modal"
+        class="modal shortcuts-modal-overlay"
+        inert
+        aria-hidden="true"
+      >
+        <div
+          class="modal-content surface shortcuts-modal-content"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="shortcuts-modal-title"
+        >
+          <div class="modal-header">
+            <h2 id="shortcuts-modal-title">
+              <i
+                data-lucide="keyboard"
+                class="inline-icon"
+                aria-hidden="true"
+              ></i>
+              Keyboard Shortcuts
+            </h2>
+            <button
+              id="close-shortcuts-modal-btn"
+              class="close-btn"
+              aria-label="Close keyboard shortcuts"
+            >
+              <i data-lucide="x" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="modal-body shortcuts-modal-body">
+            <div class="shortcuts-grid">
+              <section class="shortcuts-section">
+                <h3 class="shortcuts-section-title">Navigation</h3>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Navigate items</span>
+                  <span class="shortcut-keys"
+                    ><kbd>↓</kbd> / <kbd>↑</kbd> or <kbd>J</kbd> /
+                    <kbd>K</kbd></span
+                  >
+                </div>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Grid sideways</span>
+                  <span class="shortcut-keys"
+                    ><kbd>←</kbd> / <kbd>→</kbd> or <kbd>H</kbd> /
+                    <kbd>L</kbd></span
+                  >
+                </div>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">First / Last item</span>
+                  <span class="shortcut-keys"
+                    ><kbd>Home</kbd> / <kbd>End</kbd></span
+                  >
+                </div>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Previous / Next page</span>
+                  <span class="shortcut-keys"><kbd>[</kbd> / <kbd>]</kbd></span>
+                </div>
+              </section>
+
+              <section class="shortcuts-section">
+                <h3 class="shortcuts-section-title">Actions</h3>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Quick Look / Fullscreen</span>
+                  <span class="shortcut-keys"><kbd>Space</kbd></span>
+                </div>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Open Details Drawer</span>
+                  <span class="shortcut-keys"><kbd>Enter</kbd></span>
+                </div>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Copy file path</span>
+                  <span class="shortcut-keys"><kbd>C</kbd></span>
+                </div>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Reload catalog</span>
+                  <span class="shortcut-keys"><kbd>R</kbd></span>
+                </div>
+              </section>
+
+              <section class="shortcuts-section">
+                <h3 class="shortcuts-section-title">Search & Modals</h3>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Search catalog</span>
+                  <span class="shortcut-keys"
+                    ><kbd>/</kbd> or <kbd>⌘K</kbd></span
+                  >
+                </div>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Close modal / drawer</span>
+                  <span class="shortcut-keys"><kbd>Esc</kbd></span>
+                </div>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Shortcuts cheat sheet</span>
+                  <span class="shortcut-keys"><kbd>?</kbd></span>
+                </div>
+              </section>
+            </div>
           </div>
         </div>
       </div>

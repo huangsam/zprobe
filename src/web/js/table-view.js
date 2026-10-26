@@ -71,6 +71,10 @@ function renderTable() {
     if (row.has_animated) {
       tr.classList.add("has-animated");
     }
+    if (index === selectedIndex) {
+      tr.classList.add("is-selected");
+      tr.setAttribute("aria-selected", "true");
+    }
 
     const dims =
       row.width && row.height

@@ -280,3 +280,95 @@ function showToast(message, type = "info", durationMs = 2800) {
 
   return dismiss;
 }
+
+// Check if user is currently interacting with an input, textarea, or select
+function isInputFocused() {
+  const active = document.activeElement;
+  if (!active) return false;
+  const tag = active.tagName;
+  return (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    active.isContentEditable
+  );
+}
+
+// Check if any modal or details drawer is currently open
+function isAnyModalOrDrawerOpen() {
+  const drawer = document.getElementById("details-drawer");
+  if (drawer && drawer.classList.contains("open")) return true;
+  const modals = document.querySelectorAll(".modal.open");
+  return modals.length > 0;
+}
+
+// Calculate the number of columns in the media grid layout
+function getGridColumnCount() {
+  const grid = document.getElementById("media-grid");
+  if (!grid || !grid.children.length) return 4;
+  const cards = grid.querySelectorAll(".grid-card");
+  if (cards.length < 2) return 1;
+  const firstTop = cards[0].offsetTop;
+  let cols = 0;
+  for (let i = 0; i < cards.length; i++) {
+    if (cards[i].offsetTop === firstTop) {
+      cols++;
+    } else {
+      break;
+    }
+  }
+  return Math.max(1, cols);
+}
+
+// Set active catalog selected item index and update DOM highlights
+function setSelectedIndex(index, { scrollToView = true, focus = false } = {}) {
+  if (index < 0 || index >= mediaData.length) {
+    selectedIndex = -1;
+  } else {
+    selectedIndex = index;
+  }
+
+  // Update table row selection
+  const tableRows = document.querySelectorAll(
+    "#media-tbody tr[data-row-index]",
+  );
+  tableRows.forEach((tr, i) => {
+    const isSel = i === selectedIndex;
+    tr.classList.toggle("is-selected", isSel);
+    tr.setAttribute("aria-selected", isSel ? "true" : "false");
+  });
+
+  // Update grid card selection
+  const gridCards = document.querySelectorAll(
+    "#media-grid .grid-card[data-row-index]",
+  );
+  gridCards.forEach((card, i) => {
+    const isSel = i === selectedIndex;
+    card.classList.toggle("is-selected", isSel);
+    card.setAttribute("aria-selected", isSel ? "true" : "false");
+  });
+
+  if (selectedIndex !== -1) {
+    const activeLayout =
+      document
+        .getElementById("catalog-table")
+        ?.getAttribute("data-view-layout") || "list";
+    const activeEl =
+      activeLayout === "grid"
+        ? document.querySelector(
+            `#media-grid .grid-card[data-row-index="${selectedIndex}"]`,
+          )
+        : document.querySelector(
+            `#media-tbody tr[data-row-index="${selectedIndex}"]`,
+          );
+
+    if (activeEl) {
+      if (scrollToView) {
+        activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+      if (focus) {
+        activeEl.focus();
+      }
+    }
+  }
+}

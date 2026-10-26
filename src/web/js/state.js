@@ -11,9 +11,11 @@ let sortConfig = { key: "create_time", direction: "desc" }; // Current sorting c
 
 // UI & Modal State
 let activeModalTab = "images"; // Tracks which tab is active in the insights modal ('images' or 'videos')
+let selectedIndex = -1; // Current active/selected media item index on current page (-1 for none)
 let drawerReturnFocus = null; // Stores the DOM element to return focus to when the details drawer closes
 let modalReturnFocus = null; // Stores the DOM element to return focus to when the insights modal closes
 let sortModalReturnFocus = null; // Stores the DOM element to return focus to when the sort modal closes
+let shortcutsModalReturnFocus = null; // Stores element to return focus to when shortcuts modal closes
 let modalSessionId = 0; // Unique ID to ensure charts only render for the latest modal session
 
 // Filter State
