@@ -38,17 +38,51 @@ function populateStats() {
 
 // Dynamically load the Chart.js library if it hasn't been loaded yet
 function loadChartJs() {
-  if (window.Chart) return Promise.resolve();
+  if (window.Chart) {
+    applyChartThemeDefaults();
+    return Promise.resolve();
+  }
   if (!chartJsLoadPromise) {
     chartJsLoadPromise = new Promise((resolve, reject) => {
       const script = document.createElement("script");
       script.src = "/js/chart.umd.js";
-      script.onload = () => resolve();
+      script.onload = () => {
+        applyChartThemeDefaults();
+        resolve();
+      };
       script.onerror = () => reject(new Error("Failed to load Chart.js"));
       document.head.appendChild(script);
     });
   }
   return chartJsLoadPromise;
+}
+
+// Sync Chart.js global defaults with active light/dark theme tokens
+function getChartThemePalette() {
+  const isDark =
+    typeof getResolvedTheme === "function" && getResolvedTheme() === "dark";
+  return {
+    textColor: isDark ? "#9fb0c3" : "#666666",
+    gridColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
+    surfaceBorder: isDark ? "#18202c" : "#ffffff",
+  };
+}
+
+function applyChartThemeDefaults() {
+  if (!window.Chart) return;
+  const palette = getChartThemePalette();
+  window.Chart.defaults.color = palette.textColor;
+  window.Chart.defaults.borderColor = palette.gridColor;
+}
+
+function refreshChartsTheme() {
+  if (!window.Chart) return;
+  applyChartThemeDefaults();
+  const modal = document.getElementById("insights-modal");
+  if (modal && modal.classList.contains("open")) {
+    destroyAllCharts();
+    switchModalTab(activeModalTab);
+  }
 }
 
 // Handle clicking outside the modal content to close it
@@ -306,7 +340,7 @@ function renderImageCharts() {
                 "#38bdf8",
               ],
               borderWidth: 1,
-              borderColor: "#ffffff",
+              borderColor: getChartThemePalette().surfaceBorder,
             },
           ],
         },
@@ -556,7 +590,7 @@ function renderVideoCharts() {
                 "#64748b",
               ],
               borderWidth: 1,
-              borderColor: "#ffffff",
+              borderColor: getChartThemePalette().surfaceBorder,
             },
           ],
         },

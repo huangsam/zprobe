@@ -1,5 +1,28 @@
 // Setup UI Event Listeners
 document.addEventListener("DOMContentLoaded", () => {
+  // Initialize theme toggle state and listeners
+  updateThemeToggleButton();
+  document
+    .getElementById("theme-toggle-btn")
+    ?.addEventListener("click", toggleTheme);
+
+  if (window.matchMedia) {
+    window
+      .matchMedia("(prefers-color-scheme: dark)")
+      .addEventListener("change", () => {
+        updateThemeToggleButton();
+        if (typeof refreshChartsTheme === "function") {
+          refreshChartsTheme();
+        }
+      });
+  }
+
+  window.addEventListener("storage", (e) => {
+    if (e.key === "color-scheme") {
+      applyThemeState(e.newValue);
+    }
+  });
+
   // Initialize view layout
   const activeView = localStorage.getItem("zprobe_view_layout") || "list";
   setViewLayout(activeView);
@@ -456,6 +479,12 @@ document.addEventListener("DOMContentLoaded", () => {
       currentPage = 1;
       fetchMedia({ refetchStats: true, showRefreshSpinner: true });
       showToast("Catalog reloaded", "info");
+      return;
+    }
+
+    if (e.key.toLowerCase() === "t") {
+      e.preventDefault();
+      toggleTheme();
       return;
     }
 

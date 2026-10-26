@@ -374,3 +374,80 @@ function setSelectedIndex(index, { scrollToView = true, focus = false } = {}) {
     }
   }
 }
+
+// Resolve the currently active color scheme ("light" or "dark")
+function getResolvedTheme() {
+  try {
+    const stored = localStorage.getItem("color-scheme");
+    if (stored === "light" || stored === "dark") return stored;
+  } catch (_) {}
+  const attr = document.documentElement.dataset.theme;
+  if (attr === "light" || attr === "dark") return attr;
+  return window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+// Apply stored theme override (or null for system default) to DOM and active charts
+function applyThemeState(storedScheme) {
+  const meta = document.querySelector('meta[name="color-scheme"]');
+  if (storedScheme === "light" || storedScheme === "dark") {
+    if (meta) meta.content = storedScheme;
+    document.documentElement.dataset.theme = storedScheme;
+  } else {
+    if (meta) meta.content = "light dark";
+    delete document.documentElement.dataset.theme;
+  }
+  updateThemeToggleButton();
+  if (typeof refreshChartsTheme === "function") {
+    refreshChartsTheme();
+  }
+}
+
+// Update aria-label and title on the header theme toggle button
+function updateThemeToggleButton() {
+  const btn = document.getElementById("theme-toggle-btn");
+  if (!btn) return;
+  const current = getResolvedTheme();
+  const nextLabel =
+    current === "dark"
+      ? "Switch to light theme (T)"
+      : "Switch to dark theme (T)";
+  btn.setAttribute("title", nextLabel);
+  btn.setAttribute(
+    "aria-label",
+    current === "dark" ? "Switch to light theme" : "Switch to dark theme",
+  );
+}
+
+// Toggle opposite of currently rendered scheme; remove stored value if target matches system
+function toggleTheme() {
+  const current = getResolvedTheme();
+  const target = current === "dark" ? "light" : "dark";
+  const systemScheme =
+    window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+
+  let stored = null;
+  try {
+    if (target !== systemScheme) {
+      localStorage.setItem("color-scheme", target);
+      stored = target;
+    } else {
+      localStorage.removeItem("color-scheme");
+      stored = null;
+    }
+  } catch (_) {
+    stored = target !== systemScheme ? target : null;
+  }
+
+  applyThemeState(stored);
+  showToast(
+    `Switched to ${target === "dark" ? "Dark" : "Light"} Mode`,
+    "info",
+    1800,
+  );
+}

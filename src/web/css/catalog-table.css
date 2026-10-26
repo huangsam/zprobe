@@ -322,7 +322,7 @@ tr.has-animated:focus-visible .animated-overlay,
 .badge-format {
   background: var(--primary-light);
   color: var(--primary);
-  border: 1px solid rgba(43, 118, 219, 0.15);
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent);
 }
 
 /* Table states */

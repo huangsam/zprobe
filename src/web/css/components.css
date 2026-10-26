@@ -69,6 +69,47 @@
   margin: 0;
 }
 
+/* Theme Toggle Icon Branching */
+.theme-toggle-btn .theme-icon-sun {
+  display: none;
+}
+
+.theme-toggle-btn .theme-icon-moon {
+  display: inline-block;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not(
+      :has(> head > meta[name="color-scheme"][content="light"])
+    )
+    .theme-toggle-btn
+    .theme-icon-sun {
+    display: inline-block;
+  }
+
+  :root:not([data-theme="light"]):not(
+      :has(> head > meta[name="color-scheme"][content="light"])
+    )
+    .theme-toggle-btn
+    .theme-icon-moon {
+    display: none;
+  }
+}
+
+:root[data-theme="dark"] .theme-toggle-btn .theme-icon-sun,
+:root:has(> head > meta[name="color-scheme"][content="dark"])
+  .theme-toggle-btn
+  .theme-icon-sun {
+  display: inline-block;
+}
+
+:root[data-theme="dark"] .theme-toggle-btn .theme-icon-moon,
+:root:has(> head > meta[name="color-scheme"][content="dark"])
+  .theme-toggle-btn
+  .theme-icon-moon {
+  display: none;
+}
+
 .btn:active:not(:disabled) {
   transform: scale(0.97);
 }
@@ -82,7 +123,7 @@ select {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%23666' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: var(--select-chevron);
   background-repeat: no-repeat;
   background-size: 0.95rem 0.95rem;
   background-position: right 0.85rem center;
@@ -264,8 +305,8 @@ select.select-sm {
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%) translateY(-6px) scale(0.85);
-  background-color: var(--slate-800);
-  color: var(--white);
+  background-color: var(--tooltip-bg);
+  color: var(--tooltip-text);
   font-size: 0.72rem;
   font-weight: 500;
   padding: 4px 8px;
@@ -277,7 +318,7 @@ select.select-sm {
     opacity var(--transition-fast),
     transform var(--transition-fast);
   z-index: var(--z-tooltip);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-md);
   font-family: var(--font-sans);
 }
 
@@ -288,7 +329,7 @@ select.select-sm {
   left: 50%;
   transform: translateX(-50%) translateY(2px) scale(0.85);
   border: 4px solid transparent;
-  border-top-color: var(--slate-800);
+  border-top-color: var(--tooltip-bg);
   opacity: 0;
   pointer-events: none;
   transition:
@@ -299,7 +340,7 @@ select.select-sm {
 
 /* Search Term Highlight */
 .search-highlight {
-  background-color: rgba(43, 118, 219, 0.18);
+  background-color: color-mix(in srgb, var(--primary) 22%, transparent);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;

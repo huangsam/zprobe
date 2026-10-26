@@ -3,6 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        const s = localStorage.getItem("color-scheme");
+        if (s === "light" || s === "dark") {
+          document.querySelector('meta[name="color-scheme"]').content = s;
+          document.documentElement.dataset.theme = s;
+        }
+      } catch (_) {}
+    </script>
     <title>zprobe | Media Catalog</title>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="stylesheet" href="/styles.css" />
@@ -26,6 +36,23 @@
           </div>
         </div>
         <div class="header-actions">
+          <button
+            id="theme-toggle-btn"
+            class="btn btn-secondary btn-icon-only theme-toggle-btn"
+            title="Toggle Theme (T)"
+            aria-label="Toggle color theme"
+          >
+            <i
+              data-lucide="moon"
+              class="btn-icon theme-icon-moon"
+              aria-hidden="true"
+            ></i>
+            <i
+              data-lucide="sun"
+              class="btn-icon theme-icon-sun"
+              aria-hidden="true"
+            ></i>
+          </button>
           <button
             id="shortcuts-btn"
             class="btn btn-secondary btn-icon-only"
@@ -1033,6 +1060,10 @@
                 <div class="shortcut-row">
                   <span class="shortcut-desc">Reload catalog</span>
                   <span class="shortcut-keys"><kbd>R</kbd></span>
+                </div>
+                <div class="shortcut-row">
+                  <span class="shortcut-desc">Toggle theme</span>
+                  <span class="shortcut-keys"><kbd>T</kbd></span>
                 </div>
               </section>
 

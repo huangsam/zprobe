@@ -138,7 +138,7 @@
   border: 1px solid var(--border-color);
   border-radius: 6px;
   box-sizing: border-box;
-  background: var(--bg-surface);
+  background-color: var(--bg-surface);
   flex: 0 0 auto;
   width: auto;
   min-width: 7.25rem;
