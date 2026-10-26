@@ -20,6 +20,10 @@
   transform: translateX(0);
 }
 
+.details-drawer:focus {
+  outline: none;
+}
+
 .details-drawer .drawer-header {
   display: flex;
   justify-content: space-between;

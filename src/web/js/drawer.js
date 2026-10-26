@@ -103,6 +103,9 @@ function navigateDrawer(step) {
   drawerReturnFocus = activeEl || drawerReturnFocus;
 
   renderDrawerBody(mediaData[drawerIndex]);
+
+  const drawer = document.getElementById("details-drawer");
+  drawer?.focus({ preventScroll: true });
 }
 
 // Render dynamic metadata sections inside the drawer
@@ -303,7 +306,7 @@ function showDetails(row, triggerEl) {
   document.addEventListener("keydown", handleDrawerKeydown);
 
   requestAnimationFrame(() => {
-    document.getElementById("close-drawer-btn")?.focus();
+    drawer.focus({ preventScroll: true });
   });
 }
 
@@ -325,12 +328,24 @@ function handleDrawerKeydown(e) {
     e.target.isContentEditable;
 
   if (!isEditingText) {
-    if (e.key === "[" || e.key === "ArrowLeft") {
+    if (
+      e.key === "[" ||
+      e.key === "ArrowLeft" ||
+      e.key === "<" ||
+      e.key === "," ||
+      e.key === "h"
+    ) {
       e.preventDefault();
       navigateDrawer(-1);
       return;
     }
-    if (e.key === "]" || e.key === "ArrowRight") {
+    if (
+      e.key === "]" ||
+      e.key === "ArrowRight" ||
+      e.key === ">" ||
+      e.key === "." ||
+      e.key === "l"
+    ) {
       e.preventDefault();
       navigateDrawer(1);
       return;
