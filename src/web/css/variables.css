@@ -76,6 +76,7 @@
   --drawer-shadow: -4px 0 24px rgba(0, 0, 0, 0.06);
 
   /* Border radius tokens */
+  --radius-2xs: 2px;
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;

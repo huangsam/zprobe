@@ -7,7 +7,7 @@
   font-weight: 500;
   font-size: 0.875rem;
   padding: 0.75rem 1.5rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   cursor: pointer;
   transition:
@@ -142,7 +142,7 @@ select.select-sm {
   .filter-inputs input[type="number"]
 ) {
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-family: var(--font-sans);
   outline: none;
@@ -265,7 +265,7 @@ select.select-sm {
   color: var(--text-muted);
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -319,7 +319,7 @@ select.select-sm {
   font-size: 0.72rem;
   font-weight: 500;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
@@ -351,7 +351,7 @@ select.select-sm {
 .search-highlight {
   background-color: color-mix(in srgb, var(--primary) 22%, transparent);
   color: inherit;
-  border-radius: 2px;
+  border-radius: var(--radius-2xs);
   padding: 0 1px;
 }
 

@@ -97,7 +97,7 @@
   color: var(--text-secondary);
   padding: 0.35rem 0.8rem;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   transition:
@@ -153,7 +153,7 @@
 .modal .stat-card {
   background: var(--bg-input);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 0.6rem 0.85rem;
   display: flex;
   align-items: center;
@@ -172,7 +172,7 @@
 .modal .stat-card-icon {
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--primary-light);
   color: var(--primary);
   display: flex;
@@ -240,7 +240,7 @@
 .modal .chart-container {
   background: var(--bg-input);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 0.85rem 1rem;
   display: flex;
   flex-direction: column;
@@ -274,7 +274,7 @@
   font-size: 0.82rem;
   font-family: var(--font-sans);
   border: 1px dashed var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.01);
   padding: 1.25rem;
   text-align: center;
@@ -334,7 +334,7 @@
   padding: 0.5rem 0.75rem;
   background: var(--bg-input);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   user-select: none;
   font-size: 0.82rem;

@@ -90,7 +90,7 @@ body {
   font-size: 0.9rem;
   text-decoration: none;
   border: 2px solid var(--primary);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow-md);
 }
 
@@ -101,7 +101,7 @@ body {
 .surface {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 ::-webkit-scrollbar {
@@ -113,7 +113,7 @@ body {
 }
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 10px;
+  border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
