@@ -38,6 +38,7 @@
 
   --primary: #2b76db; /* Synology Brand Blue */
   --primary-hover: #1e5cb8;
+  --primary-badge-text: #1d60bd;
   --primary-light: color-mix(in srgb, var(--primary) 8%, transparent);
   --primary-border: color-mix(in srgb, var(--primary) 35%, transparent);
   --primary-border-strong: color-mix(in srgb, var(--primary) 45%, transparent);
@@ -131,6 +132,7 @@
 
     --primary: #4b93f2;
     --primary-hover: #3b82f6;
+    --primary-badge-text: #60a5fa;
     --primary-light: color-mix(in srgb, var(--primary) 15%, transparent);
     --primary-border: color-mix(in srgb, var(--primary) 42%, transparent);
     --primary-border-strong: color-mix(
@@ -187,6 +189,7 @@
 
   --primary: #4b93f2;
   --primary-hover: #3b82f6;
+  --primary-badge-text: #60a5fa;
   --primary-light: color-mix(in srgb, var(--primary) 15%, transparent);
   --primary-border: color-mix(in srgb, var(--primary) 42%, transparent);
   --primary-border-strong: color-mix(in srgb, var(--primary) 55%, transparent);

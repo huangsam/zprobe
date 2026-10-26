@@ -34,7 +34,7 @@ function renderGrid() {
     const fileBase = row.path.split("/").pop();
     const dirPath = row.path.substring(0, row.path.lastIndexOf("/"));
 
-    card.setAttribute("aria-label", `View details for ${fileBase}`);
+    card.setAttribute("aria-label", `${fileBase} – View details`);
 
     const isVid = isVideo(row);
     const thumbHtml = renderThumbnailHtml(row, "", fileBase);

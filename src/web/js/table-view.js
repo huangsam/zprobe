@@ -66,7 +66,6 @@ function renderTable() {
   mediaData.forEach((row, index) => {
     const tr = document.createElement("tr");
     tr.tabIndex = 0;
-    tr.setAttribute("role", "button");
     tr.dataset.rowIndex = String(index);
     if (row.has_animated) {
       tr.classList.add("has-animated");
@@ -82,8 +81,6 @@ function renderTable() {
         : "—";
     const fileBase = row.path.split("/").pop();
     const dirPath = row.path.substring(0, row.path.lastIndexOf("/"));
-
-    tr.setAttribute("aria-label", `View details for ${fileBase}`);
 
     const thumbHtml = renderThumbnailHtml(row, "row-thumbnail", "Thumbnail");
     // Add has-animated marker class so CSS hover rule targets only these rows.

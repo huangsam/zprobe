@@ -321,7 +321,7 @@ tr.has-animated:focus-visible .animated-overlay,
 
 .badge-format {
   background: var(--primary-light);
-  color: var(--primary);
+  color: var(--primary-badge-text);
   border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent);
 }
 
