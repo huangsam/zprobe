@@ -73,7 +73,7 @@ pub fn handleStaticAsset(request: *std.http.Server.Request, base_path: []const u
             .status = .ok,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "text/css" },
-                .{ .name = "Cache-Control", .value = "public, max-age=86400" },
+                .{ .name = "Cache-Control", .value = "no-cache" },
             },
         });
         return true;
@@ -82,7 +82,7 @@ pub fn handleStaticAsset(request: *std.http.Server.Request, base_path: []const u
             .status = .ok,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "application/javascript" },
-                .{ .name = "Cache-Control", .value = "public, max-age=86400" },
+                .{ .name = "Cache-Control", .value = "no-cache" },
             },
         });
         return true;

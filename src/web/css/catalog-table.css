@@ -75,7 +75,7 @@ th:hover {
 }
 
 @media (hover: hover) {
-  th {
+  th:hover {
     transition:
       background-color var(--transition-fast),
       color var(--transition-fast);

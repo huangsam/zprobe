@@ -71,6 +71,13 @@ body {
     transition: none !important;
   }
 }
+
+/* Disable transitions while switching light/dark theme to prevent staggered flash */
+:root.theme-switching *,
+:root.theme-switching *::before,
+:root.theme-switching *::after {
+  transition: none !important;
+}
 .skip-link {
   position: absolute;
   top: -100%;

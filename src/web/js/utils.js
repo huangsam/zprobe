@@ -391,18 +391,25 @@ function getResolvedTheme() {
 
 // Apply stored theme override (or null for system default) to DOM and active charts
 function applyThemeState(storedScheme) {
+  const root = document.documentElement;
+  root.classList.add("theme-switching");
   const meta = document.querySelector('meta[name="color-scheme"]');
   if (storedScheme === "light" || storedScheme === "dark") {
     if (meta) meta.content = storedScheme;
-    document.documentElement.dataset.theme = storedScheme;
+    root.dataset.theme = storedScheme;
   } else {
     if (meta) meta.content = "light dark";
-    delete document.documentElement.dataset.theme;
+    delete root.dataset.theme;
   }
   updateThemeToggleButton();
   if (typeof refreshChartsTheme === "function") {
     refreshChartsTheme();
   }
+  // Force synchronous style/layout flush before re-enabling CSS transitions
+  void root.offsetHeight;
+  requestAnimationFrame(() => {
+    root.classList.remove("theme-switching");
+  });
 }
 
 // Update aria-label and title on the header theme toggle button

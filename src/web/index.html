@@ -6,11 +6,22 @@
     <meta name="color-scheme" content="light dark" />
     <script>
       try {
+        const root = document.documentElement;
+        root.classList.add("theme-switching");
         const s = localStorage.getItem("color-scheme");
         if (s === "light" || s === "dark") {
           document.querySelector('meta[name="color-scheme"]').content = s;
-          document.documentElement.dataset.theme = s;
+          root.dataset.theme = s;
         }
+        window.addEventListener(
+          "DOMContentLoaded",
+          () => {
+            requestAnimationFrame(() =>
+              root.classList.remove("theme-switching"),
+            );
+          },
+          { once: true },
+        );
       } catch (_) {}
     </script>
     <title>zprobe | Media Catalog</title>
