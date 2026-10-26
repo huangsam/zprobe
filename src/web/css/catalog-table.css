@@ -132,7 +132,7 @@ tr:hover td {
   background-color: var(--primary-light);
 }
 
-.media-table tbody tr[role="button"]:focus-visible td {
+.media-table tbody tr[role="button"]:not(.is-selected):focus-visible td {
   background: var(--bg-surface-hover);
 }
 
@@ -392,6 +392,11 @@ td.error-state {
 :is(.media-table th, .media-table tbody tr[role="button"]):focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
+}
+
+/* Selected rows are indicated by the tint and accent bar alone, so keyboard and click selection look identical */
+.media-table tbody tr.is-selected:focus-visible {
+  outline: none;
 }
 /* Pagination controls styling */
 .pagination-container {

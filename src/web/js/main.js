@@ -226,6 +226,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Keep selection in sync with Tab focus so a focused row always shows the selected style
+  document.getElementById("media-tbody")?.addEventListener("focusin", (e) => {
+    const tr = e.target.closest("tr[data-row-index]");
+    if (!tr) return;
+    const idx = parseInt(tr.dataset.rowIndex, 10);
+    if (!Number.isNaN(idx) && idx !== selectedIndex && mediaData[idx]) {
+      setSelectedIndex(idx, { scrollToView: false });
+    }
+  });
+
   document.getElementById("media-tbody")?.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     const tr = e.target.closest("tr[data-row-index]");
