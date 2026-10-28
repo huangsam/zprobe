@@ -777,6 +777,95 @@ test "getStats duplicate count and size calculations" {
     try std.testing.expectEqual(@as(u64, 50_000_000), stats.video_dupe_size);
 }
 
+test "getDuplicates returns duplicate sets and totals" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp_ctx = try test_utils.TempDirContext.init(allocator, io);
+    defer tmp_ctx.cleanup();
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/dupe_query_test.db", .{tmp_ctx.abs_path});
+    defer allocator.free(path);
+
+    var database = try Db.init(allocator, path);
+    defer database.deinit();
+
+    const img_rec = DbRecord{
+        .path = "/photos/orig.png",
+        .size = 100_000,
+        .format = "png",
+        .file_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    };
+    const img_dupe1 = DbRecord{
+        .path = "/photos/dupe1.png",
+        .size = 100_000,
+        .format = "png",
+        .file_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    };
+    const img_dupe2 = DbRecord{
+        .path = "/photos/dupe2.png",
+        .size = 100_000,
+        .format = "png",
+        .file_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    };
+    try database.insertMedia(io, &img_rec, 1);
+    try database.insertMedia(io, &img_dupe1, 2);
+    try database.insertMedia(io, &img_dupe2, 3);
+
+    const vid_rec = DbRecord{
+        .path = "/videos/orig.mp4",
+        .size = 50_000_000,
+        .format = "mp4",
+        .file_hash = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    };
+    const vid_dupe = DbRecord{
+        .path = "/videos/dupe.mp4",
+        .size = 50_000_000,
+        .format = "mp4",
+        .file_hash = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    };
+    try database.insertMedia(io, &vid_rec, 4);
+    try database.insertMedia(io, &vid_dupe, 5);
+
+    const unique_rec = DbRecord{
+        .path = "/photos/unique.jpg",
+        .size = 200_000,
+        .format = "jpg",
+        .file_hash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    };
+    try database.insertMedia(io, &unique_rec, 6);
+
+    // Query all duplicates
+    const res = try database.getDuplicates(allocator, null, null);
+    defer res.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u32, 2), res.total_duplicate_sets);
+    try std.testing.expectEqual(@as(u32, 3), res.total_duplicate_files);
+    try std.testing.expectEqual(@as(u64, 50_200_000), res.total_wasted_bytes);
+    try std.testing.expectEqual(@as(usize, 2), res.sets.len);
+
+    // Set 0 should be the video (ordered by wasted_bytes DESC)
+    const set0 = res.sets[0];
+    try std.testing.expectEqualStrings("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", set0.file_hash);
+    try std.testing.expectEqual(@as(u32, 2), set0.count);
+    try std.testing.expectEqual(@as(u64, 50_000_000), set0.wasted_bytes);
+    try std.testing.expectEqual(@as(usize, 2), set0.paths.len);
+
+    // Set 1 should be the image
+    const set1 = res.sets[1];
+    try std.testing.expectEqualStrings("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890", set1.file_hash);
+    try std.testing.expectEqual(@as(u32, 3), set1.count);
+    try std.testing.expectEqual(@as(u64, 200_000), set1.wasted_bytes);
+    try std.testing.expectEqual(@as(usize, 3), set1.paths.len);
+
+    // Test pagination (limit = 1, offset = 1)
+    const paged = try database.getDuplicates(allocator, 1, 1);
+    defer paged.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u32, 2), paged.total_duplicate_sets);
+    try std.testing.expectEqual(@as(usize, 1), paged.sets.len);
+    try std.testing.expectEqualStrings("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890", paged.sets[0].file_hash);
+}
+
 test "getStats video tiers are mutually exclusive buckets" {
     const allocator = std.testing.allocator;
     var fixture = try testDb(allocator);

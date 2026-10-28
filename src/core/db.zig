@@ -16,6 +16,8 @@ pub const DbRecord = types.DbRecord;
 pub const CacheResult = types.CacheResult;
 pub const DbStats = types.DbStats;
 pub const PagedResult = types.PagedResult;
+pub const DuplicateSet = types.DuplicateSet;
+pub const DuplicatesResult = types.DuplicatesResult;
 pub const populateDbRecordFromImage = conversion.populateDbRecordFromImage;
 pub const populateDbRecordFromVideo = conversion.populateDbRecordFromVideo;
 
@@ -31,6 +33,8 @@ pub const Db = struct {
     stats_cache_arena: std.heap.ArenaAllocator,
 
     pub const PagedResult = types.PagedResult;
+    pub const DuplicateSet = types.DuplicateSet;
+    pub const DuplicatesResult = types.DuplicatesResult;
 
     // Lifecycle and locking (implemented in schema.zig)
     pub const init = schema.init;
@@ -59,6 +63,7 @@ pub const Db = struct {
     pub const getTimelineBuckets = query.getTimelineBuckets;
     pub const getStatsCached = query.getStatsCached;
     pub const getRecordsPaged = query.getRecordsPaged;
+    pub const getDuplicates = query.getDuplicates;
     pub const pathExists = query.pathExists;
 
     // Package-internal helpers (not part of public API)

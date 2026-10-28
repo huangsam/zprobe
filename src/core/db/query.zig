@@ -7,6 +7,8 @@ const DbRecord = types.DbRecord;
 const CacheResult = types.CacheResult;
 const DbStats = types.DbStats;
 const PagedResult = types.PagedResult;
+const DuplicateSet = types.DuplicateSet;
+const DuplicatesResult = types.DuplicatesResult;
 const stats_cache_ttl_ns = types.stats_cache_ttl_ns;
 const is_image_pred_m = types.is_image_pred_m;
 const is_video_pred_m = types.is_video_pred_m;
@@ -1335,4 +1337,226 @@ pub fn updateNotes(self: *Db, file_hash: []const u8, notes: ?[]const u8) !void {
     if (c.sqlite3_changes(self.handle) == 0) {
         return error.RecordNotFound;
     }
+}
+
+/// Query duplicate media sets (files sharing identical content file_hash) with aggregate totals.
+pub fn getDuplicates(
+    self: *Db,
+    allocator: std.mem.Allocator,
+    limit: ?u32,
+    offset: ?u32,
+) !DuplicatesResult {
+    if (self.handle == null) return error.DatabaseNotOpen;
+
+    var total_sets: u32 = 0;
+    var total_redundant_files: u32 = 0;
+    var total_wasted_bytes: u64 = 0;
+
+    // 1. Query overall duplicate totals
+    const count_sql =
+        \\SELECT
+        \\    COUNT(*),
+        \\    COALESCE(SUM(cnt - 1), 0),
+        \\    COALESCE(SUM((cnt - 1) * sz), 0)
+        \\FROM (
+        \\    SELECT p.size AS sz, COUNT(p.path) AS cnt
+        \\    FROM media_paths p
+        \\    GROUP BY p.metadata_id
+        \\    HAVING cnt > 1
+        \\);
+    ;
+    var count_stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, count_sql, -1, &count_stmt, null) != c.SQLITE_OK) {
+        return error.DatabasePrepareError;
+    }
+    defer _ = c.sqlite3_finalize(count_stmt);
+
+    if (c.sqlite3_step(count_stmt) == c.SQLITE_ROW) {
+        total_sets = @intCast(c.sqlite3_column_int(count_stmt, 0));
+        total_redundant_files = @intCast(c.sqlite3_column_int(count_stmt, 1));
+        total_wasted_bytes = @intCast(c.sqlite3_column_int64(count_stmt, 2));
+    }
+
+    // 2. Query duplicate groups and their paths
+    const sets_sql =
+        \\SELECT
+        \\    m.file_hash,
+        \\    m.format,
+        \\    MAX(p.size) AS size,
+        \\    (MAX(p.size) * (COUNT(p.path) - 1)) AS wasted_bytes,
+        \\    COUNT(p.path) AS file_count,
+        \\    m.width,
+        \\    m.height,
+        \\    m.orientation,
+        \\    m.create_time,
+        \\    m.camera_make,
+        \\    m.camera_model,
+        \\    m.duration_sec,
+        \\    m.has_thumbnail,
+        \\    m.has_animated,
+        \\    m.notes,
+        \\    json_group_array(p.path) AS paths
+        \\FROM media_paths p
+        \\JOIN media_metadata m ON p.metadata_id = m.id
+        \\GROUP BY m.file_hash
+        \\HAVING COUNT(p.path) > 1
+        \\ORDER BY wasted_bytes DESC, size DESC
+        \\LIMIT ? OFFSET ?;
+    ;
+    var sets_stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(self.handle, sets_sql, -1, &sets_stmt, null) != c.SQLITE_OK) {
+        return error.DatabasePrepareError;
+    }
+    defer _ = c.sqlite3_finalize(sets_stmt);
+
+    const sql_limit: i64 = if (limit) |l| @intCast(l) else -1;
+    const sql_offset: i64 = if (offset) |o| @intCast(o) else 0;
+    _ = c.sqlite3_bind_int64(sets_stmt, 1, sql_limit);
+    _ = c.sqlite3_bind_int64(sets_stmt, 2, sql_offset);
+
+    var sets_list: std.ArrayList(DuplicateSet) = .empty;
+    errdefer {
+        for (sets_list.items) |s| s.deinit(allocator);
+        sets_list.deinit(allocator);
+    }
+
+    while (c.sqlite3_step(sets_stmt) == c.SQLITE_ROW) {
+        // file_hash
+        const hash_raw = c.sqlite3_column_text(sets_stmt, 0);
+        const hash_len = c.sqlite3_column_bytes(sets_stmt, 0);
+        const file_hash = if (hash_raw != null and hash_len > 0)
+            try allocator.dupe(u8, hash_raw[0..@intCast(hash_len)])
+        else
+            try allocator.dupe(u8, "");
+        errdefer allocator.free(file_hash);
+
+        // format
+        const fmt_raw = c.sqlite3_column_text(sets_stmt, 1);
+        const fmt_len = c.sqlite3_column_bytes(sets_stmt, 1);
+        const format = if (fmt_raw != null and fmt_len > 0)
+            try allocator.dupe(u8, fmt_raw[0..@intCast(fmt_len)])
+        else
+            try allocator.dupe(u8, "unknown");
+        errdefer allocator.free(format);
+
+        const size: u64 = @intCast(c.sqlite3_column_int64(sets_stmt, 2));
+        const wasted: u64 = @intCast(c.sqlite3_column_int64(sets_stmt, 3));
+        const count: u32 = @intCast(c.sqlite3_column_int(sets_stmt, 4));
+
+        const width: ?u32 = if (c.sqlite3_column_type(sets_stmt, 5) != c.SQLITE_NULL)
+            @intCast(c.sqlite3_column_int(sets_stmt, 5))
+        else
+            null;
+
+        const height: ?u32 = if (c.sqlite3_column_type(sets_stmt, 6) != c.SQLITE_NULL)
+            @intCast(c.sqlite3_column_int(sets_stmt, 6))
+        else
+            null;
+
+        const orientation: ?u16 = if (c.sqlite3_column_type(sets_stmt, 7) != c.SQLITE_NULL)
+            @intCast(c.sqlite3_column_int(sets_stmt, 7))
+        else
+            null;
+
+        var create_time: ?[]const u8 = null;
+        if (c.sqlite3_column_type(sets_stmt, 8) != c.SQLITE_NULL) {
+            const raw = c.sqlite3_column_text(sets_stmt, 8);
+            const len = c.sqlite3_column_bytes(sets_stmt, 8);
+            if (raw != null and len > 0) {
+                create_time = try allocator.dupe(u8, raw[0..@intCast(len)]);
+            }
+        }
+        errdefer if (create_time) |ct| allocator.free(ct);
+
+        var camera_make: ?[]const u8 = null;
+        if (c.sqlite3_column_type(sets_stmt, 9) != c.SQLITE_NULL) {
+            const raw = c.sqlite3_column_text(sets_stmt, 9);
+            const len = c.sqlite3_column_bytes(sets_stmt, 9);
+            if (raw != null and len > 0) {
+                camera_make = try allocator.dupe(u8, raw[0..@intCast(len)]);
+            }
+        }
+        errdefer if (camera_make) |cm| allocator.free(cm);
+
+        var camera_model: ?[]const u8 = null;
+        if (c.sqlite3_column_type(sets_stmt, 10) != c.SQLITE_NULL) {
+            const raw = c.sqlite3_column_text(sets_stmt, 10);
+            const len = c.sqlite3_column_bytes(sets_stmt, 10);
+            if (raw != null and len > 0) {
+                camera_model = try allocator.dupe(u8, raw[0..@intCast(len)]);
+            }
+        }
+        errdefer if (camera_model) |cm| allocator.free(cm);
+
+        const duration_sec: ?f64 = if (c.sqlite3_column_type(sets_stmt, 11) != c.SQLITE_NULL)
+            c.sqlite3_column_double(sets_stmt, 11)
+        else
+            null;
+
+        const has_thumbnail = c.sqlite3_column_int(sets_stmt, 12) != 0;
+        const has_animated = c.sqlite3_column_int(sets_stmt, 13) != 0;
+
+        var notes: ?[]const u8 = null;
+        if (c.sqlite3_column_type(sets_stmt, 14) != c.SQLITE_NULL) {
+            const raw = c.sqlite3_column_text(sets_stmt, 14);
+            const len = c.sqlite3_column_bytes(sets_stmt, 14);
+            if (raw != null and len > 0) {
+                notes = try allocator.dupe(u8, raw[0..@intCast(len)]);
+            }
+        }
+        errdefer if (notes) |n| allocator.free(n);
+
+        // Paths from json_group_array(p.path)
+        var paths: [][]const u8 = &[_][]const u8{};
+        if (c.sqlite3_column_type(sets_stmt, 15) != c.SQLITE_NULL) {
+            const raw = c.sqlite3_column_text(sets_stmt, 15);
+            const len = c.sqlite3_column_bytes(sets_stmt, 15);
+            if (raw != null and len > 0) {
+                const json_str = raw[0..@intCast(len)];
+                const parsed = std.json.parseFromSlice([]const []const u8, allocator, json_str, .{}) catch null;
+                if (parsed) |p| {
+                    defer p.deinit();
+                    var list = try std.ArrayList([]const u8).initCapacity(allocator, p.value.len);
+                    errdefer {
+                        for (list.items) |item| allocator.free(item);
+                        list.deinit(allocator);
+                    }
+                    for (p.value) |item| {
+                        try list.append(allocator, try allocator.dupe(u8, item));
+                    }
+                    paths = try list.toOwnedSlice(allocator);
+                }
+            }
+        }
+        errdefer {
+            for (paths) |p| allocator.free(p);
+            allocator.free(paths);
+        }
+
+        try sets_list.append(allocator, DuplicateSet{
+            .file_hash = file_hash,
+            .format = format,
+            .size = size,
+            .wasted_bytes = wasted,
+            .count = count,
+            .width = width,
+            .height = height,
+            .orientation = orientation,
+            .create_time = create_time,
+            .camera_make = camera_make,
+            .camera_model = camera_model,
+            .duration_sec = duration_sec,
+            .has_thumbnail = has_thumbnail,
+            .has_animated = has_animated,
+            .notes = notes,
+            .paths = paths,
+        });
+    }
+
+    return DuplicatesResult{
+        .total_duplicate_sets = total_sets,
+        .total_duplicate_files = total_redundant_files,
+        .total_wasted_bytes = total_wasted_bytes,
+        .sets = try sets_list.toOwnedSlice(allocator),
+    };
 }

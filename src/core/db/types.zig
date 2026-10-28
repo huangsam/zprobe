@@ -121,3 +121,47 @@ pub const PagedResult = struct {
     total: u32,
     records: []DbRecord,
 };
+
+/// Represents a group of identical files sharing a single content file_hash.
+pub const DuplicateSet = struct {
+    file_hash: []const u8,
+    format: []const u8,
+    size: u64,
+    wasted_bytes: u64,
+    count: u32,
+    width: ?u32 = null,
+    height: ?u32 = null,
+    orientation: ?u16 = null,
+    create_time: ?[]const u8 = null,
+    camera_make: ?[]const u8 = null,
+    camera_model: ?[]const u8 = null,
+    duration_sec: ?f64 = null,
+    has_thumbnail: bool = false,
+    has_animated: bool = false,
+    notes: ?[]const u8 = null,
+    paths: []const []const u8,
+
+    pub fn deinit(self: DuplicateSet, allocator: std.mem.Allocator) void {
+        allocator.free(self.file_hash);
+        allocator.free(self.format);
+        if (self.create_time) |s| allocator.free(s);
+        if (self.camera_make) |s| allocator.free(s);
+        if (self.camera_model) |s| allocator.free(s);
+        if (self.notes) |s| allocator.free(s);
+        for (self.paths) |p| allocator.free(p);
+        allocator.free(self.paths);
+    }
+};
+
+/// Result returned from querying duplicate media sets across the catalog.
+pub const DuplicatesResult = struct {
+    total_duplicate_sets: u32,
+    total_duplicate_files: u32,
+    total_wasted_bytes: u64,
+    sets: []DuplicateSet,
+
+    pub fn deinit(self: DuplicatesResult, allocator: std.mem.Allocator) void {
+        for (self.sets) |s| s.deinit(allocator);
+        allocator.free(self.sets);
+    }
+};
