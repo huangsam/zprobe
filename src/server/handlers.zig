@@ -153,6 +153,7 @@ pub fn handleThumbnail(
     query_string: []const u8,
 ) !void {
     var query_path: ?[]const u8 = null;
+    var query_hash: ?[]const u8 = null;
     var animated: bool = false;
 
     var query_it = std.mem.splitScalar(u8, query_string, '&');
@@ -163,13 +164,15 @@ pub fn handleThumbnail(
         const val = param[eq_idx + 1 ..];
         if (std.mem.eql(u8, key, "path")) {
             query_path = val;
+        } else if (std.mem.eql(u8, key, "hash")) {
+            query_hash = val;
         } else if (std.mem.eql(u8, key, "animated")) {
             animated = std.mem.eql(u8, val, "1");
         }
     }
 
-    if (query_path == null) {
-        try request.respond("Bad Request: missing 'path' parameter", .{
+    if (query_path == null and query_hash == null) {
+        try request.respond("Bad Request: missing 'path' or 'hash' parameter", .{
             .status = .bad_request,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "text/plain" },
@@ -178,17 +181,37 @@ pub fn handleThumbnail(
         return;
     }
 
-    const decoded_path = utils.urlDecode(allocator, query_path.?);
-    defer if (decoded_path.ptr != query_path.?.ptr) allocator.free(decoded_path);
+    var file_hash_buf: ?[]const u8 = null;
+    defer if (file_hash_buf) |fh| allocator.free(fh);
 
-    const file_hash: ?[]const u8 = blk: {
+    const file_hash: []const u8 = if (query_hash) |qh| blk: {
+        const decoded_hash = utils.urlDecode(allocator, qh);
+        if (decoded_hash.ptr != qh.ptr) {
+            file_hash_buf = decoded_hash;
+        }
+        break :blk decoded_hash;
+    } else blk: {
+        const decoded_path = utils.urlDecode(allocator, query_path.?);
+        defer if (decoded_path.ptr != query_path.?.ptr) allocator.free(decoded_path);
+
         database.lockRead(io);
         defer database.unlockRead(io);
-        break :blk database.queryFileHashByPath(allocator, decoded_path) catch null;
+        const resolved = database.queryFileHashByPath(allocator, decoded_path) catch null;
+        if (resolved) |r| {
+            file_hash_buf = r;
+            break :blk r;
+        } else {
+            try request.respond("Not Found: path not found", .{
+                .status = .not_found,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        }
     };
-    defer if (file_hash) |fh| allocator.free(fh);
 
-    if (file_hash == null or !zprobe.utils.isValidContentHash(file_hash.?)) {
+    if (!zprobe.utils.isValidContentHash(file_hash)) {
         try request.respond("Not Found: content hash not generated", .{
             .status = .not_found,
             .extra_headers = &.{
@@ -203,7 +226,7 @@ pub fn handleThumbnail(
     defer allocator.free(artifact_dir);
 
     const thumb_abs_path = if (animated)
-        zprobe.utils.getAnimatedPreviewPath(allocator, artifact_dir, file_hash.?) catch {
+        zprobe.utils.getAnimatedPreviewPath(allocator, artifact_dir, file_hash) catch {
             try request.respond("Not Found: animated preview not generated", .{
                 .status = .not_found,
                 .extra_headers = &.{
@@ -213,7 +236,7 @@ pub fn handleThumbnail(
             return;
         }
     else
-        zprobe.utils.getThumbnailPath(allocator, artifact_dir, file_hash.?) catch {
+        zprobe.utils.getThumbnailPath(allocator, artifact_dir, file_hash) catch {
             try request.respond("Not Found: thumbnail not generated", .{
                 .status = .not_found,
                 .extra_headers = &.{
@@ -225,16 +248,19 @@ pub fn handleThumbnail(
     defer allocator.free(thumb_abs_path);
 
     const file = std.Io.Dir.openFileAbsolute(io, thumb_abs_path, .{ .mode = .read_only }) catch |err| {
-        if (err == error.FileNotFound) {
+        if (err == error.FileNotFound and query_path != null) {
+            const decoded_p = utils.urlDecode(allocator, query_path.?);
+            defer if (decoded_p.ptr != query_path.?.ptr) allocator.free(decoded_p);
+
             database.lockWrite(io);
             defer database.unlockWrite(io);
             if (animated) {
-                database.updateHasAnimated(decoded_path, false) catch |db_err| {
-                    std.debug.print("Failed to update has_animated cache for '{s}': {}\n", .{ decoded_path, db_err });
+                database.updateHasAnimated(decoded_p, false) catch |db_err| {
+                    std.debug.print("Failed to update has_animated cache for '{s}': {}\n", .{ decoded_p, db_err });
                 };
             } else {
-                database.updateHasThumbnail(decoded_path, false) catch |db_err| {
-                    std.debug.print("Failed to update has_thumbnail cache for '{s}': {}\n", .{ decoded_path, db_err });
+                database.updateHasThumbnail(decoded_p, false) catch |db_err| {
+                    std.debug.print("Failed to update has_thumbnail cache for '{s}': {}\n", .{ decoded_p, db_err });
                 };
             }
         }
@@ -532,6 +558,59 @@ pub fn handleMedia(
         }
         allocator.free(result.records);
     }
+
+    var json_buf: std.ArrayList(u8) = .empty;
+    defer json_buf.deinit(allocator);
+
+    {
+        var aw: std.Io.Writer.Allocating = .fromArrayList(allocator, &json_buf);
+        defer json_buf = aw.toArrayList();
+        std.json.Stringify.value(result, .{}, &aw.writer) catch {
+            try request.respond("Internal Server Error: JSON Encoding Failed", .{
+                .status = .internal_server_error,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        };
+    }
+
+    try request.respond(json_buf.items, .{
+        .status = .ok,
+        .extra_headers = &.{
+            .{ .name = "Content-Type", .value = "application/json" },
+        },
+    });
+}
+
+pub fn handleDuplicates(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    request: *std.http.Server.Request,
+    database: *Db,
+    query_string: []const u8,
+) !void {
+    const params = utils.parseDuplicatesQueryParams(query_string);
+
+    const result = blk: {
+        database.lockRead(io);
+        defer database.unlockRead(io);
+        break :blk database.getDuplicates(
+            allocator,
+            params.limit,
+            params.offset,
+        ) catch {
+            try request.respond("Internal Server Error: Database Query Failed", .{
+                .status = .internal_server_error,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "text/plain" },
+                },
+            });
+            return;
+        };
+    };
+    defer result.deinit(allocator);
 
     var json_buf: std.ArrayList(u8) = .empty;
     defer json_buf.deinit(allocator);

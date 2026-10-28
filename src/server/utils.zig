@@ -90,6 +90,30 @@ pub fn parseMediaQueryParams(query_string: []const u8) MediaQueryParams {
     return params;
 }
 
+pub const DuplicatesQueryParams = struct {
+    limit: u32 = 25,
+    offset: u32 = 0,
+};
+
+pub fn parseDuplicatesQueryParams(query_string: []const u8) DuplicatesQueryParams {
+    var params = DuplicatesQueryParams{};
+    var query_it = std.mem.splitScalar(u8, query_string, '&');
+    while (query_it.next()) |param| {
+        if (param.len == 0) continue;
+        const eq_idx = std.mem.findScalar(u8, param, '=') orelse continue;
+        const key = param[0..eq_idx];
+        const val = param[eq_idx + 1 ..];
+
+        if (std.mem.eql(u8, key, "limit")) {
+            params.limit = std.fmt.parseInt(u32, val, 10) catch 25;
+        } else if (std.mem.eql(u8, key, "offset")) {
+            params.offset = std.fmt.parseInt(u32, val, 10) catch 0;
+        }
+    }
+    params.limit = std.math.clamp(params.limit, 1, 100);
+    return params;
+}
+
 test "urlDecode parsing and fallback" {
     const allocator = std.testing.allocator;
 
@@ -144,4 +168,20 @@ test "parseMediaQueryParams limit clamping and parsing" {
     try std.testing.expectEqual(@as(u64, 2000), params_all.size_max.?);
     try std.testing.expectEqualStrings("name", params_all.sort_by.?);
     try std.testing.expectEqualStrings("desc", params_all.sort_order.?);
+}
+
+test "parseDuplicatesQueryParams limit clamping and parsing" {
+    const params_default = parseDuplicatesQueryParams("offset=10");
+    try std.testing.expectEqual(@as(u32, 25), params_default.limit);
+    try std.testing.expectEqual(@as(u32, 10), params_default.offset);
+
+    const params_custom = parseDuplicatesQueryParams("limit=50&offset=20");
+    try std.testing.expectEqual(@as(u32, 50), params_custom.limit);
+    try std.testing.expectEqual(@as(u32, 20), params_custom.offset);
+
+    const params_high = parseDuplicatesQueryParams("limit=500");
+    try std.testing.expectEqual(@as(u32, 100), params_high.limit);
+
+    const params_zero = parseDuplicatesQueryParams("limit=0");
+    try std.testing.expectEqual(@as(u32, 1), params_zero.limit);
 }

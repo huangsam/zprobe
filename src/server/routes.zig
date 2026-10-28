@@ -80,6 +80,8 @@ pub fn handleRequest(
         try handlers.handleFile(allocator, io, request, database, query_string);
     } else if (std.mem.eql(u8, base_path, "/api/media")) {
         try handlers.handleMedia(allocator, io, request, database, query_string);
+    } else if (std.mem.eql(u8, base_path, "/api/duplicates")) {
+        try handlers.handleDuplicates(allocator, io, request, database, query_string);
     } else {
         try request.respond("Not Found", .{
             .status = .not_found,
