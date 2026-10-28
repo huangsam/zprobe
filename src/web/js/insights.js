@@ -373,7 +373,7 @@ function renderDuplicatesList(res) {
           (p) => `
         <li class="duplicate-path-row">
           <span class="duplicate-path-text" title="${escapeHtml(p)}">${escapeHtml(p)}</span>
-          <button type="button" class="btn btn-secondary btn-icon-only copy-path-btn" data-path="${escapeHtml(p)}" title="Copy path" aria-label="Copy file path">
+          <button type="button" class="btn btn-secondary btn-icon-only copy-btn copy-path-btn" data-path="${escapeHtml(p)}" title="Copy path" aria-label="Copy file path">
             <i data-lucide="copy" class="btn-icon" aria-hidden="true"></i>
           </button>
         </li>
@@ -425,19 +425,7 @@ function renderDuplicatesList(res) {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const p = btn.getAttribute("data-path");
-      if (!p) return;
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard
-          .writeText(p)
-          .then(() => {
-            showToast("Path copied to clipboard", "success");
-          })
-          .catch(() => {
-            showToast("Failed to copy path", "error");
-          });
-      } else {
-        showToast("Clipboard not available", "error");
-      }
+      if (p) copyToClipboard(p, btn);
     });
   });
 
