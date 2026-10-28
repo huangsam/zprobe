@@ -158,6 +158,25 @@ document.addEventListener("DOMContentLoaded", () => {
   document
     .getElementById("tab-btn-videos")
     ?.addEventListener("click", () => switchModalTab("videos"));
+  document
+    .getElementById("tab-btn-duplicates")
+    ?.addEventListener("click", () => switchModalTab("duplicates"));
+
+  // Duplicates pagination
+  document.getElementById("dupe-prev-btn")?.addEventListener("click", () => {
+    if (duplicatesPage > 1) {
+      loadDuplicatesTab(duplicatesPage - 1);
+    }
+  });
+  document.getElementById("dupe-next-btn")?.addEventListener("click", () => {
+    const totalPages =
+      Math.ceil(
+        (duplicatesData?.total_duplicate_sets || 0) / DUPLICATES_PAGE_SIZE,
+      ) || 1;
+    if (duplicatesPage < totalPages) {
+      loadDuplicatesTab(duplicatesPage + 1);
+    }
+  });
 
   // Filter changes
   document

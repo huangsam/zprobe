@@ -152,3 +152,14 @@ async function fetchMedia({
     }
   }
 }
+
+// Fetch duplicate media sets
+async function fetchDuplicates({ limit = 20, offset = 0 } = {}) {
+  const query = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const res = await fetch(`/api/duplicates?${query.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch duplicate media");
+  return await res.json();
+}

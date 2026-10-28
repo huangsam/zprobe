@@ -585,6 +585,22 @@
                 ></i>
                 Videos
               </button>
+              <button
+                id="tab-btn-duplicates"
+                class="tab-btn"
+                role="tab"
+                type="button"
+                aria-selected="false"
+                aria-controls="tab-pane-duplicates"
+                tabindex="-1"
+              >
+                <i
+                  data-lucide="copy"
+                  class="inline-icon"
+                  aria-hidden="true"
+                ></i>
+                Duplicates
+              </button>
             </div>
 
             <!-- Images Tab Pane -->
@@ -766,6 +782,103 @@
                   <div class="canvas-wrapper" id="wrapper-vid-timeline">
                     <canvas id="chart-vid-timeline"></canvas>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Duplicates Tab Pane -->
+            <div
+              id="tab-pane-duplicates"
+              class="tab-pane"
+              role="tabpanel"
+              aria-labelledby="tab-btn-duplicates"
+              hidden
+            >
+              <div class="duplicates-stats-grid">
+                <div class="stat-card">
+                  <div class="stat-card-icon">
+                    <i
+                      data-lucide="layers"
+                      class="lucide"
+                      aria-hidden="true"
+                    ></i>
+                  </div>
+                  <div class="stat-card-info">
+                    <span class="stat-card-label">Duplicate Sets</span>
+                    <span class="stat-card-value" id="stat-dupe-sets">0</span>
+                  </div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-card-icon warning">
+                    <i data-lucide="copy" class="lucide" aria-hidden="true"></i>
+                  </div>
+                  <div class="stat-card-info">
+                    <span class="stat-card-label">Redundant Files</span>
+                    <span class="stat-card-value" id="stat-dupe-files">0</span>
+                  </div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-card-icon danger">
+                    <i
+                      data-lucide="trash-2"
+                      class="lucide"
+                      aria-hidden="true"
+                    ></i>
+                  </div>
+                  <div class="stat-card-info">
+                    <span class="stat-card-label">Wasted Storage</span>
+                    <span class="stat-card-value" id="stat-dupe-wasted"
+                      >0 Bytes</span
+                    >
+                  </div>
+                </div>
+              </div>
+
+              <!-- Duplicate Sets Feed & Pagination -->
+              <div class="duplicates-container">
+                <div
+                  class="duplicates-list"
+                  id="duplicates-list"
+                  role="feed"
+                  aria-busy="false"
+                  aria-label="Duplicate Media Sets"
+                >
+                  <!-- Rendered dynamically -->
+                </div>
+                <div
+                  class="duplicates-pagination"
+                  id="duplicates-pagination"
+                  hidden
+                >
+                  <button
+                    id="dupe-prev-btn"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    aria-label="Previous Page"
+                  >
+                    <i
+                      data-lucide="chevron-left"
+                      class="btn-icon"
+                      aria-hidden="true"
+                    ></i>
+                    Previous
+                  </button>
+                  <span id="dupe-page-info" class="duplicates-page-info"
+                    >Page 1 of 1</span
+                  >
+                  <button
+                    id="dupe-next-btn"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    aria-label="Next Page"
+                  >
+                    Next
+                    <i
+                      data-lucide="chevron-right"
+                      class="btn-icon"
+                      aria-hidden="true"
+                    ></i>
+                  </button>
                 </div>
               </div>
             </div>

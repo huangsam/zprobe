@@ -26,6 +26,11 @@ const FILTER_DEBOUNCE_MS = 500; // Delay in ms before applying search/filter inp
 // Network State
 let currentFetchController = null; // AbortController to cancel in-flight API requests when new ones are triggered
 
+// Duplicates State
+let duplicatesData = null; // Stored duplicate sets payload from /api/duplicates
+let duplicatesPage = 1; // Current page of duplicate sets
+const DUPLICATES_PAGE_SIZE = 20; // Number of duplicate sets per page
+
 // Chart.js Instances (Images)
 let imgFormatChart = null;
 let imgSizeChart = null;

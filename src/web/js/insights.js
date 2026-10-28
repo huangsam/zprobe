@@ -34,6 +34,15 @@ function populateStats() {
   const vidDupeSize = document.getElementById("stat-vid-dupe-size");
   if (vidDupeSize)
     vidDupeSize.textContent = formatBytes(statsData.video_dupe_size || 0);
+
+  const dupeFiles =
+    (statsData.image_dupe_count || 0) + (statsData.video_dupe_count || 0);
+  const dupeSize =
+    (statsData.image_dupe_size || 0) + (statsData.video_dupe_size || 0);
+  const dupeFilesEl = document.getElementById("stat-dupe-files");
+  if (dupeFilesEl) dupeFilesEl.textContent = formatCount(dupeFiles);
+  const dupeWastedEl = document.getElementById("stat-dupe-wasted");
+  if (dupeWastedEl) dupeWastedEl.textContent = formatBytes(dupeSize);
 }
 
 // Dynamically load the Chart.js library if it hasn't been loaded yet
@@ -234,30 +243,229 @@ async function toggleModal(show) {
 function switchModalTab(tabName) {
   activeModalTab = tabName;
 
-  const imagesBtn = document.getElementById("tab-btn-images");
-  const videosBtn = document.getElementById("tab-btn-videos");
-  const imagesPane = document.getElementById("tab-pane-images");
-  const videosPane = document.getElementById("tab-pane-videos");
-  const isImages = tabName === "images";
-
-  imagesBtn.classList.toggle("active", isImages);
-  videosBtn.classList.toggle("active", !isImages);
-  imagesBtn.setAttribute("aria-selected", isImages ? "true" : "false");
-  videosBtn.setAttribute("aria-selected", isImages ? "false" : "true");
-  imagesBtn.tabIndex = isImages ? 0 : -1;
-  videosBtn.tabIndex = isImages ? -1 : 0;
-
-  imagesPane.classList.toggle("active", isImages);
-  videosPane.classList.toggle("active", !isImages);
-  imagesPane.hidden = !isImages;
-  videosPane.hidden = isImages;
+  const tabs = ["images", "videos", "duplicates"];
+  tabs.forEach((t) => {
+    const btn = document.getElementById(`tab-btn-${t}`);
+    const pane = document.getElementById(`tab-pane-${t}`);
+    const isTarget = t === tabName;
+    if (btn) {
+      btn.classList.toggle("active", isTarget);
+      btn.setAttribute("aria-selected", isTarget ? "true" : "false");
+      btn.tabIndex = isTarget ? 0 : -1;
+    }
+    if (pane) {
+      pane.classList.toggle("active", isTarget);
+      pane.hidden = !isTarget;
+    }
+  });
 
   if (tabName === "images") {
     renderImageCharts();
-  } else {
+  } else if (tabName === "videos") {
     renderVideoCharts();
+  } else if (tabName === "duplicates") {
+    loadDuplicatesTab(duplicatesPage);
   }
   resizeActiveCharts();
+}
+
+// Load duplicate media sets from backend
+async function loadDuplicatesTab(page = 1) {
+  duplicatesPage = page;
+  const container = document.getElementById("duplicates-list");
+  const pagination = document.getElementById("duplicates-pagination");
+  if (!container) return;
+
+  container.setAttribute("aria-busy", "true");
+  container.innerHTML = `
+    <div class="duplicates-loading">
+      <div class="spinner"></div>
+      <span>Loading duplicate media sets...</span>
+    </div>
+  `;
+
+  try {
+    const offset = (duplicatesPage - 1) * DUPLICATES_PAGE_SIZE;
+    const res = await fetchDuplicates({ limit: DUPLICATES_PAGE_SIZE, offset });
+    duplicatesData = res;
+
+    const setsEl = document.getElementById("stat-dupe-sets");
+    if (setsEl) setsEl.textContent = formatCount(res.total_duplicate_sets || 0);
+
+    const filesEl = document.getElementById("stat-dupe-files");
+    if (filesEl)
+      filesEl.textContent = formatCount(res.total_duplicate_files || 0);
+
+    const wastedEl = document.getElementById("stat-dupe-wasted");
+    if (wastedEl)
+      wastedEl.textContent = formatBytes(res.total_wasted_bytes || 0);
+
+    renderDuplicatesList(res);
+  } catch (err) {
+    console.error("Failed to load duplicates:", err);
+    container.innerHTML = `
+      <div class="duplicates-error">
+        <i data-lucide="alert-triangle" class="error-icon" aria-hidden="true"></i>
+        <span>Failed to load duplicates: ${escapeHtml(err.message)}</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="dupe-retry-btn">Retry</button>
+      </div>
+    `;
+    document.getElementById("dupe-retry-btn")?.addEventListener("click", () => {
+      loadDuplicatesTab(duplicatesPage);
+    });
+    if (
+      typeof lucide !== "undefined" &&
+      typeof lucide.createIcons === "function"
+    ) {
+      lucide.createIcons({ root: container });
+    }
+  } finally {
+    container.setAttribute("aria-busy", "false");
+  }
+}
+
+// Render duplicate media sets
+function renderDuplicatesList(res) {
+  const container = document.getElementById("duplicates-list");
+  const pagination = document.getElementById("duplicates-pagination");
+  if (!container) return;
+
+  if (!res.sets || res.sets.length === 0) {
+    container.innerHTML = `
+      <div class="duplicates-empty">
+        <div class="empty-icon-wrapper">
+          <i data-lucide="check-circle" class="lucide" aria-hidden="true"></i>
+        </div>
+        <p class="empty-title">No duplicate media found</p>
+        <p class="empty-subtitle">All files in this catalog have unique content signatures.</p>
+      </div>
+    `;
+    if (pagination) pagination.hidden = true;
+    if (
+      typeof lucide !== "undefined" &&
+      typeof lucide.createIcons === "function"
+    ) {
+      lucide.createIcons({ root: container });
+    }
+    return;
+  }
+
+  const itemsHtml = res.sets
+    .map((set) => {
+      const isVideo = VIDEO_FORMATS.includes(set.format.toLowerCase());
+      const thumbUrl = set.has_thumbnail
+        ? `/api/thumbnail?hash=${encodeURIComponent(set.file_hash)}`
+        : null;
+      const countBadge = `${set.count} files`;
+      const wastedBadge = `${formatBytes(set.wasted_bytes)} wasted`;
+      const dimOrDur = isVideo
+        ? set.duration_sec
+          ? formatDigitalDuration(set.duration_sec)
+          : set.width && set.height
+            ? `${set.width}\u00d7${set.height}`
+            : ""
+        : set.width && set.height
+          ? `${set.width}\u00d7${set.height}`
+          : "";
+
+      const pathsHtml = set.paths
+        .map(
+          (p) => `
+        <li class="duplicate-path-row">
+          <span class="duplicate-path-text" title="${escapeHtml(p)}">${escapeHtml(p)}</span>
+          <button type="button" class="btn btn-secondary btn-icon-only copy-path-btn" data-path="${escapeHtml(p)}" title="Copy path" aria-label="Copy file path">
+            <i data-lucide="copy" class="btn-icon" aria-hidden="true"></i>
+          </button>
+        </li>
+      `,
+        )
+        .join("");
+
+      return `
+        <article class="duplicate-card">
+          <div class="duplicate-card-header">
+            <div class="duplicate-thumb">
+              ${
+                thumbUrl
+                  ? `<img src="${thumbUrl}" alt="Duplicate preview" loading="lazy" class="duplicate-thumb-img" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                     <div class="duplicate-thumb-placeholder" style="display:none"><i data-lucide="${isVideo ? "video" : "image"}" class="lucide" aria-hidden="true"></i></div>`
+                  : `<div class="duplicate-thumb-placeholder"><i data-lucide="${isVideo ? "video" : "image"}" class="lucide" aria-hidden="true"></i></div>`
+              }
+            </div>
+            <div class="duplicate-card-info">
+              <div class="duplicate-title-row">
+                <span class="duplicate-hash" title="${escapeHtml(set.file_hash)}">${escapeHtml(set.file_hash.substring(0, 16))}...</span>
+                <span class="duplicate-badge-wasted">${escapeHtml(wastedBadge)}</span>
+              </div>
+              <div class="duplicate-meta-row">
+                <span class="badge format-badge format-${escapeHtml(set.format.toLowerCase())}">${escapeHtml(set.format.toUpperCase())}</span>
+                ${dimOrDur ? `<span class="duplicate-meta-item">${escapeHtml(dimOrDur)}</span>` : ""}
+                <span class="duplicate-meta-item">${formatBytes(set.size)} each</span>
+                <span class="duplicate-meta-item duplicate-count-item">${countBadge}</span>
+              </div>
+            </div>
+          </div>
+          <details class="duplicate-paths-details" open>
+            <summary class="duplicate-paths-summary">
+              <span>File Locations (${set.paths.length})</span>
+            </summary>
+            <ul class="duplicate-paths-list">
+              ${pathsHtml}
+            </ul>
+          </details>
+        </article>
+      `;
+    })
+    .join("");
+
+  container.innerHTML = itemsHtml;
+
+  // Bind copy path buttons
+  container.querySelectorAll(".copy-path-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const p = btn.getAttribute("data-path");
+      if (!p) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard
+          .writeText(p)
+          .then(() => {
+            showToast("Path copied to clipboard", "success");
+          })
+          .catch(() => {
+            showToast("Failed to copy path", "error");
+          });
+      } else {
+        showToast("Clipboard not available", "error");
+      }
+    });
+  });
+
+  if (
+    typeof lucide !== "undefined" &&
+    typeof lucide.createIcons === "function"
+  ) {
+    lucide.createIcons({ root: container });
+  }
+
+  // Update pagination controls
+  const totalPages =
+    Math.ceil(res.total_duplicate_sets / DUPLICATES_PAGE_SIZE) || 1;
+  if (pagination) {
+    if (totalPages > 1) {
+      pagination.hidden = false;
+      const prevBtn = document.getElementById("dupe-prev-btn");
+      const nextBtn = document.getElementById("dupe-next-btn");
+      const pageInfo = document.getElementById("dupe-page-info");
+
+      if (prevBtn) prevBtn.disabled = duplicatesPage <= 1;
+      if (nextBtn) nextBtn.disabled = duplicatesPage >= totalPages;
+      if (pageInfo)
+        pageInfo.textContent = `Page ${duplicatesPage} of ${totalPages}`;
+    } else {
+      pagination.hidden = true;
+    }
+  }
 }
 
 // Render Image-Specific Statistics
@@ -797,7 +1005,7 @@ function handleModalTablistKeydown(e) {
   if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
   const modal = document.getElementById("insights-modal");
   if (!modal.classList.contains("open")) return;
-  const tabs = ["images", "videos"];
+  const tabs = ["images", "videos", "duplicates"];
   const idx = tabs.indexOf(activeModalTab);
   if (idx === -1) return;
   e.preventDefault();
